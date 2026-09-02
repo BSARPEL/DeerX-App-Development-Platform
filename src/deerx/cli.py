@@ -129,7 +129,7 @@ def init(
 
     env_path = workspace / ".env"
     if not env_path.exists():
-        env_path.write_text("ANTHROPIC_API_KEY=\n", encoding="utf-8")
+        env_path.write_text(t("cli.env_template"), encoding="utf-8", newline="\n")
 
     settings = load_settings(workspace)
     settings.ensure_dirs()

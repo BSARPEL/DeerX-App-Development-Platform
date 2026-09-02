@@ -346,18 +346,37 @@ class TestRunIdentity:
         assert any(g["title"] == "T-002 · Rapor" for g in groups), groups
 
 
+def _sahibi_oldur(state, run_id: str) -> None:
+    """Kaydin sahipligini, kesinlikle calismayan bir surece devreder."""
+    from deerx.process import process_alive
+
+    olu = next(
+        (aday for aday in range(600000, 600200) if not process_alive(aday)),
+        None,
+    )
+    assert olu is not None, "olu bir pid bulunamadi"
+    state._conn.execute("UPDATE runs SET pid = ? WHERE id = ?", (olu, run_id))
+    state._conn.commit()
+
+
 class TestOrphanedRuns:
     """Sunucu yeniden baslatilinca yarida kalan kosular."""
 
     def test_running_runs_are_reclaimed_on_start(self, state):
-        """Acilista `running` goren her kayit yetimdir.
+        """Sahibi OLMUS bir kosu geri alinir.
 
         Surec olduyse o kosuyu bitirecek kimse kalmaz; kayit sonsuza dek
         "calisiyor" gorunur ve kosu listesi yalan soyler. Kullanicinin
         demo projesinde #2 iki saattir bu haldeydi.
+
+        Olcut "acilista `running` goren her kayit" DEGIL -- o kural ayni
+        calisma alanini ikinci bir surec actiginda calisan bir kosuyu
+        kapatiyordu (bkz. `TestCalisanKosuYetimSanilmaz`). Bu yuzden test
+        sahipligi acikca olu bir surece devrediyor.
         """
         state.start_run("dead-run", goal="yarida kalan")
         state.start_run_step("dead-run", Phase.IMPLEMENT, 0)
+        _sahibi_oldur(state, "dead-run")
 
         reclaimed = state.reclaim_orphaned_runs()
 
@@ -375,6 +394,7 @@ class TestOrphanedRuns:
 
     def test_reclaim_is_idempotent(self, state):
         state.start_run("dead-again")
+        _sahibi_oldur(state, "dead-again")
         assert state.reclaim_orphaned_runs()
         assert state.reclaim_orphaned_runs() == []
 

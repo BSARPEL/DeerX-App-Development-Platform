@@ -308,7 +308,7 @@ def calisma_alani(hedef: Path, *, kur: bool) -> Adim:
     )
     env = hedef / ".env"
     if not env.exists():
-        env.write_text("ANTHROPIC_API_KEY=\n", encoding="utf-8", newline="\n")
+        env.write_text(t("cli.env_template"), encoding="utf-8", newline="\n")
     ayarlar = load_settings(hedef)
     ayarlar.ensure_dirs()
     (hedef / "docs").mkdir(exist_ok=True)

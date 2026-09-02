@@ -884,9 +884,35 @@ CATALOG: dict[str, dict[str, str]] = {
         "tr": "[ok]Calisma alani hazir:[/ok] {path}",
         "en": "[ok]Workspace ready:[/ok] {path}",
     },
+    # OLCULDU (kabul testi): burada "ANTHROPIC_API_KEY yazin" yaziyordu,
+    # oysa `init`in YAZDIGI yapilandirma `provider = "openai"` ve yerel bir
+    # uca bakiyor -- cogu yerel sunucu anahtar bile istemez. Yeni
+    # kullanicinin okudugu ILK yonerge onu yanlis saglayiciya gonderiyordu.
     "cli.step_key": {
-        "tr": "  1. [bold].env[/bold] icine ANTHROPIC_API_KEY yazin",
-        "en": "  1. Put ANTHROPIC_API_KEY into [bold].env[/bold]",
+        "tr": "  1. Modeli baglayin: [bold]deerx.toml[/bold] icinde "
+              "openai_base_url ve model adlari (anahtar gerekiyorsa "
+              "[bold].env[/bold]), sonra [bold]deerx doctor[/bold]",
+        "en": "  1. Connect your model: openai_base_url and the model names "
+              "in [bold]deerx.toml[/bold] (a key, if one is needed, goes in "
+              "[bold].env[/bold]), then [bold]deerx doctor[/bold]",
+    },
+    # `.env` dosyasinin ICERIGI. Tek bir saglayicinin anahtarini tohum
+    # olarak yazmak, o saglayiciyi kullanmayan herkese yanlis ipucu verir.
+    "cli.env_template": {
+        "tr": (
+            "# Anahtarlar burada durur; deerx.toml'a YAZILMAZ.\n"
+            "# Yerel bir OpenAI-uyumlu uc (vLLM, Ollama, LM Studio) cogu\n"
+            "# zaman anahtar istemez -- ikisi de bos kalabilir.\n"
+            "OPENAI_API_KEY=\n"
+            "ANTHROPIC_API_KEY=\n"
+        ),
+        "en": (
+            "# Keys live here; never in deerx.toml.\n"
+            "# A local OpenAI-compatible endpoint (vLLM, Ollama, LM Studio)\n"
+            "# usually needs no key -- both may stay empty.\n"
+            "OPENAI_API_KEY=\n"
+            "ANTHROPIC_API_KEY=\n"
+        ),
     },
     "cli.step_spec": {
         "tr": "  2. Sartnamenizi [bold]{path}[/bold] altina koyun",
