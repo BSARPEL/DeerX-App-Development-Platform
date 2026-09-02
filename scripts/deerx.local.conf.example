@@ -1,0 +1,29 @@
+# DeerX baslatma betikleri icin YEREL varsayilanlar.
+#
+# Bu dosyayi `deerx.local.conf` adiyla kopyalayin ve kendinize gore
+# duzenleyin. `deerx.local.conf` surum kontrolune girmez: depo herkese
+# acik ve buradaki degerler tek bir makine icin gecerli.
+#
+#     cp scripts/deerx.local.conf.example scripts/deerx.local.conf
+#
+# Hem `deerx.sh` hem `deerx.ps1` okur. Onceklik:
+#
+#     komut satiri  >  bu dosya  >  betigin kendi varsayilanlari
+#
+# Yani `deerx.sh start -p 9000` buradaki PORT'u ezer. Bu dosyadan bir
+# deger okundugunda betik bunu bir satirla soyler; sunucunun neden baska
+# bir adrese baglandigi sessizce kalmasin.
+
+# Web arayuzunun portu. Varsayilan: 8791
+PORT=8791
+
+# Baglanacak adres. Varsayilan: 127.0.0.1 (yalnizca bu makine).
+#
+# 0.0.0.0 yazarsaniz sunucu AGA ACILIR. O zaman:
+#   * en az bir kullanici tanimli olmali, yoksa `serve` BASLAMAZ;
+#   * duz HTTP uzerinde oturum cerezi acik metin tasinir.
+# Once `deerx user add <ad> --admin` calistirin.
+HOST=127.0.0.1
+
+# Hangi calisma alani. Bos birakilirsa bulundugunuz dizin kullanilir.
+# WORKSPACE=/home/siz/projeler/musteri-x

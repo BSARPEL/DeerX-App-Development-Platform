@@ -1,2 +1,16 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Satir sonlari. Windows'ta gelistirilip Linux/macOS'ta calistirilan bir
+# depoda bu dosya olmadan `deerx.sh` CRLF ile teslim edilir ve kabuk onu
+# `bad interpreter: /usr/bin/env sh^M` diye reddeder.
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.ps1  text eol=crlf
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+
+# Ikili varliklar donusturulmemeli.
+*.png  binary
+*.ico  binary
+*.pdf  binary
+*.docx binary
+*.zip  binary

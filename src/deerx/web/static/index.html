@@ -1,0 +1,931 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>DeerX</title>
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="stylesheet" href="/static/styles.css">
+<script src="/static/i18n.js"></script>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ── Üst bar ──────────────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="brand">
+      <img class="brand-mark" src="/static/logo.png" alt="" width="30" height="30">
+      <span class="brand-name">DeerX</span>
+    </div>
+
+    <div class="topbar-right">
+      <div class="stat-inline" data-i18n-title="app.costTitle" title="Toplam model maliyeti">
+        <span class="stat-inline-label" data-i18n="app.cost">Maliyet</span>
+        <span class="stat-inline-value" id="top-cost">$0.00</span>
+      </div>
+
+      <div class="run-pill" id="run-pill" data-state="idle">
+        <span class="run-dot" aria-hidden="true"></span>
+        <span id="run-pill-text" data-i18n="app.idle">Boşta</span>
+      </div>
+
+      <div class="lang-switch" id="lang-switch" role="group"
+           data-i18n-label="app.language" aria-label="Dil">
+        <button class="lang-opt" type="button" data-lang="tr"
+                aria-pressed="true" title="Türkçe">TR</button>
+        <button class="lang-opt" type="button" data-lang="en"
+                aria-pressed="false" title="English">EN</button>
+      </div>
+
+      <button class="icon-btn" id="theme-toggle" type="button"
+              data-i18n-label="app.theme" data-i18n-title="app.theme"
+              aria-label="Temayı değiştir" title="Temayı değiştir">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path class="icon-sun" d="M12 4V2m0 20v-2m8-8h2M2 12h2m13.66-5.66 1.41-1.41M4.93 19.07l1.41-1.41m11.32 0 1.41 1.41M4.93 4.93l1.41 1.41"
+                fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <circle class="icon-sun" cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/>
+          <path class="icon-moon" d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5Z"
+                fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Sol ray ──────────────────────────────────────────────── -->
+  <nav class="rail" data-i18n-label="nav.sections" aria-label="Bölümler">
+    <button class="rail-item is-active" data-view="overview" type="button" data-i18n-label="nav.overview" aria-label="Genel bakış">
+      <span class="rail-icon">▤</span><span class="rail-text" data-i18n="nav.overview">Genel bakış</span>
+    </button>
+    <button class="rail-item" data-view="develop" type="button" data-i18n-label="nav.develop" aria-label="Geliştirme">
+      <span class="rail-icon">▶</span><span class="rail-text" data-i18n="nav.develop">Geliştirme</span>
+      <span class="rail-live" id="rail-running" hidden></span>
+    </button>
+    <button class="rail-item" data-view="workflow" type="button" data-i18n-label="nav.workflow" aria-label="İş akışı">
+      <span class="rail-icon">⛓</span><span class="rail-text" data-i18n="nav.workflow">İş akışı</span>
+      <span class="rail-live" id="rail-workflow" hidden></span>
+    </button>
+    <button class="rail-item" data-view="knowledge" type="button" data-i18n-label="nav.knowledge" aria-label="Bilgi tabanı">
+      <span class="rail-icon">◫</span><span class="rail-text" data-i18n="nav.knowledge">Bilgi tabanı</span>
+      <span class="rail-badge" id="badge-docs"></span>
+    </button>
+    <button class="rail-item" data-view="analysis" type="button" data-i18n-label="nav.analysis" aria-label="Analiz">
+      <span class="rail-icon">◇</span><span class="rail-text" data-i18n="nav.analysis">Analiz</span>
+      <span class="rail-badge" id="badge-analysis"></span>
+      <span class="rail-badge rail-badge-alert" id="badge-questions"></span>
+    </button>
+    <button class="rail-item" data-view="plan" type="button" data-i18n-label="nav.plan" aria-label="Plan">
+      <span class="rail-icon">☰</span><span class="rail-text" data-i18n="nav.plan">Plan</span>
+      <span class="rail-badge" id="badge-tasks"></span>
+    </button>
+    <button class="rail-item" data-view="artifacts" type="button" data-i18n-label="nav.artifacts" aria-label="Çıktılar">
+      <span class="rail-icon">▧</span><span class="rail-text" data-i18n="nav.artifacts">Çıktılar</span>
+      <span class="rail-badge" id="badge-artifacts"></span>
+    </button>
+    <button class="rail-item" data-view="stream" type="button" data-i18n-label="nav.stream" aria-label="Canlı akış">
+      <span class="rail-icon">≋</span><span class="rail-text" data-i18n="nav.stream">Canlı akış</span>
+      <span class="rail-live" id="rail-live" hidden></span>
+    </button>
+    <button class="rail-item" data-view="settings" type="button" data-i18n-label="nav.settings" aria-label="Ayarlar">
+      <span class="rail-icon">⚙</span><span class="rail-text" data-i18n="nav.settings">Ayarlar</span>
+    </button>
+
+    <div class="rail-foot">
+      <div class="rail-setting">
+        <label for="approval-mode" data-i18n="nav.approvalMode">Onay modu</label>
+        <select id="approval-mode">
+          <option value="ask" data-i18n="nav.approvalAsk">Sor</option>
+          <option value="auto" data-i18n="nav.approvalAuto">Otomatik</option>
+          <option value="dry-run" data-i18n="nav.approvalDry">Kuru koşu</option>
+        </select>
+      </div>
+      <div class="rail-models" id="rail-models"></div>
+
+      <!-- Hangi çalışma alanındayız: bütün ekranlar için aynı olan tek bilgi, o yüzden en altta. -->
+      <div class="rail-workspace" id="rail-workspace" hidden>
+        <span class="rail-ws-label" data-i18n="settings.workspace">Çalışma alanı</span>
+        <!-- Yalnızca klasör adı. Tam yol ipucunda ve panoda; ekrana yazılmıyor. -->
+        <button class="rail-ws" id="rail-ws-copy" type="button">
+          <span class="rail-ws-name" id="rail-ws-name"></span>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── İçerik ───────────────────────────────────────────────── -->
+  <main class="content" id="content">
+
+    <!-- Genel bakış -->
+    <section class="view is-active" id="view-overview">
+      <div class="view-head view-head-row">
+        <div>
+          <h1 data-i18n="overview.title">Genel bakış</h1>
+          <p class="view-sub" id="goal-line"></p>
+        </div>
+        <button class="btn btn-primary" data-view="develop" type="button"
+                data-i18n="overview.toDevelop">Geliştirmeye git →</button>
+      </div>
+
+      <!-- Sorular teker teker sorulur: cevaplayınca sıradakine geçer. -->
+      <section class="questions" id="questions-panel" hidden>
+        <header class="questions-head">
+          <span class="questions-badge" data-i18n="questions.badge">Cevabınız bekleniyor</span>
+          <h2 id="questions-title" data-i18n="questions.stopped">Boru hattı durdu</h2>
+          <p data-i18n="questions.lead"></p>
+          <div class="questions-progress">
+            <div class="questions-bar"><span id="questions-bar-fill"></span></div>
+            <span class="questions-step" id="questions-step"></span>
+          </div>
+        </header>
+        <div id="questions-list"></div>
+        <footer class="questions-foot">
+          <button class="btn btn-ghost btn-sm" id="question-prev" type="button"
+                  data-i18n="questions.previous">← Önceki</button>
+          <span class="questions-queue" id="questions-queue"></span>
+          <button class="btn btn-ghost btn-sm" id="question-next" type="button"
+                  data-i18n="questions.next">Sonraki →</button>
+        </footer>
+      </section>
+
+      <ol class="phase-rail" id="phase-rail" data-i18n-label="overview.phaseRail"
+          aria-label="Boru hattı fazları"></ol>
+
+      <div class="grid-stats" id="stat-grid"></div>
+
+      <div class="panel-row">
+        <section class="panel panel-summary">
+          <header class="panel-head">
+            <h2 data-i18n="overview.phaseSummaries">Fazların özeti</h2>
+            <span class="panel-hint" id="summary-hint"></span>
+          </header>
+          <div class="panel-body" id="phase-summaries">
+            <p class="empty" data-i18n="overview.noPhases">Henüz çalıştırılmış faz yok.</p>
+          </div>
+        </section>
+
+        <section class="panel panel-feed">
+          <header class="panel-head">
+            <h2 data-i18n="overview.recentEvents">Son olaylar</h2>
+            <button class="btn btn-ghost btn-sm" data-view="stream" type="button"
+                    data-i18n="overview.allEvents">Tümü →</button>
+          </header>
+          <div class="panel-body feed feed-compact" id="mini-feed">
+            <p class="empty" data-i18n="overview.noEvents">Henüz olay yok.</p>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- Geliştirme: koşuyu buradan başlatır, belgeyi buradan verirsiniz -->
+    <section class="view" id="view-develop">
+      <div class="view-head">
+        <h1 data-i18n="develop.title">Geliştirme</h1>
+        <p class="view-sub" data-i18n="develop.lead"></p>
+      </div>
+
+      <div class="panel-row">
+        <section class="panel panel-upload">
+          <header class="panel-head">
+            <h2 data-i18n="develop.step1">1 · Belge ver</h2>
+            <span class="panel-hint" id="upload-hint" data-i18n="develop.uploadHint"></span>
+          </header>
+          <div class="panel-body">
+            <label class="dropzone" id="dropzone">
+              <input type="file" id="file-input" multiple
+                     accept=".md,.txt,.pdf,.docx,.html,.htm,.rst,.json,.yaml,.yml,.toml">
+              <span class="dropzone-title" data-i18n="develop.dropTitle"></span>
+              <span class="dropzone-hint" data-i18n="develop.dropHint"></span>
+            </label>
+            <div class="upload-status" id="upload-status"></div>
+            <div id="uploaded-docs"></div>
+          </div>
+        </section>
+
+        <section class="panel panel-run">
+          <header class="panel-head">
+            <h2 data-i18n="develop.step2">2 · Koşu başlat</h2>
+            <span class="panel-hint" id="run-hint"></span>
+          </header>
+          <div class="panel-body">
+            <div class="field">
+              <span><span data-i18n="develop.steps">Çalıştırılacak adımlar</span>
+                    <em data-i18n="develop.stepsHint">(sırayla uygulanır)</em></span>
+              <div class="step-toolbar">
+                <button class="btn btn-ghost btn-sm" data-preset="all" type="button" data-i18n="develop.presetAll">Tümü</button>
+                <button class="btn btn-ghost btn-sm" data-preset="analysis" type="button" data-i18n="develop.presetAnalysis">Analiz</button>
+                <button class="btn btn-ghost btn-sm" data-preset="build" type="button" data-i18n="develop.presetBuild">Kod</button>
+                <button class="btn btn-ghost btn-sm" data-preset="clear" type="button" data-i18n="develop.presetClear">Temizle</button>
+                <span class="step-count" id="step-count"></span>
+              </div>
+              <ol class="step-list" id="run-phases" data-i18n-label="develop.steps"
+                  aria-label="Çalıştırılacak adımlar"></ol>
+              <div class="run-route" id="run-route" aria-live="polite"></div>
+            </div>
+            <label class="field">
+              <span><span data-i18n="develop.goal">Hedef</span>
+                    <em data-i18n="develop.goalHint">(tek cümle)</em></span>
+              <input type="text" id="run-goal" data-i18n-placeholder="develop.goalPlaceholder">
+            </label>
+            <label class="field">
+              <span><span data-i18n="develop.brief">Analiste talimat</span>
+                    <em data-i18n="develop.briefHint">(neye dikkat etsin)</em></span>
+              <textarea id="run-brief" rows="4"
+                data-i18n-placeholder="develop.briefPlaceholder"></textarea>
+            </label>
+            <label class="check">
+              <input type="checkbox" id="run-force">
+              <span data-i18n="develop.forceRerun">Tamamlanmış fazları da yeniden çalıştır</span>
+            </label>
+            <div class="run-footer">
+              <div class="run-actions">
+                <button class="btn btn-primary" id="btn-run" type="button" data-i18n="develop.start">Başlat</button>
+                <button class="btn btn-danger" id="btn-stop" type="button" disabled data-i18n="develop.stop">Durdur</button>
+              </div>
+              <p class="note" id="run-note"></p>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel">
+        <header class="panel-head">
+          <h2 data-i18n="develop.feed">Koşu akışı</h2>
+          <button class="btn btn-ghost btn-sm" data-view="stream" type="button"
+                  data-i18n="overview.allEvents">Tümü →</button>
+        </header>
+        <div class="panel-body feed feed-compact" id="develop-feed">
+          <p class="empty" data-i18n="develop.feedEmpty"></p>
+        </div>
+      </section>
+    </section>
+
+    <!-- Koşu: son kosunun adim adim dokumu -->
+    <section class="view" id="view-workflow">
+      <div class="view-head view-head-row">
+        <div>
+          <h1 id="workflow-title" data-i18n="wf.title">İş akışları</h1>
+          <p class="view-sub" id="workflow-sub">—</p>
+        </div>
+        <div class="wf-actions">
+          <button class="btn btn-ghost btn-sm" id="workflow-back" type="button" hidden
+                  data-i18n="app.back">← Geri</button>
+          <label class="check" id="workflow-expand-label" hidden>
+            <input type="checkbox" id="workflow-expand"><span data-i18n="runs.expandAll">Tümünü aç</span>
+          </label>
+          <button class="btn btn-ghost btn-sm" id="workflow-refresh" type="button"
+                  data-i18n="app.refresh">Yenile</button>
+        </div>
+      </div>
+      <div id="run-list"></div>
+      <div class="wf-meta" id="workflow-meta"></div>
+      <ol class="wf-steps" id="workflow-steps"></ol>
+    </section>
+
+    <!-- Bilgi tabanı -->
+    <section class="view" id="view-knowledge">
+      <div class="view-head">
+        <h1 data-i18n="kb.title">Bilgi tabanı</h1>
+        <p class="view-sub" id="kb-sub">—</p>
+      </div>
+
+      <section class="panel">
+        <header class="panel-head"><h2 data-i18n="kb.search">Arama</h2></header>
+        <div class="panel-body">
+          <form class="search-bar" id="search-form">
+            <input type="search" id="search-input" data-i18n-placeholder="kb.searchPlaceholder" autocomplete="off">
+            <div class="chips" id="search-kinds">
+              <label class="chip"><input type="checkbox" value="doc" checked><span data-i18n="kb.kindDoc">doküman</span></label>
+              <label class="chip"><input type="checkbox" value="code" checked><span data-i18n="kb.kindCode">kod</span></label>
+              <label class="chip"><input type="checkbox" value="web" checked><span data-i18n="kb.kindWeb">web</span></label>
+              <label class="chip"><input type="checkbox" value="data" checked><span data-i18n="kb.kindData">veri</span></label>
+            </div>
+            <button class="btn btn-primary" type="submit" data-i18n="kb.doSearch">Ara</button>
+          </form>
+          <div id="search-results" class="results"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <header class="panel-head">
+          <h2 data-i18n="kb.indexing">İndeksleme</h2>
+          <button class="btn btn-ghost btn-sm" data-view="develop" type="button"
+                  data-i18n="kb.uploadLink">Belge yükle →</button>
+        </header>
+        <div class="panel-body">
+          <form class="inline-form" id="ingest-form">
+            <input type="text" id="ingest-path" data-i18n-placeholder="kb.pathPlaceholder">
+            <label class="check"><input type="checkbox" id="ingest-force"><span data-i18n="kb.force">Zorla</span></label>
+            <button class="btn" type="submit" data-i18n="kb.indexDir">Dizini indeksle</button>
+          </form>
+          <div id="doc-table"></div>
+          <nav class="pager" id="doc-pager" data-i18n-label="pager.aria"
+               aria-label="Sayfalama" hidden></nav>
+        </div>
+      </section>
+    </section>
+
+    <!-- Analiz -->
+    <section class="view" id="view-analysis">
+      <div class="view-head">
+        <h1 data-i18n="analysis.title">Analiz</h1>
+        <p class="view-sub" data-i18n="analysis.lead"></p>
+      </div>
+      <div class="tabs" id="analysis-tabs">
+        <button class="tab is-active" data-tab="requirements" type="button"><span data-i18n="analysis.requirements">Gereksinimler</span> <span class="tab-count" id="c-req">0</span></button>
+        <button class="tab" data-tab="questions" type="button"><span data-i18n="analysis.questions">Sorular</span> <span class="tab-count" id="c-q">0</span></button>
+        <button class="tab" data-tab="gaps" type="button"><span data-i18n="analysis.gaps">Boşluklar</span> <span class="tab-count" id="c-gap">0</span></button>
+        <button class="tab" data-tab="decisions" type="button"><span data-i18n="analysis.decisions">Kararlar</span> <span class="tab-count" id="c-dec">0</span></button>
+        <button class="tab" data-tab="research" type="button"><span data-i18n="analysis.research">Araştırma</span> <span class="tab-count" id="c-res">0</span></button>
+      </div>
+      <div id="analysis-body"></div>
+      <nav class="pager" id="analysis-pager" data-i18n-label="pager.aria" aria-label="Sayfalama" hidden></nav>
+    </section>
+
+    <!-- Plan -->
+    <section class="view" id="view-plan">
+      <div class="view-head">
+        <h1 data-i18n="plan.title">Görev planı</h1>
+        <p class="view-sub" id="plan-sub">—</p>
+      </div>
+      <div class="plan-bar">
+        <div class="plan-tabs" id="plan-tabs"></div>
+        <div class="plan-bar-actions">
+          <button class="btn btn-ghost btn-sm" id="btn-new-plan" type="button" data-i18n="plan.newPlan">+ Yeni plan</button>
+          <button class="btn btn-ghost btn-sm" id="btn-rename-plan" type="button" data-i18n="app.rename">Adlandır</button>
+          <button class="btn btn-ghost btn-sm" id="btn-delete-plan" type="button" data-i18n="app.delete">Sil</button>
+          <button class="btn btn-primary btn-sm" id="btn-run-plan" type="button" data-i18n="plan.startPlan">▶ Başlat</button>
+        </div>
+      </div>
+      <p class="plan-note" id="plan-auto-note" data-i18n="plan.autoNote" hidden></p>
+      <div class="plan-toolbar">
+        <div class="chips" id="task-filters">
+          <button class="chip chip-btn is-active" data-status="" type="button" data-i18n="app.all">Tümü</button>
+          <button class="chip chip-btn" data-status="pending" type="button" data-i18n="plan.filterPending">Bekleyen</button>
+          <button class="chip chip-btn" data-status="done" type="button" data-i18n="plan.filterDone">Tamamlanan</button>
+          <button class="chip chip-btn" data-status="failed" type="button" data-i18n="plan.filterFailed">Başarısız</button>
+          <button class="chip chip-btn" data-status="blocked" type="button" data-i18n="plan.filterBlocked">Bloke</button>
+        </div>
+        <div class="chips" id="lane-filters">
+          <button class="chip chip-btn is-active" data-lane="" type="button" data-i18n="plan.allLanes">Tüm şeritler</button>
+          <button class="chip chip-btn" data-lane="backend" type="button" data-i18n="lane.backend">Backend</button>
+          <button class="chip chip-btn" data-lane="frontend" type="button" data-i18n="lane.frontend">Frontend</button>
+          <button class="chip chip-btn" data-lane="qa" type="button" data-i18n="lane.qa">QA</button>
+          <button class="chip chip-btn" data-lane="infra" type="button" data-i18n="lane.infra">Infra</button>
+          <button class="chip chip-btn" data-lane="docs" type="button" data-i18n="lane.docs">Docs</button>
+        </div>
+      </div>
+      <div id="task-list"></div>
+      <nav class="pager" id="task-pager" data-i18n-label="pager.aria"
+           aria-label="Sayfalama" hidden></nav>
+    </section>
+
+    <!-- Çıktılar -->
+    <section class="view" id="view-artifacts">
+      <div class="view-head view-head-row">
+        <div>
+          <h1 data-i18n="artifacts.title">Çıktılar</h1>
+          <p class="view-sub" id="artifacts-sub">—</p>
+        </div>
+        <!-- Kosu kaydindan onceki ciktilar varsayilan olarak gizli, ama
+             SAYILIYORLAR: rozet 11 derken ekranda 1 tane gormek sacmaydi.
+             Dugme yalnizca boyle bir cikti varsa gorunur. -->
+        <button class="btn btn-ghost btn-sm" id="btn-orphans" type="button" hidden></button>
+      </div>
+      <section class="delivery" id="delivery-panel">
+        <div class="delivery-main">
+          <h2 data-i18n="delivery.title">Teslimat paketi</h2>
+          <p id="delivery-status" data-i18n="delivery.checking"></p>
+          <div id="delivery-issues"></div>
+        </div>
+        <div class="delivery-actions">
+          <button class="btn btn-primary" id="btn-package" type="button" data-i18n="delivery.package">Paketle</button>
+          <label class="check" id="package-force-label">
+            <input type="checkbox" id="package-force">
+            <span data-i18n="delivery.force">Engellere rağmen</span>
+          </label>
+        </div>
+      </section>
+      <div id="delivery-list"></div>
+
+      <div class="artifact-layout" id="artifact-layout">
+        <aside class="artifact-list" id="artifact-list"></aside>
+        <article class="artifact-view" id="artifact-view">
+          <p class="empty" data-i18n="artifacts.pick"></p>
+        </article>
+      </div>
+    </section>
+
+    <!-- Canlı akış -->
+    <section class="view" id="view-stream">
+      <div class="view-head">
+        <h1 data-i18n="stream.title">Canlı akış</h1>
+        <p class="view-sub"><span data-i18n="stream.lead"></span>
+           <code>.deerx/events.jsonl</code></p>
+      </div>
+      <div class="stream-toolbar">
+        <div class="chips" id="stream-filters">
+          <button class="chip chip-btn is-active" data-kind="" type="button" data-i18n="app.all">Tümü</button>
+          <button class="chip chip-btn" data-kind="message" type="button" data-i18n="stream.model">Model</button>
+          <button class="chip chip-btn" data-kind="tool" type="button" data-i18n="stream.tool">Araç</button>
+          <button class="chip chip-btn" data-kind="phase" type="button" data-i18n="stream.phase">Faz</button>
+          <button class="chip chip-btn" data-kind="cost" type="button" data-i18n="stream.cost">Maliyet</button>
+          <button class="chip chip-btn" data-kind="error" type="button" data-i18n="stream.error">Hata</button>
+        </div>
+        <label class="check">
+          <input type="checkbox" id="autoscroll" checked><span data-i18n="stream.autoscroll">Otomatik kaydır</span>
+        </label>
+        <button class="btn btn-ghost btn-sm" id="clear-feed" type="button" data-i18n="stream.clear">Temizle</button>
+        <button class="btn btn-primary btn-sm" id="stream-live-badge" type="button" hidden
+                data-i18n="stream.backToLive" data-i18n-title="stream.backToLiveHint"
+                title="En son olaylara dön">● Canlıya dön</button>
+      </div>
+      <div class="feed feed-full" id="feed"><p class="empty" data-i18n="stream.connecting"></p></div>
+      <nav class="pager" id="stream-pager" data-i18n-label="pager.aria" aria-label="Sayfalama" hidden></nav>
+    </section>
+
+    <!-- Ayarlar -->
+    <section class="view" id="view-settings">
+      <div class="view-head view-head-row">
+        <div>
+          <h1 data-i18n="settings.title">Ayarlar</h1>
+          <p class="view-sub"><span data-i18n="settings.lead"></span>
+             <code>deerx.toml</code> <span data-i18n="settings.tomlNote"></span></p>
+        </div>
+        <button class="btn btn-primary" id="btn-save-settings" type="button"
+                data-i18n="app.save">Kaydet</button>
+      </div>
+
+      <!-- Genel durum gelmediyse form boş kalır ve "hiçbir şey ayarlı değil" gibi okunur. -->
+      <p class="note" id="settings-unavailable" data-tone="err" hidden></p>
+
+      <div class="panel-row">
+        <section class="panel">
+          <header class="panel-head">
+            <h2 data-i18n="settings.provider">Model sağlayıcısı</h2>
+            <span class="panel-hint" id="llm-state"></span>
+          </header>
+          <div class="panel-body">
+            <label class="field">
+              <span data-i18n="settings.presetLabel">Sağlayıcı</span>
+              <select id="set-preset"></select>
+            </label>
+            <p class="note" id="preset-note"></p>
+            <label class="field" hidden>
+              <span data-i18n="settings.providerLabel">Protokol</span>
+              <select id="set-provider">
+                <option value="openai" data-i18n="settings.providerOpenai">OpenAI-uyumlu</option>
+                <option value="anthropic" data-i18n="settings.providerAnthropic">Anthropic</option>
+              </select>
+            </label>
+            <label class="field" id="field-base-url">
+              <span><span data-i18n="settings.endpoint">Model ucu</span>
+                    <em data-i18n="settings.endpointHint">(Docker ise HOST portu)</em></span>
+              <input type="text" id="set-base-url" placeholder="http://127.0.0.1:8008/v1">
+            </label>
+            <label class="field" id="field-openai-key">
+              <span data-i18n="settings.openaiKey">OpenAI / vLLM anahtarı</span>
+              <input type="password" id="set-openai-key" autocomplete="off"
+                     data-i18n-placeholder="settings.keyPlaceholder">
+            </label>
+            <label class="field" id="field-anthropic-key">
+              <span data-i18n="settings.anthropicKey">Anthropic anahtarı</span>
+              <input type="password" id="set-anthropic-key" autocomplete="off"
+                     data-i18n-placeholder="settings.keyPlaceholder">
+            </label>
+            <div class="run-actions">
+              <button class="btn" id="btn-test-llm" type="button" data-i18n="settings.testLlm">Bağlantıyı test et</button>
+              <button class="btn" id="btn-list-models" type="button" data-i18n="settings.fetchModels">Modelleri getir</button>
+            </div>
+            <p class="note" id="llm-note"></p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <header class="panel-head">
+            <h2 data-i18n="settings.models">Modeller</h2>
+            <span class="panel-hint" data-i18n="settings.modelsHint"></span>
+          </header>
+          <div class="panel-body">
+            <div class="field-row">
+              <label class="field">
+                <span><span data-i18n="settings.modelLead">Lead</span>
+                    <em data-i18n="settings.modelLeadHint">(analiz)</em></span>
+                <input type="text" id="set-model-lead" list="model-options">
+              </label>
+              <label class="field">
+                <span data-i18n="settings.effort">Çaba</span>
+                <select id="set-effort-lead"></select>
+              </label>
+            </div>
+            <div class="field-row">
+              <label class="field">
+                <span><span data-i18n="settings.modelWorker">Worker</span>
+                    <em data-i18n="settings.modelWorkerHint">(kod)</em></span>
+                <input type="text" id="set-model-worker" list="model-options">
+              </label>
+              <label class="field">
+                <span data-i18n="settings.effort">Çaba</span>
+                <select id="set-effort-worker"></select>
+              </label>
+            </div>
+            <div class="field-row">
+              <label class="field">
+                <span><span data-i18n="settings.modelFast">Fast</span>
+                    <em data-i18n="settings.modelFastHint">(hafif işler)</em></span>
+                <input type="text" id="set-model-fast" list="model-options">
+                <datalist id="model-options"></datalist>
+              </label>
+              <label class="field">
+                <span data-i18n="settings.effort">Çaba</span>
+                <select id="set-effort-fast"></select>
+              </label>
+            </div>
+            <p class="note" data-i18n="settings.effortNote"></p>
+          </div>
+        </section>
+      </div>
+
+      <div class="panel-row">
+        <section class="panel">
+          <header class="panel-head"><h2 data-i18n="settings.limits">Üretim sınırları</h2></header>
+          <div class="panel-body">
+            <div class="field-row">
+              <label class="field">
+                <span data-i18n="settings.maxTokens">Tur başına azami token</span>
+                <input type="number" id="set-max-tokens" min="256" max="1000000" step="1000">
+              </label>
+              <label class="field">
+                <span><span data-i18n="settings.timeout">İstek zaman aşımı</span>
+                    <em data-i18n="settings.timeoutUnit">(sn)</em></span>
+                <input type="number" id="set-timeout" min="10" max="7200" step="30">
+              </label>
+            </div>
+            <label class="field">
+              <span><span data-i18n="settings.temperature">Sıcaklık</span>
+                    <em data-i18n="settings.temperatureHint">(boş = varsayılan)</em></span>
+              <input type="number" id="set-temperature" min="0" max="2" step="0.1"
+                     data-i18n-placeholder="settings.temperaturePlaceholder">
+            </label>
+            <label class="field">
+              <span data-i18n="settings.thinking">Düşünme özeti</span>
+              <select id="set-thinking">
+                <option value="summarized" data-i18n="settings.thinkingShow">Göster</option>
+                <option value="omitted" data-i18n="settings.thinkingHide">Gizle</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section class="panel">
+          <header class="panel-head"><h2 data-i18n="settings.behaviour">Koşu davranışı</h2></header>
+          <div class="panel-body">
+            <label class="field">
+              <span><span data-i18n="settings.approvalMode">Onay modu</span>
+                    <em data-i18n="settings.approvalHint">(dosya yazma)</em></span>
+              <select id="set-approval">
+                <option value="ask" data-i18n="settings.approvalAsk">Sor</option>
+                <option value="auto" data-i18n="settings.approvalAuto">Otomatik</option>
+                <option value="dry-run" data-i18n="settings.approvalDry">Kuru koşu</option>
+              </select>
+            </label>
+            <div class="field-row">
+              <label class="field">
+                <span data-i18n="settings.maxIterations">Ajan başına azami tur</span>
+                <input type="number" id="set-iterations" min="1" max="200" step="1">
+              </label>
+              <label class="field">
+                <span><span data-i18n="settings.costLimit">Maliyet tavanı</span>
+                    <em data-i18n="settings.costLimitHint">(USD)</em></span>
+                <input type="number" id="set-cost" min="0" step="0.5">
+              </label>
+            </div>
+            <div class="field-row">
+              <label class="field">
+                <span><span data-i18n="settings.toolChars">Araç çıktısı sınırı</span>
+                    <em data-i18n="settings.chars">(karakter)</em></span>
+                <input type="number" id="set-tool-chars" min="1000" max="1000000" step="1000">
+              </label>
+              <label class="field">
+                <span><span data-i18n="settings.turnChars">Tur çıktısı sınırı</span>
+                    <em data-i18n="settings.chars">(karakter)</em></span>
+                <input type="number" id="set-turn-chars" min="2000" max="4000000" step="1000">
+              </label>
+            </div>
+            <p class="note" id="settings-run-note"></p>
+          </div>
+        </section>
+      </div>
+
+      <div class="panel-row">
+        <section class="panel">
+          <header class="panel-head">
+            <h2 data-i18n="sandbox.title">Yalıtım</h2>
+            <span class="panel-hint" id="sandbox-state"></span>
+          </header>
+          <div class="panel-body">
+            <p class="note" data-i18n="sandbox.lead"></p>
+            <label class="field">
+              <span data-i18n="sandbox.execution">Komutlar nerede çalışsın</span>
+              <select id="set-execution">
+                <option value="host" data-i18n="sandbox.execHost">Bu makinede</option>
+                <option value="docker" data-i18n="sandbox.execDocker">Docker konteynerinde</option>
+              </select>
+            </label>
+            <!-- Konak seçiliyken bu alanların hiçbiri okunmaz. -->
+            <div id="sandbox-fields" hidden>
+              <label class="field">
+                <span><span data-i18n="sandbox.image">İmaj</span>
+                      <em data-i18n="sandbox.imageHint">(tam sürüm, slim değil)</em></span>
+                <input type="text" id="set-sandbox-image" autocomplete="off" spellcheck="false">
+              </label>
+              <label class="field">
+                <span><span data-i18n="sandbox.setup">Kurulum komutu</span>
+                      <em data-i18n="sandbox.setupHint">(konteyner kurulurken bir kez)</em></span>
+                <textarea id="set-sandbox-setup" rows="2" spellcheck="false"
+                          data-i18n-placeholder="sandbox.setupPlaceholder"></textarea>
+              </label>
+              <div class="field-row">
+                <label class="field">
+                  <span data-i18n="sandbox.portBase">İlk port</span>
+                  <input type="number" id="set-sandbox-port-base" min="1024" max="65000" step="1">
+                </label>
+                <label class="field">
+                  <span data-i18n="sandbox.portCount">Port sayısı</span>
+                  <input type="number" id="set-sandbox-port-count" min="1" max="100" step="1">
+                </label>
+              </div>
+              <div class="field-row">
+                <label class="field">
+                  <span data-i18n="sandbox.memory">Bellek</span>
+                  <input type="text" id="set-sandbox-memory" spellcheck="false">
+                </label>
+                <label class="field">
+                  <span data-i18n="sandbox.cpus">CPU</span>
+                  <input type="number" id="set-sandbox-cpus" min="0.1" max="256" step="0.5">
+                </label>
+              </div>
+              <label class="field">
+                <span><span data-i18n="sandbox.pids">Süreç sınırı</span>
+                      <em data-i18n="sandbox.pidsHint">(fork bombasına karşı)</em></span>
+                <input type="number" id="set-sandbox-pids" min="16" max="100000" step="16">
+              </label>
+            </div>
+            <p class="note" id="sandbox-note"></p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <header class="panel-head">
+            <h2 data-i18n="settings.web">Web araştırma</h2>
+            <span class="panel-hint" id="search-state"></span>
+          </header>
+          <div class="panel-body">
+            <label class="check">
+              <input type="checkbox" id="set-web">
+              <span data-i18n="settings.webEnabled">Ajanlar web'e çıkabilsin</span>
+            </label>
+            <label class="field">
+              <span data-i18n="settings.searchProvider">Arama sağlayıcısı</span>
+              <select id="set-search-provider">
+                <option value="browser" data-i18n="settings.searchBrowser">Tarayıcı</option>
+                <option value="duckduckgo" data-i18n="settings.searchDuckduckgo">DuckDuckGo</option>
+                <option value="brave" data-i18n="settings.searchBrave">Brave</option>
+                <option value="tavily" data-i18n="settings.searchTavily">Tavily</option>
+                <option value="google" data-i18n="settings.searchGoogle">Google</option>
+                <option value="searxng" data-i18n="settings.searchSearxng">SearXNG</option>
+              </select>
+            </label>
+            <label class="field">
+              <span data-i18n="settings.searchKey">Arama API anahtarı</span>
+              <input type="password" id="set-search-key" autocomplete="off"
+                     data-i18n-placeholder="settings.keyPlaceholder">
+            </label>
+            <label class="field" id="field-google-cx">
+              <span data-i18n="settings.searchCx">Google arama motoru kimligi (cx)</span>
+              <input type="text" id="set-google-cx" autocomplete="off"
+                     data-i18n-placeholder="settings.searchCxPlaceholder">
+            </label>
+            <label class="field" id="field-searxng-url">
+              <span data-i18n="settings.searxngUrl">SearXNG adresi</span>
+              <input type="text" id="set-searxng-url" autocomplete="off">
+            </label>
+            <div class="run-actions">
+              <button class="btn" id="btn-test-search" type="button" data-i18n="settings.testSearch">Aramayı test et</button>
+            </div>
+            <p class="note" id="search-note"></p>
+          </div>
+        </section>
+      </div>
+
+      <div class="panel-row">
+        <section class="panel">
+          <header class="panel-head">
+            <h2 data-i18n="browser.title">Tarayıcı</h2>
+            <span class="panel-hint" id="browser-state"></span>
+          </header>
+          <div class="panel-body">
+            <p class="note" data-i18n="browser.lead"></p>
+            <label class="field">
+              <span data-i18n="browser.channel">Tarayıcı</span>
+              <select id="set-browser-channel">
+                <option value="auto" data-i18n="browser.channelAuto">Otomatik</option>
+                <option value="chrome" data-i18n="browser.channelChrome">Google Chrome</option>
+                <option value="edge" data-i18n="browser.channelEdge">Microsoft Edge</option>
+                <option value="chromium" data-i18n="browser.channelChromium">Playwright Chromium</option>
+              </select>
+            </label>
+            <label class="check">
+              <input type="checkbox" id="set-browser-headless">
+              <span data-i18n="browser.headless">Görünmez çalıştır</span>
+            </label>
+            <label class="check">
+              <input type="checkbox" id="set-browser-allow-preview">
+              <span data-i18n="browser.allowPreview">Ajan kendi uygulamasını açabilsin</span>
+            </label>
+            <p class="note" data-i18n="browser.previewNote"></p>
+            <label class="field">
+              <span><span data-i18n="browser.idle">Boşta kapanma</span>
+                    <em data-i18n="settings.timeoutUnit">(sn)</em></span>
+              <input type="number" id="set-browser-idle" min="0" max="86400" step="60">
+            </label>
+            <div class="run-actions">
+              <button class="btn" id="btn-test-browser" type="button"
+                      data-i18n="browser.test">Tarayıcıyı test et</button>
+            </div>
+            <p class="note" id="browser-note"></p>
+          </div>
+        </section>
+
+
+        <section class="panel">
+          <header class="panel-head"><h2 data-i18n="settings.general">Genel</h2></header>
+          <div class="panel-body">
+            <div class="field-row">
+              <label class="field">
+                <span data-i18n="app.language">Dil</span>
+                <select id="set-language">
+                  <option value="tr">Türkçe</option>
+                  <option value="en">English</option>
+                </select>
+              </label>
+              <label class="field">
+                <span data-i18n="settings.logLevel">Günlük düzeyi</span>
+                <select id="set-log-level">
+                  <option value="DEBUG">DEBUG</option>
+                  <option value="INFO">INFO</option>
+                  <option value="WARNING">WARNING</option>
+                  <option value="ERROR">ERROR</option>
+                </select>
+              </label>
+            </div>
+            <div id="env-table"></div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Kimlik dogrulamaya bagli iki panel: ikisi de yalnizca giris
+           yapilmis bir kurulumda gorunur, o yuzden ayni satirda. -->
+      <div class="panel-row">
+      <section class="panel" id="users-panel" hidden>
+        <header class="panel-head">
+          <h2 data-i18n="users.title">Kullanıcılar</h2>
+          <span class="panel-hint" id="users-hint"></span>
+        </header>
+        <div class="panel-body">
+          <div id="users-table"></div>
+          <form class="user-new" id="user-new">
+            <input type="text" id="new-username" data-i18n-placeholder="users.usernamePlaceholder"
+                   autocapitalize="none" spellcheck="false">
+            <input type="password" id="new-password" data-i18n-placeholder="users.passwordPlaceholder"
+                   autocomplete="new-password">
+            <select id="new-role">
+              <option value="user" data-i18n="users.roleUser">Kullanıcı</option>
+              <option value="admin" data-i18n="users.roleAdmin">Yönetici</option>
+            </select>
+            <button class="btn btn-primary btn-sm" type="submit" data-i18n="users.add">Ekle</button>
+          </form>
+          <p class="note" id="users-note"></p>
+        </div>
+        </section>
+
+        <section class="panel" id="account-panel" hidden>
+        <header class="panel-head">
+          <h2 data-i18n="account.title">Hesabım</h2>
+          <span class="panel-hint" id="account-who"></span>
+        </header>
+        <div class="panel-body">
+          <div class="field-row">
+            <label class="field">
+              <span data-i18n="account.currentPassword">Mevcut parola</span>
+              <input type="password" id="pw-current" autocomplete="current-password">
+            </label>
+            <label class="field">
+              <span data-i18n="account.newPassword">Yeni parola</span>
+              <input type="password" id="pw-new" autocomplete="new-password">
+            </label>
+          </div>
+          <div class="run-actions">
+            <button class="btn btn-primary" id="btn-change-password" type="button"
+                    data-i18n="account.changePassword">Parolayı değiştir</button>
+            <button class="btn" id="btn-logout" type="button"
+                    data-i18n="account.logout">Çıkış yap</button>
+          </div>
+          <p class="note" id="account-note" data-i18n="account.note"></p>
+        </div>
+        </section>
+      </div>
+
+      <!-- Denetim günlüğü: satır zaman + kişi + işlem + ayrıntı taşıdığı için tam genişlikte. Yalnızca yöneticiye görünür. -->
+      <section class="panel" id="audit-panel" hidden>
+        <header class="panel-head">
+          <h2 data-i18n="audit.title">Denetim günlüğü</h2>
+          <span class="panel-hint" id="audit-hint"></span>
+        </header>
+        <div class="panel-body">
+          <div class="audit-filters">
+            <label class="field">
+              <span data-i18n="audit.filterUser">Kullanıcı</span>
+              <select id="audit-user"></select>
+            </label>
+            <label class="field">
+              <span data-i18n="audit.filterAction">İşlem</span>
+              <select id="audit-action"></select>
+            </label>
+            <label class="field">
+              <span data-i18n="audit.filterLimit">Satır</span>
+              <select id="audit-limit">
+                <option value="50">50</option>
+                <option value="200" selected>200</option>
+                <option value="1000">1000</option>
+              </select>
+            </label>
+            <button class="btn btn-sm" id="btn-audit-refresh" type="button"
+                    data-i18n="app.refresh">Yenile</button>
+          </div>
+          <div id="audit-table"></div>
+          <p class="note" id="audit-note"></p>
+        </div>
+      </section>
+    </section>
+
+  </main>
+</div>
+
+<!-- Giris katmani. Kimlik dogrulama acikken uygulamanin ustunu kapatir;
+     kapaliyken hic gorunmez. -->
+<div class="gate" id="auth-gate" hidden>
+  <div class="gate-card">
+    <div class="gate-brand">
+      <img class="brand-mark" src="/static/logo.png" alt="" width="36" height="36">
+      <span class="gate-title">DeerX</span>
+    </div>
+
+    <form class="gate-form" id="login-form">
+      <p class="gate-lead" id="gate-lead" data-i18n="auth.lead"></p>
+
+      <label class="field" id="setup-token-field" hidden>
+        <span><span data-i18n="auth.setupToken">Kurulum jetonu</span>
+             <em data-i18n="auth.setupTokenHint">(konsolda)</em></span>
+        <input type="text" id="setup-token" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="field">
+        <span data-i18n="auth.username">Kullanıcı adı</span>
+        <input type="text" id="login-username" autocomplete="username"
+               autocapitalize="none" spellcheck="false" required>
+      </label>
+      <label class="field">
+        <span data-i18n="auth.password">Parola</span>
+        <input type="password" id="login-password" autocomplete="current-password" required>
+      </label>
+
+      <button class="btn btn-primary gate-submit" type="submit" id="login-submit"
+              data-i18n="auth.login">Giriş yap</button>
+      <p class="note" id="login-note"></p>
+    </form>
+  </div>
+</div>
+
+<!-- Onay katmanı -->
+<div class="overlay" id="approval-overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="approval-title">
+    <header class="modal-head">
+      <span class="modal-badge" data-i18n="approval.badge">Onay gerekiyor</span>
+      <h2 id="approval-title">—</h2>
+    </header>
+    <pre class="modal-detail" id="approval-detail"></pre>
+    <footer class="modal-foot">
+      <span class="modal-count" id="approval-count"></span>
+      <div class="modal-actions">
+        <button class="btn btn-danger" id="approval-reject" type="button" data-i18n="approval.reject">Reddet</button>
+        <button class="btn btn-primary" id="approval-accept" type="button" data-i18n="approval.accept">Onayla</button>
+      </div>
+    </footer>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

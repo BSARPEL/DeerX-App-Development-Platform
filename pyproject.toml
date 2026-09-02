@@ -1,0 +1,99 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "deerx"
+version = "0.1.0"
+description = "Document-driven project development agent: RAG + MCP + web research + autonomous implementation"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Burakcan Sarpel" }]
+keywords = [
+    "agent", "llm", "rag", "mcp", "vllm", "anthropic", "claude",
+    "code-generation", "autonomous", "pipeline",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Natural Language :: English",
+    "Natural Language :: Turkish",
+]
+
+dependencies = [
+    "anthropic>=0.116.0",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.5",
+    "typer>=0.15",
+    "rich>=13.9",
+    "numpy>=2.0",
+    "httpx>=0.27",
+    "mcp>=2.0",
+    "openai>=1.60",
+    # Web arayuzu. Bunlar zaten mcp uzerinden geliyor; gecici bagimlilik
+    # olarak birakmak yerine acikca beyan ediyoruz.
+    "starlette>=0.40",
+    "uvicorn>=0.30",
+    "sse-starlette>=2.1",
+    "markdown-it-py>=3.0",
+    "pypdf>=5.1",
+    "python-docx>=1.1",
+    "beautifulsoup4>=4.12",
+    "pyyaml>=6.0",
+    "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+embed = ["fastembed>=0.5"]
+browser = [
+    "playwright>=1.49",
+]
+dev = ["pytest>=8.3", "anyio>=4.6", "ruff>=0.8"]
+all = ["deerx[embed,browser,dev]"]
+
+[project.urls]
+Homepage = "https://github.com/BSARPEL/DeerX-App-Development-Platform"
+Documentation = "https://github.com/BSARPEL/DeerX-App-Development-Platform/tree/master/docs"
+Repository = "https://github.com/BSARPEL/DeerX-App-Development-Platform"
+Issues = "https://github.com/BSARPEL/DeerX-App-Development-Platform/issues"
+Changelog = "https://github.com/BSARPEL/DeerX-App-Development-Platform/blob/master/CHANGELOG.md"
+
+[project.scripts]
+deerx = "deerx.cli:app"
+deerx-mcp = "deerx.mcp_server.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/deerx"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Kok dizin de sart: `tests/test_theme.py` `tests.test_web`den ice aktariyor.
+# `python -m pytest` calisma dizinini sys.path'e kendisi ekler, ama
+# `pytest` konsol betigi EKLEMEZ -- ve CI tam olarak `uv run pytest -q`
+# calistiriyor. Suit yalnizca bir cagirma bicimiyle geciyordu.
+pythonpath = ["src", "."]
+# Gercek surec baslatip bekleyen testler. Kayitli olmasi sart: kayitsiz
+# bir isaretci `-m "not slow"` ifadesini sessizce hicbir seyle
+# eslestirmez ve "hizli" kip yalan olur.
+markers = [
+    "slow: gercek surec baslatip bekleyen test (toplam ~26 s)",
+]

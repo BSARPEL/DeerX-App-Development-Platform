@@ -1,0 +1,145 @@
+# DeerX proje konfigurasyonu
+# Ortam degiskenleri (DEERX_*) buradaki degerleri ezer.
+
+[deerx]
+# ── Saglayici ────────────────────────────────────────────────────────────
+# "openai"    : OpenAI-uyumlu her uc — yerel vLLM, Ollama, LM Studio, OpenAI
+# "anthropic" : Claude API
+provider = "openai"
+
+# Yerel vLLM ucu. Docker'da calisiyorsa HOST portunu yazin
+# (ornek: konteyner 8000 -> host 8008 ise buraya 8008).
+openai_base_url = "http://127.0.0.1:8008/v1"
+# Anahtar .env icinde tutulur:  OPENAI_API_KEY=...
+# vLLM --api-key olmadan baslatildiysa bos birakin.
+
+# ── Modeller ─────────────────────────────────────────────────────────────
+# Model adi, ucun sundugu adla BIREBIR ayni olmali.
+# `deerx doctor` bunu dogrular ve uyusmazligi soyler.
+model_lead = "qwen3.8 max"     # analiz, mimari, plan, QA, inceleme, canli
+model_worker = "qwen3.8 max"   # arastirma, mockup, backend, frontend, staging
+model_fast = "qwen3.8 max"
+
+# Anthropic'e gecmek icin:
+#   provider = "anthropic"
+#   model_lead = "claude-opus-5"
+#   model_worker = "claude-sonnet-5"
+#   model_fast = "claude-haiku-4-5"
+# ve .env icine ANTHROPIC_API_KEY ekleyin.
+
+# Yalnizca Anthropic'te etkili; yerel modeller bunlari yok sayar.
+effort_lead = "high"
+effort_worker = "high"
+
+# Tanimlanmazsa sunucunun varsayilani kullanilir.
+# temperature = 0.6
+
+# Yerel modeller tek bir yaniti dakikalarca uretebilir.
+request_timeout_seconds = 1800
+
+# ── Davranis ─────────────────────────────────────────────────────────────
+# Cikti dili. Kod ve komutlar her halukarda Ingilizce kalir.
+language = "tr"
+
+# auto   : hicbir sey sorulmaz (otomasyon icin)
+# ask    : dosya yazma ve komut calistirma once sorulur
+# dry-run: yazma islemleri uygulanmaz, yalnizca raporlanir
+approval_mode = "ask"
+
+# Web arastirmasi. Anthropic'te sunucu tarafi web_search kullanilir;
+# diger saglayicilarda yerel `web_search` araci devreye girer.
+enable_web = true
+
+# Arama saglayicisi. OLCULDU: bugun hicbir genel motor durust bir bot
+# kimligiyle calismiyor -- Bing otomasyona SAHTE sonuc veriyor (sorguyla
+# alakasiz bir kume), DuckDuckGo CAPTCHA cikariyor, digerleri engelliyor.
+#
+#   "searxng" : KENDI orneginiz. Anahtar yok, engel yok, hangi motorun
+#               neden dustugunu soyler. Anahtarsiz tek saglam yol:
+#
+#                 docker run -d --name deerx-searxng \
+#                   -p 127.0.0.1:8890:8080 \
+#                   -v C:/kullanici/searxng:/etc/searxng:rw \
+#                   searxng/searxng:latest
+#
+#               `settings.yml` icinde `search.formats` listesine `json`
+#               ekleyin; varsayilan olarak kapalidir ve uc 403 doner.
+#
+#   "brave" / "tavily" : anahtarli, lisansli programatik erisim.
+#   "browser"          : sunucudaki Chrome. Sahte sonuc dondurulurse
+#                        yakalanir ve hata verilir, ama kapsam guvenilmez.
+search_provider = "browser"
+searxng_url = "http://127.0.0.1:8890"
+
+# Tum kosu icin USD tavani. 0 = sinirsiz. Yerel modeller zaten ucretsizdir.
+cost_limit_usd = 0
+
+max_iterations = 40
+
+# Tur basina azami uretim. AKIL YURUTME MODELLERINDE BU DEGER DUSUNMEYI DE
+# KAPSAR ve dusunme once gelir.
+#
+# Olculdu (yerel Qwen3): max_tokens=4000 ile modelin urettigi 4000 tokenin
+# TAMAMI akil yurutmeye gitti -- 15.354 karakter reasoning, 0 karakter cevap,
+# 0 arac cagrisi. 8000 ile `assess` fazi uc kez ust uste kesilip dustu.
+# 32000 ile ayni faz 20 KB'lik ciktisini uretti.
+#
+# ~70 tok/s'de 32000 token tur basina ~7.6 dakika demek; asagidaki
+# request_timeout_seconds (1800 = 30 dk) bunu rahatca kaldirir.
+# Anthropic gibi hizli bir ucta daha yukseltebilirsiniz.
+max_tokens = 32000
+log_level = "INFO"
+
+# ── Tarayici ─────────────────────────────────────────────────────────────
+# Ajanin KENDI yazdigi uygulamayi acabilmesi. QA yonergesi UAT'yi kabul
+# olcutu sayar ("her kosuda uygulamayi acacaksin"); bu kapaliyken
+# `preview_open` reddeder ve o faz kendi olcutunu saglayamaz.
+#
+# Yalnizca 127.0.0.1 uzerindeki bir porta izin verir, izni sunucu verir ve
+# kosu bitince duser. `enable_web` (internete cikma) ile AYRI ayarlardir:
+# internet erisimini kapatmak, ajanin az once yazdigi uygulamayi acmasini
+# engellememeli.
+browser_allow_preview = true
+
+# "auto" kurulu Chrome'u bulur. Gorunur pencere icin headless = false.
+browser_channel = "auto"
+browser_headless = true
+# Bos kalan tarayici bu sureden sonra kapanir; sonraki cagri yeniden acar.
+browser_idle_seconds = 600
+
+[deerx.rag]
+# Cok dilli yerel gomme modeli (Turkce dokumanlar icin onemli).
+# Ilk kullanimda model bir kez indirilir ve onbellege alinir.
+#
+#   intfloat/multilingual-e5-large  dim=1024  ~2.2 GB  en iyi kalite (varsayilan)
+#   sentence-transformers/paraphrase-multilingual-mpnet-base-v2  dim=768  ~1.0 GB
+#   sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2  dim=384  ~0.2 GB  en hizli
+#
+# Modeli degistirirseniz embedding_dim degerini de guncelleyin ve
+# `deerx ingest --force` ile bilgi tabanini yeniden olusturun.
+embedding_model = "intfloat/multilingual-e5-large"
+embedding_dim = 1024
+embedding_provider = "fastembed"   # "hash" = model indirmeden cevrimdisi test
+
+chunk_tokens = 700
+chunk_overlap_tokens = 100
+top_k = 8
+
+[deerx.shell]
+enabled = true
+timeout_seconds = 300
+# Bos birakilirsa (allow_prefixes = []) yalnizca deny listesi uygulanir.
+allow_prefixes = [
+    "git", "python", "python3", "uv", "pip", "pytest", "ruff", "mypy",
+    "node", "npm", "npx", "pnpm", "yarn", "tsc", "jest", "vitest",
+    "ls", "cat", "head", "tail", "grep", "find", "wc", "echo", "mkdir",
+    # Windows karsiliklari (hepsi okur): findstr~grep, type~cat, dir~ls,
+    # where~which. Bunlar olmadan ajan Windows'ta kendi platformunun
+    # araclarini cagirdiginda reddediliyordu.
+    "findstr", "type", "dir", "where", "more",
+    # Kosullarin yapitaslari: hicbiri yan etki uretmez.
+    "true", "false", "test",
+    # Metin araclari: grep zaten izinliydi, bunlar ayni sinif.
+    "sed", "awk", "sort", "uniq", "cut", "diff", "tr",
+    "docker", "make", "go", "cargo",
+]
