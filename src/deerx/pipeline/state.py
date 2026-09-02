@@ -8,6 +8,7 @@ tekrar calistirmalari (idempotent yeniden kosu) guvenli kilar.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import time
 from dataclasses import asdict
@@ -217,6 +218,19 @@ CREATE TABLE IF NOT EXISTS artifacts (
 """
 
 
+def _surec_yasiyor(pid: int) -> bool:
+    """Kaydin sahibi surec hala ayakta mi?
+
+    `pid = 0` bu sutundan ONCEKI bir kayittir: sahibi bilinmiyor, eski
+    davranis uygulanir ve yetim sayilir.
+    """
+    if pid <= 0:
+        return False
+    from ..process import process_alive
+
+    return process_alive(pid)
+
+
 class ProjectState:
     """Proje hafizasi. Tum yazmalar aninda commit edilir."""
 
@@ -257,6 +271,14 @@ class ProjectState:
              "ALTER TABLE runs ADD COLUMN task_key TEXT NOT NULL DEFAULT ''"),
             ("runs", "plan_id",
              "ALTER TABLE runs ADD COLUMN plan_id TEXT NOT NULL DEFAULT ''"),
+            # Kosuyu/gorevi YURUTEN surecin kimligi. Yetim toplama bunsuz
+            # "acilista hicbir sey kosmuyor" varsayimina dayaniyordu ve o
+            # varsayim ikinci bir surec ayni calisma alanini actiginda
+            # yanlisti: calisan bir kosu yetim sanilip kapatiliyordu.
+            ("runs", "pid",
+             "ALTER TABLE runs ADD COLUMN pid INTEGER NOT NULL DEFAULT 0"),
+            ("tasks", "pid",
+             "ALTER TABLE tasks ADD COLUMN pid INTEGER NOT NULL DEFAULT 0"),
         ):
             existing = {
                 row["name"] for row in self._conn.execute(f"PRAGMA table_info({table})")
@@ -767,6 +789,11 @@ class ProjectState:
         if status is not None:
             sets.append("status = ?")
             params.append(str(status))
+            # Gorevi KIM yurutuyor. `running` disina cikan gorevin sahibi
+            # kalmamali; yoksa olu bir kimlik kayitta durur ve sonraki
+            # yetim taramasi onu yanlis degerlendirir.
+            sets.append("pid = ?")
+            params.append(os.getpid() if str(status) == Status.RUNNING else 0)
         if result is not None:
             sets.append("result = ?")
             params.append(result)
@@ -869,28 +896,42 @@ class ProjectState:
 
         Bir kosu `running` isaretlenip surec olurse (sunucu yeniden
         baslatildi) kayit sonsuza dek "calisiyor" gorunur ve kosu listesi
-        yalan soyler. Acilista hicbir sey kosmadigi icin `running` goren
-        her kayit yetimdir.
+        yalan soyler.
+
+        "Acilista hicbir sey kosmuyor, dolayisiyla `running` goren her
+        kayit yetimdir" DEGIL. Bu varsayim ayni calisma alanini ikinci bir
+        surec actiginda yanlis, ve o senaryo desteklenen bir kullanim:
+        OLCULDU -- `deerx run` terminalde calisirken `deerx serve` acmak
+        (README'nin "kosuyu izlemek icin arayuzu kullanin" dedigi akis)
+        calisan kosuyu `cancelled` isaretliyor, uzerine "sunucu yeniden
+        baslatildi" hatasini yaziyor ve kullanici bitmis sandigi bir
+        kosunun token harcamaya devam ettigini gormuyordu.
+
+        Artik sahip surecin kimligine bakilir: yalnizca o surec OLMUSSE
+        kayit yetimdir.
         """
         rows = self._conn.execute(
-            "SELECT seq FROM runs WHERE status = ?", (Status.RUNNING,)
+            "SELECT id, seq, pid FROM runs WHERE status = ?", (Status.RUNNING,)
         ).fetchall()
-        seqs = [int(r["seq"]) for r in rows]
+        yetimler = [r for r in rows if not _surec_yasiyor(int(r["pid"] or 0))]
+        seqs = [int(r["seq"]) for r in yetimler]
         if seqs:
             log.info(t("run.reclaimed_log", count=len(seqs)))
             now = time.time()
             # Mesaj SQL metnine gomulu degil, PARAMETRE: gomulu oldugunda
             # hicbir zaman cevrilmiyordu ve Ingilizce arayuzde kosu listesi
             # Turkce bir hata gosteriyordu.
-            self._conn.execute(
-                "UPDATE runs SET status = ?, finished_at = ?, error = ? "
-                "WHERE status = ?",
-                (Status.CANCELLED, now, t("run.reclaimed_error"), Status.RUNNING),
-            )
-            self._conn.execute(
-                "UPDATE run_steps SET status = ?, finished_at = ? WHERE status = ?",
-                (Status.CANCELLED, now, Status.RUNNING),
-            )
+            for row in yetimler:
+                self._conn.execute(
+                    "UPDATE runs SET status = ?, finished_at = ?, error = ? "
+                    "WHERE id = ?",
+                    (Status.CANCELLED, now, t("run.reclaimed_error"), row["id"]),
+                )
+                self._conn.execute(
+                    "UPDATE run_steps SET status = ?, finished_at = ? "
+                    "WHERE run_id = ? AND status = ?",
+                    (Status.CANCELLED, now, row["id"], Status.RUNNING),
+                )
             self._conn.commit()
         return seqs
 
@@ -902,19 +943,25 @@ class ProjectState:
         oldurudu) gorev sonsuza dek `running` kalir: ne kendisi yeniden
         denenir ne de ona bagli gorevler hazir sayilir — plan tumden kilitlenir.
 
-        Kosu baslamadan cagrilir; o anda calisan bir gorev olamaz, dolayisiyla
-        `running` goren her kayit yetim demektir.
+        Yetim karari, gorevi ustlenen surecin OLMUS olmasina baglidir --
+        "kosu baslamadan cagrilir, o anda calisan gorev olamaz" varsayimina
+        degil. Ikinci bir surec ayni calisma alanini actiginda o varsayim
+        yanlis, ve buradaki bedeli kosu kaydindakinden agir: o anda
+        uygulanan bir gorev kuyruga geri doner ve ikinci bir ajan ayni isi
+        bastan yapabilir.
         """
         rows = self._conn.execute(
-            "SELECT key FROM tasks WHERE status = ?", (Status.RUNNING,)
+            "SELECT key, pid FROM tasks WHERE status = ?", (Status.RUNNING,)
         ).fetchall()
-        keys = [r["key"] for r in rows]
+        keys = [r["key"] for r in rows if not _surec_yasiyor(int(r["pid"] or 0))]
         if keys:
             log.info(t("pipeline.reclaimed_log", count=len(keys)))
-            self._conn.execute(
-                "UPDATE tasks SET status = ?, updated_at = ? WHERE status = ?",
-                (Status.PENDING, time.time(), Status.RUNNING),
-            )
+            simdi = time.time()
+            for key in keys:
+                self._conn.execute(
+                    "UPDATE tasks SET status = ?, updated_at = ? WHERE key = ?",
+                    (Status.PENDING, simdi, key),
+                )
             self._conn.commit()
         return keys
 
@@ -977,8 +1024,8 @@ class ProjectState:
         self._conn.execute(
             "INSERT INTO runs "
             "(id, seq, workflow_id, title, title_key, title_args, goal, brief, "
-            " phases, task_key, plan_id, status, started_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?) "
+            " phases, task_key, plan_id, status, started_at, pid) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET title=excluded.title, goal=excluded.goal, "
             "brief=excluded.brief, phases=excluded.phases, "
             "title_key=COALESCE(NULLIF(excluded.title_key, ''), runs.title_key), "
@@ -986,12 +1033,15 @@ class ProjectState:
             "                ELSE excluded.title_args END, "
             "task_key=COALESCE(NULLIF(excluded.task_key, ''), runs.task_key), "
             "plan_id=COALESCE(NULLIF(excluded.plan_id, ''), runs.plan_id), "
-            "workflow_id=COALESCE(NULLIF(excluded.workflow_id, ''), runs.workflow_id)",
+            "workflow_id=COALESCE(NULLIF(excluded.workflow_id, ''), runs.workflow_id), "
+            # Kosuyu yeniden ustlenen surec sahipligi de devralir; aksi
+            # halde eski ve olu bir kimlik kaydin uzerinde kalirdi.
+            "pid=excluded.pid",
             (
                 run_id, seq, workflow_id, title, title_key,
                 json.dumps(title_args or {}, ensure_ascii=False), goal, brief,
                 json.dumps(phases or [], ensure_ascii=False),
-                task_key or "", plan_id or "", time.time(),
+                task_key or "", plan_id or "", time.time(), os.getpid(),
             ),
         )
         self._conn.commit()

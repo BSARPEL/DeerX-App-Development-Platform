@@ -103,6 +103,75 @@ def _torunlar_nt(pid: int) -> list[int]:
     return bulunan
 
 
+def process_alive(pid: int) -> bool:
+    """Verilen kimlikte bir surec hala calisiyor mu?
+
+    "Yetim" kararini vermek icin gerekli. Yetim toplama, "acilista hicbir
+    sey kosmuyor" varsayimina dayaniyordu ve o varsayim ayni calisma
+    alanini IKINCI bir surec actiginda yanlis: `deerx run` terminalde
+    calisirken `deerx serve` acmak -- README'nin onerdigi akis --
+    koseyi yetim sanip kapatiyordu.
+
+    `os.kill(pid, 0)` Windows'ta KULLANILAMAZ: Python orada sinyal 0'i
+    desteklemez ve cagri sureci gercekten sonlandirmaya kadar gidebilir.
+    Surec tablosu zaten `_torunlar_nt` icin okunuyor; ayni anlik goruntu
+    burada da kullanilir.
+
+    Bilinmiyorsa True doner: bir sureci yanlislikla YASIYOR saymak, onu
+    yanlislikla OLU sayip calisan bir kosunun kaydini kapatmaktan cok daha
+    ucuz.
+    """
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            return pid in _pid_kumesi_nt()
+        except Exception:  # noqa: BLE001 - tablo okunamadi; emin degiliz
+            return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Baska bir kullanicinin sureci: var ama dokunamiyoruz.
+        return True
+    except OSError:  # pragma: no cover - beklenmedik
+        return True
+    return True
+
+
+def _pid_kumesi_nt() -> set[int]:
+    """Su an calisan butun surec kimlikleri (Windows)."""
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateToolhelp32Snapshot.argtypes = (wintypes.DWORD, wintypes.DWORD)
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.Process32First.argtypes = (wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32))
+    kernel32.Process32First.restype = wintypes.BOOL
+    kernel32.Process32Next.argtypes = (wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32))
+    kernel32.Process32Next.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    gecersiz = ctypes.c_void_p(-1).value
+    anlik = kernel32.CreateToolhelp32Snapshot(_TH32CS_SNAPPROCESS, 0)
+    if not anlik or anlik == gecersiz:
+        raise OSError("surec anlik goruntusu alinamadi")
+
+    bulunan: set[int] = set()
+    try:
+        kayit = _PROCESSENTRY32()
+        kayit.dwSize = ctypes.sizeof(_PROCESSENTRY32)
+        if not kernel32.Process32First(anlik, ctypes.byref(kayit)):
+            return bulunan
+        while True:
+            bulunan.add(int(kayit.th32ProcessID))
+            if not kernel32.Process32Next(anlik, ctypes.byref(kayit)):
+                break
+    finally:
+        kernel32.CloseHandle(anlik)
+    return bulunan
+
+
 def kill_tree(pid: int) -> None:
     """Verilen sureci ve butun alt sureclerini oldurur.
 

@@ -508,3 +508,116 @@ class TestQuestionGate:
         with self._orchestrator(settings) as orch:
             assert orch.answer_question("Q-999", "x") is None
             assert orch.skip_question("Q-999") is None
+
+
+class TestCalisanKosuYetimSanilmaz:
+    """Ikinci bir surec, CALISAN bir kosuyu yetim sanip kapatiyordu.
+
+    `reclaim_orphaned_runs` / `reclaim_orphaned_tasks` "acilista hicbir sey
+    kosmuyor, dolayisiyla `running` goren her kayit yetimdir" varsayimina
+    dayaniyordu. O varsayim ayni calisma alanini IKINCI bir surec
+    actiginda yanlis -- ve bu desteklenen bir kullanim: README kosuyu
+    izlemek icin arayuzu oneriyor, kod tabani da "CLI'dan indekslenen
+    dokuman web sunucusunda gorunmuyordu" hatasini bu senaryo icin
+    duzeltmis.
+
+    OLCULDU (gercek UAT kosusu): `deerx run` terminalde `research` fazini
+    kosarken `deerx serve` acildi. Kosu kaydi aninda `cancelled` oldu ve
+    uzerine "Sunucu yeniden baslatildi; kosu yarida kesildi." yazildi --
+    oysa kosu devam ediyor ve token harcamaya devam ediyordu. Kullanici
+    arayuzde bitmis bir kosu goruyor, gercekte calisan bir kosu var.
+
+    Gorev tarafinda bedel daha agir: o anda uygulanan bir gorev kuyruga
+    geri doner ve ikinci bir ajan ayni isi bastan yapabilir.
+    """
+
+    def test_a_run_owned_by_a_live_process_is_left_alone(self, tmp_path):
+        durum = ProjectState(tmp_path / "d.db")
+        durum.start_run("k1", goal="hedef", phases=["analyze"])
+
+        # Ayni surec (testin kendisi) sahibi; yani kosu YASIYOR.
+        yetimler = durum.reclaim_orphaned_runs()
+
+        assert yetimler == [], "calisan kosu yetim sayildi"
+        kosu = durum.get_run("k1")
+        assert kosu["status"] == Status.RUNNING
+        assert not kosu["error"]
+        durum.close()
+
+    def test_a_run_owned_by_a_dead_process_is_reclaimed(self, tmp_path):
+        """Asil is yine yapilmali: gercekten olmus bir kosu kapatilir."""
+        durum = ProjectState(tmp_path / "d.db")
+        durum.start_run("k1", goal="hedef", phases=["analyze"])
+        # Sahipligi, var olmayan bir surece devret.
+        durum._conn.execute("UPDATE runs SET pid = ? WHERE id = ?", (_olu_pid(), "k1"))
+        durum._conn.commit()
+
+        yetimler = durum.reclaim_orphaned_runs()
+
+        assert yetimler, "olu surecin kosusu geri alinmadi"
+        assert durum.get_run("k1")["status"] == Status.CANCELLED
+        durum.close()
+
+    def test_only_the_dead_run_is_touched(self, tmp_path):
+        """Iki kosu varsa yalnizca olusu kapanmali.
+
+        Eski kod tek bir `UPDATE ... WHERE status='running'` calistiriyordu,
+        yani bir tanesi yetim oldugunda HEPSI kapaniyordu.
+        """
+        durum = ProjectState(tmp_path / "d.db")
+        durum.start_run("canli", goal="hedef", phases=["analyze"])
+        durum.start_run("olu", goal="hedef", phases=["research"])
+        durum._conn.execute("UPDATE runs SET pid = ? WHERE id = ?", (_olu_pid(), "olu"))
+        durum._conn.commit()
+
+        durum.reclaim_orphaned_runs()
+
+        assert durum.get_run("canli")["status"] == Status.RUNNING
+        assert durum.get_run("olu")["status"] == Status.CANCELLED
+        durum.close()
+
+    def test_a_task_being_implemented_is_not_returned_to_the_queue(self, tmp_path):
+        durum = ProjectState(tmp_path / "d.db")
+        durum.add_task(Task(key="T-001", title="Saglik ucu"))
+        durum.update_task("T-001", status=Status.RUNNING)
+
+        geri_alinan = durum.reclaim_orphaned_tasks()
+
+        assert geri_alinan == [], "uygulanan gorev kuyruga geri dondu"
+        assert durum.get_task("T-001").status == Status.RUNNING
+        durum.close()
+
+    def test_a_task_left_by_a_dead_process_is_returned(self, tmp_path):
+        """Asil is yine yapilmali: yoksa plan kilitlenir."""
+        durum = ProjectState(tmp_path / "d.db")
+        durum.add_task(Task(key="T-001", title="Saglik ucu"))
+        durum.update_task("T-001", status=Status.RUNNING)
+        durum._conn.execute("UPDATE tasks SET pid = ? WHERE key = ?", (_olu_pid(), "T-001"))
+        durum._conn.commit()
+
+        assert durum.reclaim_orphaned_tasks() == ["T-001"]
+        assert durum.get_task("T-001").status == Status.PENDING
+        durum.close()
+
+    def test_a_record_from_before_the_column_is_still_reclaimed(self, tmp_path):
+        """Sutun eklenmeden onceki kayitlarda sahip bilinmiyor (`pid = 0`).
+        Orada eski davranis surer: yetim sayilir. Aksi halde gecmisten
+        kalan bir kayit sonsuza dek "calisiyor" gorunurdu."""
+        durum = ProjectState(tmp_path / "d.db")
+        durum.start_run("eski", goal="hedef", phases=["analyze"])
+        durum._conn.execute("UPDATE runs SET pid = 0 WHERE id = ?", ("eski",))
+        durum._conn.commit()
+
+        assert durum.reclaim_orphaned_runs()
+        assert durum.get_run("eski")["status"] == Status.CANCELLED
+        durum.close()
+
+
+def _olu_pid() -> int:
+    """Kesinlikle calismayan bir surec kimligi."""
+    from deerx.process import process_alive
+
+    for aday in range(600000, 600200):
+        if not process_alive(aday):
+            return aday
+    raise AssertionError("olu bir pid bulunamadi")
