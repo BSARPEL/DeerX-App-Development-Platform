@@ -19,7 +19,14 @@ Yani:
   *süreçleri* kum havuzuna almaz.
 
 Gerçek yalıtım gerekiyorsa DeerX'i bir konteyner içinde çalıştırın. Bu açıkça
-yazılıyor çünkü okunmak yerine varsayılması en muhtemel şey bu.
+yazılıyor çünkü okunmak yerine varsayılması en muhtemel şey bu. Deponun
+`Dockerfile` dosyası o imajı üretir — `docker build -t deerx .`, ardından
+sunucu yayınlanan bir porta bağlanmadan önce bir hesap oluşturun; tam sıra
+dosyanın başlığındaki yorumlarda yazılı.
+
+Bunun aşağıdaki `execution = "docker"` ayarından **farklı** bir mekanizma
+olduğuna dikkat edin. İmaj **DeerX'in tamamını** konaktan yalıtır; `execution`
+ise DeerX'i konakta bırakıp yalnızca ajanın komutlarını yalıtır. Birini seçin.
 
 ## Yol hapsi
 

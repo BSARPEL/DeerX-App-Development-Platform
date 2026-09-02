@@ -27,6 +27,24 @@ uv run ruff check src tests
 İkisi de geçmeli. Ayrı bir biçimlendirme adımı yok — çubuk `ruff check` ve kod
 tabanı bilinçli olarak `ruff format` uyumlu değil.
 
+Üçüncü bir araç var ama **kapı değil**: `mypy` `dev` ekiyle kuruluyor ve
+`pyproject.toml` içinde yapılandırılmış, ancak `check.sh` onu koşturmuyor ve
+push'unuzu engellemiyor.
+
+```bash
+uv run mypy src/deerx
+```
+
+28 bulgudan oluşan bir temel çizgi var. Geçmeyen bir denetim, herkesin yok
+saymayı öğrendiği bir denetimdir; o yüzden sıfıra inene kadar kapının dışında
+duruyor. Yine de koşturmaya değer: ilk koşu gerçek bir kusur buldu — kurulum
+yoklaması var olmayan bir metodu çağırıyordu, gömme modeli hiç indirilmiyordu
+ve yutulan `AttributeError` başarısız bir indirme gibi görünüyordu.
+
+> İngilizce [CONTRIBUTING.md](../../CONTRIBUTING.md) bu sayfadan daha
+> ayrıntılı: `scripts/check.sh`, pre-push kancası ve sürümler arası koşu
+> yalnızca orada anlatılıyor. Bu sayfa henüz onunla eşitlenmedi.
+
 ## Ev kuralları
 
 **Yorumlar ve tanımlayıcılar Türkçe ve ASCII'ye indirgenmiş.** `calisma_alani`,

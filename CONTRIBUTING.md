@@ -51,6 +51,22 @@ git config core.hooksPath .githooks
 
 `git push --no-verify` skips it when you need to.
 
+### Types
+
+`mypy` is installed with the `dev` extra and configured in `pyproject.toml`, but
+`check.sh` does **not** run it and your push is not blocked by it:
+
+```bash
+uv run mypy src/deerx
+```
+
+There is a baseline of 28 findings. A check that does not pass is a check
+everyone learns to ignore, so it stays out of the gate until that reaches zero —
+at which point it belongs in `check.sh`. It is worth running anyway: the first
+run found a real defect (the setup probe called a method that does not exist, so
+the embedding model was never downloaded and the swallowed `AttributeError`
+looked like a failed download).
+
 ### Across Python versions
 
 Until 2026-09-02 a GitHub Actions workflow ran the same two commands across

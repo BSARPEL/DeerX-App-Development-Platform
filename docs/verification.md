@@ -9,11 +9,16 @@ worthless too.
 
 ## The suite
 
-**1675 tests pass**, `ruff` clean, on Python 3.11 and 3.13.
+**1678 tests pass**, `ruff` clean, on Python 3.11 and 3.13.
 
 No test makes a network call or a real model call. Agents run against a fake
-client in `tests/conftest.py`, so the suite is deterministic and runs in about
-80 seconds.
+client in `tests/conftest.py`, so the suite is deterministic.
+
+Timing depends on the machine, and the number that used to stand here did not
+say which one. Measured on a Windows 11 laptop: `--fast` (no process-spawning
+tests) about 160 seconds, the whole suite 215-285. On Linux it is considerably
+quicker — process spawning is most of the cost and Windows is slowest at it. Run
+`--fast` while working and the whole thing before pushing.
 
 ## Verified by running
 
@@ -58,6 +63,14 @@ kept, and no secret value appears in the raw bytes of the produced zip.
 **Web.** The whole HTTP API, the SSE publisher loop, that the approval gate
 really blocks the run thread and releases it on an answer, refusal of a
 concurrent run.
+
+**The container image, end to end.** `docker build` from the repository's
+`Dockerfile`, then the documented sequence: `deerx user add` against a mounted
+workspace, the server started on `0.0.0.0`, and `GET /` answering 200 with
+`{"configured": true, "required": true}` — so the account created in the first
+container survived the volume into the second. The refusal path was exercised
+too: with no account, binding `0.0.0.0` stops the server rather than exposing
+it.
 
 **Bilingual.** That both languages cover every key with matching placeholders;
 that changing the language changes real messages (tool errors, agent hints,
@@ -150,6 +163,9 @@ needs a permanent guard, because nothing about it announces itself.
 | Malformed tool-call arguments entered the history | Re-read every turn, confusing the model further |
 | `enable_web = false` also disabled local preview | An agent could not open the application it had just written |
 | The i18n scanner ignored list literals | The setup-token banner stayed Turkish in an English install |
+| `.githooks/pre-push` was documented in five places but never existed | The stated replacement for CI ran nothing; git skips a missing hook without a word |
+| A record was dropped without killing the process tree | `alive` only watches the direct child, so a dead intermediate shell orphaned the real server — 115 of them had accumulated in one workspace, each holding a port |
+| The setup probe called `Embedder.encode`, which does not exist | `setup --with-embedding-model` never downloaded anything; the `AttributeError` was swallowed and shown as a download failure |
 
 ## Reproducing
 

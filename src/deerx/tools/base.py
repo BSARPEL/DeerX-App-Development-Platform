@@ -67,6 +67,13 @@ class ToolContext:
     # Kosu boyunca dusen adresler ve kac kez dustukleri. Bir modelin ayni
     # olu adresi on kez denedigi olculdu; harness bunu biliyorsa soylemeli.
     _failed_fetches: dict[str, int] = field(default_factory=dict)
+    # Kosuya ait konteyner; `run_command` ilk yalitilmis komutta kurar.
+    # Alan BURADA tanimli olmali: `shell.py` ve orkestrator ona disaridan
+    # yaziyordu ve bu yalnizca bu veri sinifinda `slots` KAPALI oldugu icin
+    # calisiyordu. Dosyadaki oteki veri siniflari `slots=True` kullaniyor;
+    # birinin bunu da eklediği gun `execution = "docker"` calisma
+    # zamaninda `AttributeError` ile kirilirdi.
+    _sandbox: Any = None
 
     # ------------------------------------------------------------------ #
     # Yol guvenligi

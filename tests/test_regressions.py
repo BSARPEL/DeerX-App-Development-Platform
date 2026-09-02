@@ -823,3 +823,109 @@ class TestTheWorkspaceCanBePinnedFromTheEnvironment:
             assert find_workspace() == alan.resolve()
         finally:
             os.chdir(onceki)
+
+
+@pytest.mark.slow
+def test_olu_kokun_torunlari_da_oldurulur(tmp_path: Path) -> None:
+    """Kok once oldugunde torunlar SONSUZA KADAR yasiyordu.
+
+    `Service.alive` yalnizca DOGRUDAN cocuga bakar. `shell=True` araya bir
+    kabuk koyar (`cmd.exe` / `/bin/sh`) ve asil sunucu onun torunudur. Ara
+    kabuk once olunce `alive` False oluyor, `reap()`/`forget()` kaydi
+    dusuruyor ve sunucu artik KIMSENIN TANIMADIGI bir surec olarak portu
+    tutmaya devam ediyordu. `taskkill /F /T /PID <olu>` ise "surec
+    bulunamadi" deyip torunlara hic bakmiyordu.
+
+    OLCULDU: tek bir test (`test_service_log_reports_a_dead_service_as_an_error`)
+    tek kosuda uc surec birakti. Bir calisma alaninda yuz on bes yetim
+    `http.server` sureci birikmisti -- her biri bir portu tutuyordu.
+
+    Yukaridaki `test_kill_tree_...` kokun YASADIGI durumu sinar; bu test
+    kokun OLDUGU durumu sinar. Sizinti yalnizca ikincisinde oluyordu.
+    """
+    import socket
+
+    from deerx.services import ServiceManager, port_open
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = int(s.getsockname()[1])
+
+    kod = (
+        "import http.server,socketserver;"
+        "print('hazir',flush=True);"
+        f"socketserver.TCPServer(('127.0.0.1',{port}),"
+        "http.server.SimpleHTTPRequestHandler).serve_forever()"
+    )
+    yonetici = ServiceManager(log_dir=tmp_path / "services")
+    try:
+        yonetici.start(
+            name="web", command=f'"{sys.executable}" -c "{kod}"',
+            cwd=tmp_path, port=port,
+        )
+        assert port_open(port), "duzenek bozuk: servis hic kalkmadi"
+
+        # Yalnizca DOGRUDAN cocugu oldur -- araya giren kabuk. Torun
+        # (gercek sunucu) yasamaya ve portu tutmaya devam eder.
+        yonetici.get("web").process.kill()
+        son = time.time() + 10
+        while time.time() < son and yonetici.get("web").alive:
+            time.sleep(0.15)
+        assert not yonetici.get("web").alive, "duzenek bozuk: dogrudan cocuk olmedi"
+        assert port_open(port), (
+            "duzenek bozuk: kabuk olunce sunucu da olmus, sizinti kosulu yok"
+        )
+
+        # Kaydin dusurulmesi torunu de goturmeli.
+        yonetici.reap()
+        assert "web" not in yonetici._services  # noqa: SLF001 - kaydin dustugu tek yer
+
+        son = time.time() + 10
+        while time.time() < son and port_open(port):
+            time.sleep(0.15)
+        assert not port_open(port), (
+            "yetim surec hayatta kaldi ve portu tutuyor: kayit dusuruldu ama "
+            "agac oldurulmedi"
+        )
+    finally:
+        yonetici.stop_all()
+
+
+def test_gomme_yoklamasi_var_olan_bir_metodu_cagirir(monkeypatch, tmp_path: Path) -> None:
+    """`deerx setup --with-embedding-model` modeli HIC indirmiyordu.
+
+    Adim `gomucu.encode([...])` cagiriyordu; `Embedder` protokolunde
+    `encode` diye bir metot YOK -- `embed_documents` ve `embed_query` var.
+    Cagri her seferinde `AttributeError` firlatiyor, ustundeki
+    `except Exception` onu yutuyor ve adim "uyari" olarak
+    isaretleniyordu. Yani:
+
+      * model indirilmiyordu (adimin varlik sebebi buydu -- ~2,2 GB'lik
+        ONNX indirmesini ilk indekslemede surprize birakmamak),
+      * kullanici bir INDIRME hatasi gordugunu saniyordu,
+      * ve indirme hic denenmedigi icin hata her zaman tekrar ediyordu.
+
+    Sessizce yanlis olmanin ders kitabi ornegi: her sey calisiyor gorunuyor,
+    yalnizca hicbir sey olmuyor.
+
+    Test gercek modeli INDIRMEZ; `build_embedder` yerine hash gomucusu
+    konur. Onemli olan cagrilan metodun var olmasi.
+    """
+    from deerx import setup as kurulum
+    from deerx.rag import embedder as gomme_modulu
+    from deerx.rag.embedder import HashEmbedder
+
+    monkeypatch.setattr(
+        gomme_modulu, "build_embedder", lambda rag: HashEmbedder(dim=rag.embedding_dim)
+    )
+
+    ayarlar = Settings(workspace=tmp_path)
+    ayarlar.rag.embedding_provider = "fastembed"
+    ayarlar.rag.embedding_dim = 384
+
+    adim = kurulum.gomme_modeli(ayarlar, indir=True)
+
+    assert adim.durum == "kuruldu", (
+        f"yoklama dustu: {adim.detay} -- `Embedder` uzerinde olmayan bir "
+        "metot cagriliyor ve hata yutuluyor"
+    )

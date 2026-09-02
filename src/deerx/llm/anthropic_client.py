@@ -20,16 +20,76 @@ from ..i18n import t
 from ..logging import EventLog, get_logger
 from .base import (
     HISTORY_SOFT_LIMIT,
+    KEEP_RECENT_IMAGES,
     KEEP_RECENT_MESSAGES,
     TRIM_PLACEHOLDER,
     LLMResult,
     ToolCall,
     ToolOutcome,
     UsageLedger,
+    read_image,
 )
 from .pricing import Usage, cost_usd
 
 log = get_logger("llm")
+
+
+def _gorsel_blogu(yol: Any) -> dict[str, Any] | None:
+    """Dosyayi Anthropic bicimindeki bir `image` bloguna cevirir.
+
+    Okuma ve sinirlar `llm.base.read_image` icinde: iki istemci de ayni
+    dosyalari ayni kurallarla okur, yalnizca bicimlendirme farklidir.
+    """
+    okunan = read_image(yol)
+    if okunan is None:
+        return None
+    tur, veri = okunan
+    return {
+        "type": "image",
+        "source": {"type": "base64", "media_type": tur, "data": veri},
+    }
+
+
+def _eski_gorselleri_dusur(messages: list[dict[str, Any]]) -> int:
+    """En yeni birkac goruntu disindakileri gecmisten dusurur.
+
+    Ise yarayan hep son goruntudur: on tur once alinan ekran goruntusu, o
+    zamandan beri degistirilmis bir arayuzu gosterir. Eskiler dusmezse
+    ayni megabaytlar her turda yeniden gonderilir.
+
+    Yapiyi bozmaz: `tool_result` blogu ve icindeki metin yerinde kalir,
+    yalnizca `image` bloklari cikar -- yani `tool_use` / `tool_result`
+    eslesmesine dokunulmaz.
+    """
+    gorulen = 0
+    dusen = 0
+    for mesaj in reversed(messages):
+        icerik = mesaj.get("content")
+        if not isinstance(icerik, list):
+            continue
+        for blok in icerik:
+            if not isinstance(blok, dict):
+                continue
+            govde = blok.get("content")
+            if blok.get("type") != "tool_result" or not isinstance(govde, list):
+                continue
+            kalan: list[Any] = []
+            blokdan_dusen = 0
+            for ic_blok in govde:
+                if not (isinstance(ic_blok, dict) and ic_blok.get("type") == "image"):
+                    kalan.append(ic_blok)
+                    continue
+                gorulen += 1
+                if gorulen <= KEEP_RECENT_IMAGES:
+                    kalan.append(ic_blok)
+                else:
+                    blokdan_dusen += 1
+            if blokdan_dusen:
+                dusen += blokdan_dusen
+                blok["content"] = kalan or [
+                    {"type": "text", "text": t("llm.screenshot_dropped")}
+                ]
+    return dusen
 
 # Adaptif dusunme ve `output_config.effort` destekleyen model aileleri.
 # Bu listede olmayan modellere (or. Haiku 4.5) bu parametreler gonderilmez.
@@ -289,20 +349,42 @@ class AnthropicClient:
     ) -> None:
         # Sonuclari ayri mesajlara bolmek modeli paralel arac kullanmaktan cayirir;
         # bu yuzden hepsi TEK bir kullanici mesajinda gonderilir.
-        messages.append(
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": outcome.call_id,
-                        "content": outcome.content or "(bos)",
-                        "is_error": outcome.is_error,
-                    }
-                    for outcome in outcomes
-                ],
+        #
+        # `outcome.images` BU METOTTA HIC ISLENMIYORDU. `ToolResult.images`
+        # "modelin GORMESI gereken dosyalar" diye tanimli, OpenAI istemcisi
+        # onlari gonderiyordu, burasi sessizce dusuruyordu: `provider =
+        # "anthropic"` ile kosan bir ajan `browser_screenshot` cagirdiginda
+        # modele yalnizca "kaydedildi" metni gidiyordu. Yani "yaptigini
+        # gorebilme" -- README'nin one cikardigi ozellik -- Claude'da
+        # calismiyordu, ustelik Claude goruyor.
+        #
+        # Sozlesme testi bunu yakalayamaz: metodun VARLIGINA bakiyor, ne
+        # yaptigina degil. Ortak okuma `llm.base.read_image` icinde durdu ki
+        # ayni ayrisma tekrar olmasin.
+        content: list[dict[str, Any]] = []
+        for outcome in outcomes:
+            gorseller = [
+                blok
+                for blok in (_gorsel_blogu(yol) for yol in outcome.images or [])
+                if blok is not None
+            ]
+            sonuc: dict[str, Any] = {
+                "type": "tool_result",
+                "tool_use_id": outcome.call_id,
+                "is_error": outcome.is_error,
             }
-        )
+            # Anthropic `tool_result` icinde metin VE goruntu blogu tasir;
+            # OpenAI'daki gibi ayri bir mesaja koymak gerekmiyor.
+            sonuc["content"] = (
+                [
+                    {"type": "text", "text": outcome.content or "(bos)"},
+                    *gorseller,
+                ]
+                if gorseller
+                else (outcome.content or "(bos)")
+            )
+            content.append(sonuc)
+        messages.append({"role": "user", "content": content})
 
     @staticmethod
     def trim_history(messages: list[dict[str, Any]]) -> int:
@@ -311,20 +393,38 @@ class AnthropicClient:
         Konusmanin yapisi (hangi arac ne zaman cagrildi) korunur; yalnizca
         hacimli gozlem metinleri dusurulur.
         """
+        # Goruntuler yumusak sinirdan BAGIMSIZ dusurulur: tek bir base64
+        # goruntu siniri kendi basina asar ve kirpma, asil sebep goruntuyken
+        # metni budamaya baslardi.
+        trimmed = _eski_gorselleri_dusur(messages)
+
         total = sum(len(str(m.get("content", ""))) for m in messages)
         if total <= HISTORY_SOFT_LIMIT or len(messages) <= KEEP_RECENT_MESSAGES:
-            return 0
+            return trimmed
 
         cutoff = len(messages) - KEEP_RECENT_MESSAGES
-        trimmed = 0
         for message in messages[1:cutoff]:
             content = message.get("content")
             if not isinstance(content, list):
                 continue
             for block in content:
-                if isinstance(block, dict) and block.get("type") == "tool_result":
-                    body = block.get("content", "")
-                    if isinstance(body, str) and len(body) > 400:
-                        block["content"] = TRIM_PLACEHOLDER.format(size=len(body))
-                        trimmed += 1
+                if not (isinstance(block, dict) and block.get("type") == "tool_result"):
+                    continue
+                body = block.get("content", "")
+                if isinstance(body, str) and len(body) > 400:
+                    block["content"] = TRIM_PLACEHOLDER.format(size=len(body))
+                    trimmed += 1
+                elif isinstance(body, list):
+                    # Goruntu tasiyan sonuc: metin blogu yine kirpilir.
+                    # Eskiden bu dal hic yoktu ve goruntulu bir arac ciktisi
+                    # ne kadar buyurse buyusun dokunulmadan kalirdi.
+                    for ic_blok in body:
+                        if (
+                            isinstance(ic_blok, dict)
+                            and ic_blok.get("type") == "text"
+                            and len(ic_blok.get("text", "")) > 400
+                        ):
+                            uzunluk = len(ic_blok["text"])
+                            ic_blok["text"] = TRIM_PLACEHOLDER.format(size=uzunluk)
+                            trimmed += 1
         return trimmed

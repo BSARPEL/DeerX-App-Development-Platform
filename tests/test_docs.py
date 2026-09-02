@@ -320,3 +320,29 @@ def test_the_documented_tool_total_matches_the_code() -> None:
             if int(sayi) != gercek:
                 yanlis.append(f"{yol.name}: '{m.group(0).strip()}' (kodda {gercek})")
     assert not yanlis, "belgelerdeki arac sayisi eskimis:\n  " + "\n  ".join(yanlis)
+
+
+def test_the_version_is_the_same_in_both_places() -> None:
+    """Surum iki yerde yaziyor ve ikisi ayrisabilir.
+
+    `pyproject.toml` tekerlegin adini ve PyPI kaydini belirler;
+    `deerx.__version__` ise calisan kurulumun kendisi hakkinda soyledigi
+    sey -- hata raporlarinda, `--version` ciktisinda ve destek
+    konusmalarinda gorunen sayi budur.
+
+    Ayrisirlarsa kimse fark etmez: ikisi de gecerli bir dize, hicbir sey
+    cokmez. Yalnizca kullanicinin bildirdigi surum, yayimlanan surum
+    olmaz -- ve hata hangi kodda arayacaginizi soylemek yerine yanlis
+    yere gonderir.
+    """
+    import tomllib
+
+    import deerx
+
+    with (KOK / "pyproject.toml").open("rb") as fh:
+        yazan = tomllib.load(fh)["project"]["version"]
+
+    assert deerx.__version__ == yazan, (
+        f"deerx.__version__ = {deerx.__version__!r}, "
+        f"pyproject.toml = {yazan!r}"
+    )

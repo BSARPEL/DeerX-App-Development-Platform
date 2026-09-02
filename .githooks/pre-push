@@ -1,0 +1,23 @@
+#!/usr/bin/env sh
+# Push oncesi denetim -- deponun TEK dogrulamasi.
+#
+# Kurulum (bir kez):
+#     git config core.hooksPath .githooks
+#
+# GitHub Actions is akisi 2026-09-02'de kaldirildi. Push'tan sonra hicbir
+# sey kosmuyor, yani kirik bir push burada yakalanir ya da hic yakalanmaz.
+#
+# Git bu kancayi `<uzak> <url>` argumanlariyla cagirir ve bunlar denetime
+# GECIRILMEZ. Olculdu: `check.sh` bilinmeyen secenekleri reddetmeye
+# baslayinca (bilerek -- `--fasst` yazan biri hizli kostugunu sanmasin)
+# kanca "Bilinmeyen secenek: origin" ile HER push'u dusurdu. Dogru cozum
+# katiligi geri almak degil, argumanlari burada birakmakti.
+#
+# Aceleniz varsa:  git push --no-verify
+set -e
+
+cd "$(dirname "$0")/.."
+
+printf '== push oncesi denetim (atlamak icin: git push --no-verify)\n\n'
+
+./scripts/check.sh

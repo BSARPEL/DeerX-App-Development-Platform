@@ -1,0 +1,40 @@
+# Derleme baglamina girmemesi gerekenler.
+#
+# `.env` en basta: imaja kopyalanan bir anahtar, imaji alan herkese gider
+# ve `docker history` ile geri okunur.
+.env
+.env.*
+!.env.example
+
+# Sanal ortamlar konagin platformuna baglidir; imajda yeniden kurulur.
+.venv/
+.venv-*/
+.fastembed_cache/
+
+# Calisma alanlari: dev makinesindeki bir proje imaja girmemeli.
+demo/
+.deerx/
+.deerx-kb/
+.praxis/
+
+# Git gecmisi imajda ise yaramaz ve baglami buyutur.
+.git/
+.gitignore
+.gitattributes
+
+# Onbellekler ve derleme artiklari.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+*.egg-info/
+
+# Yerel sunucu ayarlari (surum kontrolunde de yok).
+scripts/deerx.local.conf
+
+# Belge gorselleri: 18 ekran goruntusu, calisma zamaninda kullanilmiyor.
+docs/images/
+assets/

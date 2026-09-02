@@ -272,15 +272,22 @@ class ServiceManager:
         service = self._services.get(name)
         if service is None:
             return False
-        if service.alive:
-            kill_tree(service.pid)
-            if self.sandbox is not None:
-                # Yerel `docker exec` istemcisini oldurmek konteynerdeki
-                # sureci OLDURMEZ; yoksa port dolu kalir ve ajan "port
-                # kullanimda" hatasini anlamlandiramaz.
-                self.sandbox.ic_oldur(
-                    f"{self.sandbox.ic_yol(self.log_dir)}/{_safe(name)}.pid"
-                )
+        canliydi = service.alive
+        # Agac KOSULSUZ oldurulur. `alive` yalnizca DOGRUDAN cocuga bakar ve
+        # bu, temizligi atlamak icin yeterli bir gerekce degil: `shell=True`
+        # araya bir kabuk koyar, asil sunucu onun torunudur. Kabuk once
+        # olunce `alive` False oluyor, temizlik tumden atlaniyor ve sunucu
+        # portu tutmaya devam ediyordu -- olculdu, tek test kosusu iki
+        # surec birakti.
+        kill_tree(service.pid)
+        if self.sandbox is not None:
+            # Yerel `docker exec` istemcisini oldurmek konteynerdeki
+            # sureci OLDURMEZ; yoksa port dolu kalir ve ajan "port
+            # kullanimda" hatasini anlamlandiramaz.
+            self.sandbox.ic_oldur(
+                f"{self.sandbox.ic_yol(self.log_dir)}/{_safe(name)}.pid"
+            )
+        if canliydi:
             try:
                 service.process.wait(timeout=10)
             except Exception:  # noqa: BLE001 - agac zaten olmus olabilir
@@ -298,8 +305,17 @@ class ServiceManager:
         return durdurulan
 
     def forget(self, name: str) -> None:
-        """Kaydi siler (surec zaten olmus)."""
-        self._services.pop(name, None)
+        """Kaydi siler ve arkada kalmis torunlari oldurur.
+
+        "Surec zaten olmus" tek basina YETERLI bir gerekce degildi:
+        `alive` yalnizca DOGRUDAN cocuga bakar. `shell=True` araya bir
+        kabuk koyar ve asil sunucu onun torunudur; kabuk once oldugunde
+        kayit dusuruluyor, sunucu ise portu tutmaya devam ediyordu ve
+        artik onu kimse tanimadigi icin hicbir sey kapatamiyordu.
+        """
+        service = self._services.pop(name, None)
+        if service is not None:
+            kill_tree(service.pid)
 
     def reap(self) -> None:
         """Kendiliginden olmus servisleri kayittan dusurur."""
@@ -310,7 +326,8 @@ class ServiceManager:
                     "service",
                     t("service.died", name=name, code=service.exit_code),
                 )
-                self._services.pop(name, None)
+                # `forget` uzerinden: kayit dusmeden once agac oldurulur.
+                self.forget(name)
 
     # ------------------------------------------------------------------ #
     # Sorgu

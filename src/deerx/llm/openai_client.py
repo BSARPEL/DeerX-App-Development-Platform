@@ -25,12 +25,16 @@ from ..i18n import t
 from ..logging import EventLog, get_logger
 from .base import (
     HISTORY_SOFT_LIMIT,
+    IMAGE_TOKEN_ESTIMATE,
+    KEEP_RECENT_IMAGES,
     KEEP_RECENT_MESSAGES,
+    MAX_IMAGE_BYTES,
     TRIM_PLACEHOLDER,
     LLMResult,
     ToolCall,
     ToolOutcome,
     UsageLedger,
+    read_image,
 )
 from .pricing import Usage, cost_usd
 
@@ -150,33 +154,24 @@ def _valid_tool_calls(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return safe
 
 
-# Bir ekran goruntusu base64'e cevrildiginde uc kat buyur. Sinirsiz
-# birakmak baglami birkac goruntude doldurur; asan goruntu SESSIZCE
-# atlanmaz, modele metinle bildirilir.
-MAX_GORSEL_BAYT = 4 * 1024 * 1024
-
-_ICERIK_TURU = {
-    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-    ".gif": "image/gif", ".webp": "image/webp",
-}
+# Sinir ve tur listesi `llm.base` icinde; iki istemci de ayni kurallara
+# uymali. Ad geriye donuk birakiliyor: testler bunu ice aktariyor.
+MAX_GORSEL_BAYT = MAX_IMAGE_BYTES
 
 
 def _gorsel_blogu(yol: Any) -> dict[str, Any] | None:
-    """Dosyayi OpenAI biciminde bir `image_url` bloguna cevirir."""
-    import base64
-    from pathlib import Path
+    """Dosyayi OpenAI biciminde bir `image_url` bloguna cevirir.
 
-    p = Path(yol)
-    tur = _ICERIK_TURU.get(p.suffix.lower())
-    if tur is None or not p.is_file():
+    Okuma ve sinirlar `llm.base.read_image` icinde: iki istemci de ayni
+    dosyalari ayni kurallarla okumali, yalnizca bicimlendirme farkli.
+    """
+    okunan = read_image(yol)
+    if okunan is None:
         return None
-    veri = p.read_bytes()
-    if len(veri) > MAX_GORSEL_BAYT:
-        log.warning("Gorsel cok buyuk, gonderilmedi: %s (%d bayt)", p.name, len(veri))
-        return None
+    tur, veri = okunan
     return {
         "type": "image_url",
-        "image_url": {"url": f"data:{tur};base64,{base64.b64encode(veri).decode()}"},
+        "image_url": {"url": f"data:{tur};base64,{veri}"},
     }
 
 
@@ -190,6 +185,67 @@ def _gorsel_reddi_mi(exc: Exception) -> bool:
     metin = str(exc).lower()
     isaretler = ("image", "vision", "multimodal", "image_url", "not supported")
     return any(i in metin for i in isaretler)
+
+
+def _gorselsiz_kopya(
+    messages: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """Goruntu bloklarini dusuren bir KOPYA ve dusurulen goruntu sayisi.
+
+    Kopya sart: bu yalnizca TAHMIN icin kullaniliyor, gonderilecek
+    mesajlar dokunulmadan kalmali.
+    """
+    kopya: list[dict[str, Any]] = []
+    sayi = 0
+    for mesaj in messages:
+        icerik = mesaj.get("content")
+        if not isinstance(icerik, list):
+            kopya.append(mesaj)
+            continue
+        kalan = []
+        for blok in icerik:
+            if isinstance(blok, dict) and blok.get("type") == "image_url":
+                sayi += 1
+                continue
+            kalan.append(blok)
+        kopya.append({**mesaj, "content": kalan})
+    return kopya, sayi
+
+
+def _eski_gorselleri_dusur(messages: list[dict[str, Any]]) -> int:
+    """En yeni birkac goruntu disindakileri gecmisten dusurur.
+
+    Ekran goruntusu ajanin KENDI isini gormesi icin var ve ise yarayan
+    hep sonuncusudur: on tur once alinan goruntu, o zamandan beri
+    degistirdigi bir arayuzu gosterir. Eskiler dusmezse ayni megabaytlar
+    her turda yeniden gonderilir -- tek bir QA fazi on ekran goruntusu
+    alabiliyor ve hepsi kosunun sonuna kadar gecmiste kaliyordu.
+
+    Yapiyi bozmaz: goruntu blogu cikar, mesajin metni yerinde kalir.
+    """
+    gorulen = 0
+    dusen = 0
+    for mesaj in reversed(messages):
+        icerik = mesaj.get("content")
+        if not isinstance(icerik, list):
+            continue
+        kalan: list[Any] = []
+        mesajdan_dusen = 0
+        for blok in icerik:
+            if not (isinstance(blok, dict) and blok.get("type") == "image_url"):
+                kalan.append(blok)
+                continue
+            gorulen += 1
+            if gorulen <= KEEP_RECENT_IMAGES:
+                kalan.append(blok)
+            else:
+                mesajdan_dusen += 1
+        if mesajdan_dusen:
+            dusen += mesajdan_dusen
+            mesaj["content"] = kalan or [
+                {"type": "text", "text": t("llm.screenshot_dropped")}
+            ]
+    return dusen
 
 
 def _gorselleri_cikar(messages: list[dict[str, Any]]) -> None:
@@ -389,12 +445,30 @@ class OpenAICompatibleClient:
 
     @staticmethod
     def _estimate_input(payload: dict[str, Any]) -> int:
-        """Istegin girdi tarafi icin karamsar token tahmini."""
+        """Istegin girdi tarafi icin karamsar token tahmini.
+
+        Goruntuler METIN OLARAK SAYILMAZ. Saglayici bir goruntuyu base64
+        uzunluguna gore degil alanina gore fiyatlar; base64'u metin
+        saymak yuzlerce kat sismis bir tahmin uretiyordu.
+
+        OLCULDU: 1 MB'lik tek bir ekran goruntusu 559.816 token tahmin
+        ettiriyordu, gercek maliyeti ~1.600. 262K pencereli bir uctan
+        `room` negatife dusuyor ve `_fit_output` kosuyu
+        `context_overflow` ile olduruyordu -- yani ajanin ILK ekran
+        goruntusu kosuyu bitiriyor, ustelik hata baglamin gercekten
+        dolduugunu soyluyordu. Tam da "yaptigini gorebilme" ozelliginin
+        en cok ise yaradigi anda.
+        """
+        gorselsiz, gorsel_sayisi = _gorselsiz_kopya(payload.get("messages", []))
         text = json.dumps(
-            [payload.get("messages", []), payload.get("tools", [])],
+            [gorselsiz, payload.get("tools", [])],
             ensure_ascii=False,
         )
-        return int(len(text) / _CHARS_PER_TOKEN) + _FORMAT_OVERHEAD_TOKENS
+        return (
+            int(len(text) / _CHARS_PER_TOKEN)
+            + gorsel_sayisi * IMAGE_TOKEN_ESTIMATE
+            + _FORMAT_OVERHEAD_TOKENS
+        )
 
     def _fit_output(self, payload: dict[str, Any], ceiling: int, model: str) -> int:
         """Uretim tavanini pencereye sigdirir.
@@ -615,12 +689,16 @@ class OpenAICompatibleClient:
 
     @staticmethod
     def trim_history(messages: list[dict[str, Any]]) -> int:
+        # Goruntuler yumusak sinirdan BAGIMSIZ dusurulur. Sinir karakter
+        # sayar ve tek bir base64 goruntu onu tek basina asar; o zaman
+        # kirpma, asil sebep goruntuyken metni budamaya baslardi.
+        trimmed = _eski_gorselleri_dusur(messages)
+
         total = sum(len(str(m.get("content", "") or "")) for m in messages)
         if total <= HISTORY_SOFT_LIMIT or len(messages) <= KEEP_RECENT_MESSAGES:
-            return 0
+            return trimmed
 
         cutoff = len(messages) - KEEP_RECENT_MESSAGES
-        trimmed = 0
         for message in messages[1:cutoff]:
             if message.get("role") != "tool":
                 continue

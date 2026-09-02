@@ -111,7 +111,13 @@ def _read_docx(path: Path) -> tuple[str, dict[str, Any]]:
         text = para.text.strip()
         if not text:
             continue
-        style = (para.style.name or "").lower()
+        # `para.style` None OLABILIR: stil tanimi eksik ya da bozuk bir
+        # belgede python-docx bunu None dondurur. `para.style.name` o zaman
+        # AttributeError firlatir; `ingest_file` onu yakalar ama dosyanin
+        # TAMAMI indekslenmemis sayilir -- tek bir stilsiz paragraf yuzunden
+        # butun sartname kaybolur.
+        stil = para.style
+        style = (getattr(stil, "name", None) or "").lower()
         if style.startswith("heading"):
             # Word basliklarini markdown basligina cevir; parcalayici bunu kullanir.
             level = "".join(ch for ch in style if ch.isdigit()) or "1"

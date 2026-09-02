@@ -331,7 +331,14 @@ def gomme_modeli(settings: Settings, *, indir: bool) -> Adim:
         from .rag.embedder import build_embedder
 
         gomucu = build_embedder(settings.rag)
-        gomucu.encode(["deerx kurulum yoklamasi"])
+        # `encode` diye bir metot YOK -- `Embedder` protokolu
+        # `embed_documents` / `embed_query` tanimlar. Cagri her seferinde
+        # AttributeError firlatiyordu ve asagidaki `except Exception` onu
+        # yutup adimi "uyari" olarak gosteriyordu: model INDIRILMEDEN
+        # indirme basarisiz gorunuyordu. Yani bu adimin tek isi -- ilk
+        # kosuda 23 dakikalik ONNX indirmesini surprize birakmamak --
+        # hicbir zaman yapilmadi ve hata bir indirme sorunu gibi okundu.
+        gomucu.embed_documents(["deerx kurulum yoklamasi"])
     except Exception as exc:  # noqa: BLE001 - indirme cesitli sekilde dusebilir
         return Adim("step.embedder", "uyari", str(exc)[:120])
     return Adim("step.embedder", "kuruldu", settings.rag.embedding_model)

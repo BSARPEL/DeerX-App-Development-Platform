@@ -142,3 +142,221 @@ class TestCagriYerineBagli:
             "browser_screenshot goruntuyu sonuca eklemiyor; model yine "
             "yalnizca 'kaydedildi' gorur"
         )
+
+
+class TestAnthropicDeGonderir:
+    """Anthropic istemcisi goruntuleri HIC islemiyordu.
+
+    `ToolResult.images` "modelin GORMESI gereken dosyalar" diye tanimli.
+    OpenAI istemcisi onlari gonderiyordu; `AnthropicClient.append_tool_results`
+    alani hic okumuyordu. Yani `provider = "anthropic"` ile kosan bir ajan
+    `browser_screenshot` cagirdiginda modele yalnizca "kaydedildi" metni
+    gidiyordu -- Claude goruyor olmasina ragmen.
+
+    Bu dosyanin kendisi eksigin bir parcasiydi: butun testler OpenAI
+    istemcisine bakiyordu. `architecture.md` tam olarak bu tuzagi tarif
+    ediyor, ve sozlesme testi yakalayamaz cunku metodun VARLIGINA bakiyor,
+    ne yaptigina degil.
+    """
+
+    @staticmethod
+    def _ekle(images):
+        from deerx.llm.anthropic_client import AnthropicClient
+
+        mesajlar = []
+        AnthropicClient.append_tool_results(
+            AnthropicClient.__new__(AnthropicClient),
+            mesajlar,
+            [
+                ToolOutcome(
+                    call_id="t1",
+                    name="browser_screenshot",
+                    content="ekran.png kaydedildi",
+                    images=images,
+                )
+            ],
+        )
+        return mesajlar
+
+    def test_the_image_reaches_the_model(self, tmp_path):
+        sonuc = self._ekle([_png(tmp_path)])[0]["content"][0]
+        assert sonuc["type"] == "tool_result"
+        turler = [b["type"] for b in sonuc["content"]]
+        assert "image" in turler, (
+            "goruntu tool_result icine konmamis; model ekrani goremez"
+        )
+        gorsel = next(b for b in sonuc["content"] if b["type"] == "image")
+        assert gorsel["source"]["type"] == "base64"
+        assert gorsel["source"]["media_type"] == "image/png"
+        assert gorsel["source"]["data"]
+
+    def test_the_text_travels_with_it(self, tmp_path):
+        """Goruntu metnin YERINE gecmemeli: ajan dosya adini da gorur."""
+        sonuc = self._ekle([_png(tmp_path)])[0]["content"][0]
+        metinler = [b["text"] for b in sonuc["content"] if b["type"] == "text"]
+        assert metinler == ["ekran.png kaydedildi"]
+
+    def test_without_an_image_the_shape_is_unchanged(self):
+        """Goruntusuz sonuc duz metin kalmali; her sonucu listeye cevirmek
+        gereksiz bir bicim degisikligi olurdu."""
+        sonuc = self._ekle([])[0]["content"][0]
+        assert sonuc["content"] == "ekran.png kaydedildi"
+
+    def test_an_unreadable_image_does_not_break_the_result(self, tmp_path):
+        """Silinmis ya da cok buyuk bir dosya sonucu dusurmemeli."""
+        sonuc = self._ekle([tmp_path / "yok.png"])[0]["content"][0]
+        assert sonuc["content"] == "ekran.png kaydedildi"
+
+
+class TestGoruntuTokenTahmini:
+    """Tek bir ekran goruntusu kosuyu olduruyordu.
+
+    `_estimate_input` mesajlari JSON'a cevirip KARAKTER sayiyordu ve
+    base64 bir goruntu devasa bir dizedir. Saglayici goruntuyu base64
+    uzunluguna gore degil ALANINA gore fiyatlar.
+
+    OLCULDU: 1 MB'lik bir PNG icin tahmin 559.816 token, gercek maliyeti
+    ~1.600. 262K pencereli bir uctan `room` negatife dusuyor ve
+    `_fit_output` `context_overflow` firlatiyordu -- yani ajanin ILK
+    ekran goruntusu kosuyu bitiriyordu, ustelik hata baglamin gercekten
+    dolduugunu soyluyordu.
+    """
+
+    @staticmethod
+    def _goruntulu_payload(ham_bayt):
+        import base64
+
+        b64 = base64.b64encode(b"\x00" * ham_bayt).decode()
+        return {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "ekran goruntusu ekte"},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/png;base64,{b64}"},
+                        },
+                    ],
+                }
+            ],
+            "tools": [],
+        }
+
+    def test_a_megabyte_image_does_not_fill_the_window(self):
+        tahmin = OpenAICompatibleClient._estimate_input(
+            self._goruntulu_payload(1024 * 1024)
+        )
+        assert tahmin < 10_000, (
+            f"{tahmin:,} token tahmin edildi; base64 hala metin olarak "
+            "sayiliyor ve tek goruntu 262K'lik pencereyi tasiriyor"
+        )
+
+    def test_the_estimate_does_not_grow_with_the_file(self):
+        """Goruntunun maliyeti alanina bagli, bayt sayisina degil."""
+        kucuk = OpenAICompatibleClient._estimate_input(
+            self._goruntulu_payload(200 * 1024)
+        )
+        buyuk = OpenAICompatibleClient._estimate_input(
+            self._goruntulu_payload(2 * 1024 * 1024)
+        )
+        assert kucuk == buyuk
+
+    def test_text_is_still_counted(self):
+        """Duzeltme metni saymayi birakmamali."""
+        az = OpenAICompatibleClient._estimate_input(
+            {"messages": [{"role": "user", "content": "kisa"}], "tools": []}
+        )
+        cok = OpenAICompatibleClient._estimate_input(
+            {"messages": [{"role": "user", "content": "x" * 100_000}], "tools": []}
+        )
+        assert cok > az + 20_000
+
+    def test_the_payload_is_not_mutated(self):
+        """Tahmin, gonderilecek mesajlara dokunmamali."""
+        payload = self._goruntulu_payload(1024)
+        OpenAICompatibleClient._estimate_input(payload)
+        turler = [b["type"] for b in payload["messages"][0]["content"]]
+        assert "image_url" in turler
+
+
+class TestEskiGoruntulerDusuyor:
+    """Goruntuler gecmiste sinirsiz birikiyordu.
+
+    Iki kirpicinin ikisi de goruntulere dokunmuyordu: OpenAI tarafi
+    yalnizca `role: "tool"` mesajlarini, Anthropic tarafi yalnizca metin
+    icerikli `tool_result` bloklarini kirpiyordu. Bir QA fazi on ekran
+    goruntusu alabiliyor ve hepsi kosunun sonuna kadar her turda yeniden
+    gonderiliyordu.
+    """
+
+    def test_openai_keeps_only_the_recent_ones(self):
+        from deerx.llm.base import KEEP_RECENT_IMAGES
+
+        def gorsel_mesaji(n):
+            return {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": f"goruntu {n}"},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{n}"},
+                    },
+                ],
+            }
+
+        mesajlar = [gorsel_mesaji(i) for i in range(6)]
+        OpenAICompatibleClient.trim_history(mesajlar)
+
+        kalan = sum(
+            1 for m in mesajlar for b in m["content"] if b["type"] == "image_url"
+        )
+        assert kalan == KEEP_RECENT_IMAGES
+        # Kalanlar EN YENILER olmali.
+        assert any(b["type"] == "image_url" for b in mesajlar[-1]["content"])
+        # Metin yerinde kalmali; bos icerik istegi bozardi.
+        assert all(m["content"] for m in mesajlar)
+
+    def test_anthropic_keeps_only_the_recent_ones(self):
+        from deerx.llm.anthropic_client import AnthropicClient
+        from deerx.llm.base import KEEP_RECENT_IMAGES
+
+        def sonuc_mesaji(n):
+            return {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": f"t{n}",
+                        "content": [
+                            {"type": "text", "text": f"ekran{n}.png kaydedildi"},
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/png",
+                                    "data": str(n),
+                                },
+                            },
+                        ],
+                    }
+                ],
+            }
+
+        mesajlar = [sonuc_mesaji(i) for i in range(6)]
+        AnthropicClient.trim_history(mesajlar)
+
+        kalan = sum(
+            1
+            for m in mesajlar
+            for blok in m["content"]
+            for ic in blok["content"]
+            if isinstance(ic, dict) and ic.get("type") == "image"
+        )
+        assert kalan == KEEP_RECENT_IMAGES
+        # `tool_result` bloklari ve `tool_use_id`leri yerinde kalmali:
+        # eslesmeyi bozmak istegi kalici olarak dusururdu.
+        assert all(
+            m["content"][0]["type"] == "tool_result" and m["content"][0]["tool_use_id"]
+            for m in mesajlar
+        )

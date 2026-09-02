@@ -59,7 +59,7 @@ embed = ["fastembed>=0.5"]
 browser = [
     "playwright>=1.49",
 ]
-dev = ["pytest>=8.3", "anyio>=4.6", "ruff>=0.8"]
+dev = ["pytest>=8.3", "pytest-timeout>=2.3", "anyio>=4.6", "ruff>=0.8", "mypy>=1.13"]
 all = ["deerx[embed,browser,dev]"]
 
 [project.urls]
@@ -97,3 +97,49 @@ pythonpath = ["src", "."]
 markers = [
     "slow: gercek surec baslatip bekleyen test (toplam ~26 s)",
 ]
+# Tek bir testin asilmasi butun suiti sureisiz bloke ediyordu ve bu suit
+# GERCEK surec baslatiyor: port dinleyen bir sunucu, `docker exec`, kabuk
+# komutlari. Asili kalan bir kosu, dusen bir kosudan daha kotu -- kimse
+# neyin bekledigini bilmiyor. En yavas test 8 saniye, en uzun `slow`
+# testi ~20 saniye; 300 saniye yalnizca gercekten takilani keser.
+timeout = 300
+
+[tool.mypy]
+# Kod bastan sona anotasyonlu (`from __future__ import annotations`,
+# `Protocol`, `StrEnum`, `dataclass(slots=True)`) ama hicbir tip
+# denetleyicisi KOSMUYORDU: `mypy` yalnizca kabuk izin listesinde ve
+# `.mypy_cache` haric tutmalarinda geciyordu. Yazilan disiplinin
+# karsiligi alinmiyordu.
+#
+# Ilk kosuda 72 hata cikti ve bunlardan biri GERCEK bir kusurdu:
+# `setup.py` gomme yoklamasinda var olmayan `Embedder.encode` metodunu
+# cagiriyor, hata yutuluyor ve model hic indirilmiyordu. Duzeltildi
+# (bkz. `test_gomme_yoklamasi_var_olan_bir_metodu_cagirir`).
+#
+# HENUZ BIR KAPI DEGIL: `check.sh` bunu kosturmuyor cunku 28 hata
+# duruyor. Gecmeyen bir denetimi kapiya koymak, kapinin ilk gunden
+# yok sayilmasi demektir. Temel cizgi burada kayitli; sifira inince
+# `check.sh`e eklenmeli.
+#
+#     uv run mypy src/deerx
+#
+# `python_version` BILEREK sabitlenmedi: 3.11'e sabitlemek numpy'nin
+# kendi stub'ini `Type statement is only supported in 3.12+` ile
+# dusuruyor ve denetim hicbir sey kontrol etmeden bitiyor.
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# `Tool.run` TASARIM GEREGI degisken imzalidir: taban sinif
+# `run(self, ctx, **kwargs)` der, her arac kendi JSON semasini
+# yansitan adlandirilmis parametreler tanimlar. Kayit defteri cagriyi
+# `**arguments` ile yapar ve uyusmazligi `TypeError` yakalayip modele
+# geri bildirir. Liskov ihlali burada bilincli bir tercih.
+module = "deerx.tools.*"
+disable_error_code = ["override"]
+
+[[tool.mypy.overrides]]
+# `Phase.index` ve `Phase.label` `StrEnum` uzerinden `str.index`i
+# golgeliyor. Faz sirasini soran bir ozellik ile alt dizi arayan bir
+# metodun ayni ada sahip olmasi talihsiz ama davranis dogru.
+module = "deerx.pipeline.models"
+disable_error_code = ["override"]

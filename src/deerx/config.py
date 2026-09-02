@@ -72,6 +72,17 @@ class ShellPolicy(BaseModel):
         "findstr", "type", "dir", "where", "more",
         # Kosullarin yapitaslari: hicbiri yan etki uretmez.
         "true", "false", "test",
+        # Kabuk yerlesikleri. Yalnizca kabugun KENDI durumunu degistirir;
+        # tek baslarina hicbir sey yapmazlar ve baslattiklari her komut
+        # zaten bu listeden gecer.
+        #
+        # Bunlar, yeni satirin ayrac sayilmaya baslamasiyla birlikte
+        # gerekli oldu: eskiden cok satirli bir betikte yalnizca ILK
+        # satirin adi denetleniyordu, artik hepsi deneteniyor. `cd`
+        # olmadan `cd src` ile baslayan siradan bir betik reddedilirdi --
+        # ve bu kod tabani yanlis alarmin bedelini biliyor: `shutdown`
+        # deseninde yedi ornekten dordu yanlis alarmdi.
+        "cd", "pwd", "export", "unset", "exit", "set",
         # Metin araclari: grep zaten izinliydi, bunlar ayni sinif.
         "sed", "awk", "sort", "uniq", "cut", "diff", "tr",
             "docker", "make", "go", "cargo",

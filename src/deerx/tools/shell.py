@@ -22,7 +22,10 @@ from ..i18n import t
 from ..process import child_env, kill_tree, spawn_flags
 from .base import Tool, ToolContext, ToolResult
 
-_CHAIN_TOKENS = ("&&", "||", ";", "|", "`", "$(")
+# Onay ekraninda "zincirlenmis" uyarisini tetikleyen isaretler. Yeni satir
+# da buradadir: cok satirli bir komut bash'e verildiginde her satir ayri bir
+# komuttur ve kullanici bunu gorerek onaylamalidir.
+_CHAIN_TOKENS = ("&&", "||", ";", "|", "`", "$(", "\n")
 
 # Yeni bir komut baslatan operatorler.
 _SEPARATORS = {"&&", "||", ";", "|", "&"}
@@ -46,8 +49,73 @@ _KEYWORDS_WORDLIST = frozenset({"for", "case", "select", "in"})
 _WORDLIST_END = frozenset({"do", "then", "in"})
 
 
+def _mantiksal_satirlar(command: str) -> list[str]:
+    """Komutu, TIRNAK DISINDA kalan yeni satirlardan boler.
+
+    Yeni satir bir komut ayracidir ve politika onu GORMUYORDU. `shlex`
+    yeni satiri bosluk sayar, dolayisiyla ikinci satirin ilk sozcugu
+    komut degil, birincinin argumani gibi gorunuyordu:
+
+        python -c "print(1)"
+        whoami
+
+    burada yalnizca `python` denetleniyordu. Komut cok satirli oldugu
+    icin `_needs_real_shell` onu bir betige yazip bash'e veriyor ve bash
+    IKI komutu da calistiriyordu.
+
+    OLCULDU: izin listesinde olmayan `whoami` tek basina reddedilirken,
+    izinli bir satirin ardina konuldugunda calisti ve ciktisini dondurdu.
+    `approval_mode = "auto"` kipinde -- otomasyon icin belgelenen ve MCP
+    ornek yapilandirmasinda kullanilan kip -- izin listesi tek bariyerdi.
+
+    Tirnak icindeki yeni satir BOLMEZ: `python -c "import x\\nprint(1)"`
+    tek bir komuttur ve bolunmesi mesru kullanimi reddederdi -- bu kod
+    tabani cok satirli komut destegini tam da onun icin ekledi.
+
+    Ters bolu KACIS SAYILMAZ: Windows yollari (`C:\\Users\\x`) burada
+    olagan ve `shlex` de ayni sebeple `posix=False` kullaniyor. Bunun tek
+    etkisi satir devami (`\\` + yeni satir) icin fazladan bolmek, yani
+    fazladan denetlemek -- guvenli yon.
+    """
+    satirlar: list[str] = []
+    mevcut: list[str] = []
+    tirnak: str | None = None
+
+    for karakter in command:
+        if tirnak is not None:
+            if karakter == tirnak:
+                tirnak = None
+            mevcut.append(karakter)
+            continue
+        if karakter in "\"'":
+            tirnak = karakter
+            mevcut.append(karakter)
+            continue
+        if karakter == "\n":
+            satirlar.append("".join(mevcut))
+            mevcut = []
+            continue
+        mevcut.append(karakter)
+
+    satirlar.append("".join(mevcut))
+    return [s for s in (satir.strip() for satir in satirlar) if s]
+
+
 def _command_heads(command: str) -> list[str]:
-    """Zincirlenmis komutlardaki her segmentin calistirilabilir adini doner.
+    """Komuttaki her segmentin calistirilabilir adini doner.
+
+    Segment = tirnak disi yeni satirlarla ve kabuk operatorleriyle
+    ayrilan her parca. Ikisi de sayilmali: bash ikisini de ayri komut
+    olarak calistirir.
+    """
+    heads: list[str] = []
+    for satir in _mantiksal_satirlar(command):
+        heads.extend(_satir_headleri(satir))
+    return heads
+
+
+def _satir_headleri(command: str) -> list[str]:
+    """Tek bir satirdaki zincirlenmis komutlarin adlari.
 
     Duz `split(";")` kullanmak tirnak icindeki noktali virgulu de sinir sayardi;
     `python -c "import sys; sys.exit(1)"` gibi tamamen mesru komutlar bu yuzden

@@ -139,6 +139,10 @@ allow_prefixes = [
     "findstr", "type", "dir", "where", "more",
     # Kosullarin yapitaslari: hicbiri yan etki uretmez.
     "true", "false", "test",
+    # Kabuk yerlesikleri: yalnizca kabugun kendi durumunu degistirir ve
+    # baslattiklari her komut zaten bu listeden gecer. Cok satirli bir
+    # betikte HER satir denetlendigi icin gerekli.
+    "cd", "pwd", "export", "unset", "exit", "set",
     # Metin araclari: grep zaten izinliydi, bunlar ayni sinif.
     "sed", "awk", "sort", "uniq", "cut", "diff", "tr",
     "docker", "make", "go", "cargo",

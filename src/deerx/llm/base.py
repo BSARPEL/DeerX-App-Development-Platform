@@ -120,6 +120,69 @@ KEEP_RECENT_MESSAGES = 12
 # Kirpilan bir arac ciktisinin yerine yazilan metin.
 TRIM_PLACEHOLDER = "[eski arac ciktisi kirpildi — {size:,} karakter]"
 
+# Gecmiste tutulan azami goruntu sayisi. Ekran goruntusu ajanin kendi
+# isini gormesi icin var ve ise yarayan HEP SONUNCUSUDUR: on tur once
+# alinan goruntu, o zamandan beri degisen bir arayuzu gosterir. Sinirsiz
+# birakmak her turda megabaytlarca base64'u tekrar tekrar gondermek
+# demekti.
+KEEP_RECENT_IMAGES = 2
+
+# ---------------------------------------------------------------------- #
+# Goruntuler
+#
+# Iki istemci de ayni dosyalari okur ve ayni sinirlara uyar; yalnizca
+# bicimlendirme farklidir (OpenAI `image_url`, Anthropic `image` blogu).
+# Ortak parca BURADA duruyor cunku ayri ayri yazildiginda tam olarak
+# beklenen sey oldu: OpenAI tarafi goruntuleri gonderiyordu, Anthropic
+# tarafi hic islemiyordu ve `browser_screenshot` sessizce metne
+# donusuyordu -- sozlesme testi metodun VARLIGINA bakiyor, ne yaptigina
+# degil.
+# ---------------------------------------------------------------------- #
+
+# Base64 bir goruntuyu uc kat sisirir; sinirsiz birakmak baglami tek
+# dosyada doldurur.
+MAX_IMAGE_BYTES = 4 * 1024 * 1024
+
+IMAGE_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+# Bir goruntunun token maliyeti icin karamsar ust sinir.
+#
+# Saglayicilar goruntuyu BAYT olarak degil ALAN olarak fiyatlar
+# (kabaca genislik*yukseklik/750) ve girdiyi ~1,15 megapiksele indirger,
+# yani tek bir goruntu bu tavani pratikte asmaz.
+#
+# OLCULDU: base64 metnini token sayan tahmin, 1 MB'lik tek bir ekran
+# goruntusu icin 559.816 token cikariyordu; gercek maliyeti ~1.600.
+# 262K pencereli bir ucta bu, ILK ekran goruntusunde kosuyu
+# `context_overflow` ile oldurmek demekti -- ve hata mesaji baglamin
+# gercekten dolduugunu soyluyordu.
+IMAGE_TOKEN_ESTIMATE = 2_000
+
+
+def read_image(path: Path | str) -> tuple[str, str] | None:
+    """Goruntuyu `(media_type, base64)` olarak okur.
+
+    Gonderilemiyorsa None: taninmayan uzanti, olmayan dosya ya da
+    sinirin ustunde boyut. Cagiran taraf None'i "bu goruntu yok" diye
+    ele alir; hicbir kosulda kosuyu dusurmez.
+    """
+    import base64
+
+    p = Path(path)
+    media_type = IMAGE_MEDIA_TYPES.get(p.suffix.lower())
+    if media_type is None or not p.is_file():
+        return None
+    data = p.read_bytes()
+    if len(data) > MAX_IMAGE_BYTES:
+        return None
+    return media_type, base64.b64encode(data).decode()
+
 
 @dataclass
 class UsageLedger:

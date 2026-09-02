@@ -8,11 +8,17 @@ doğrulama değildir, ve ikisini karıştırmak dürüst iddiaları da değersiz
 
 ## Süit
 
-Python 3.11 ve 3.13'te **1675 test geçiyor**, `ruff` temiz.
+Python 3.11 ve 3.13'te **1678 test geçiyor**, `ruff` temiz.
 
 Hiçbir test ağ çağrısı ya da gerçek model çağrısı yapmaz. Ajanlar
 `tests/conftest.py` içindeki sahte istemciye karşı koşar, yani süit
-deterministiktir ve yaklaşık 80 saniye sürer.
+deterministiktir.
+
+Süre makineye bağlı ve burada duran eski sayı hangi makine olduğunu
+söylemiyordu. Bir Windows 11 dizüstünde ölçüldü: `--fast` (süreç başlatan
+testler hariç) yaklaşık 160 saniye, tam süit 215-285 saniye. Linux'ta
+belirgin biçimde daha hızlı — maliyetin çoğu süreç başlatmak ve Windows
+bunda en yavaşı. Çalışırken `--fast`, push'tan önce tamamını koşun.
 
 ## Koşularak doğrulananlar
 
@@ -57,6 +63,13 @@ ve bloke eden soruda engelliyor. Gerçek bir çalışma alanında `.env`,
 **Web.** HTTP API'nin tamamı, SSE yayıncı döngüsü, onay kapısının koşu iş
 parçacığını gerçekten bloke edip cevapla serbest bıraktığı, eşzamanlı koşu
 reddi.
+
+**Konteyner imajı, uçtan uca.** Deponun `Dockerfile` dosyasından `docker build`,
+ardından belgelenen sıra: bağlanmış bir çalışma alanına `deerx user add`,
+sunucunun `0.0.0.0` üzerinde başlatılması ve `GET /` isteğine
+`{"configured": true, "required": true}` ile 200 dönmesi — yani ilk
+konteynerde açılan hesap birim üzerinden ikinciye taşındı. Reddetme yolu da
+denendi: hesapsızken `0.0.0.0`a bağlanmak sunucuyu açmak yerine durduruyor.
 
 **İki dillilik.** İki dilin de her anahtarı eşleşen yer tutucularla kapsadığı;
 dili değiştirmenin gerçek mesajları değiştirdiği (araç hataları, ajan
@@ -148,6 +161,9 @@ koruma gerektiren kategoridir, çünkü kendini duyuran hiçbir yanı yoktur.
 | Bozuk araç çağrısı argümanları geçmişe giriyordu | Her turda yeniden okunup modeli daha da şaşırtıyordu |
 | `enable_web = false` yerel önizlemeyi de kapatıyordu | Ajan az önce yazdığı uygulamayı açamıyordu |
 | i18n tarayıcısı liste ifadelerini atlıyordu | İngilizce kurulumda kurulum jetonu başlığı Türkçe kalıyordu |
+| `.githooks/pre-push` beş yerde anlatılıyordu ama hiç var olmadı | CI'nın yerine konan denetim hiçbir şey koşmuyordu; git olmayan bir kancayı tek kelime etmeden atlar |
+| Kayıt, süreç ağacı öldürülmeden düşürülüyordu | `alive` yalnızca doğrudan çocuğa bakar; ölen ara kabuk asıl sunucuyu yetim bırakıyordu — bir çalışma alanında 115 tanesi birikmiş, her biri bir portu tutuyordu |
+| Kurulum yoklaması var olmayan `Embedder.encode`'u çağırıyordu | `setup --with-embedding-model` hiçbir şey indirmiyordu; `AttributeError` yutulup indirme hatası olarak gösteriliyordu |
 
 ## Yeniden üretme
 

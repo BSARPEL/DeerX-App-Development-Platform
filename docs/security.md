@@ -19,7 +19,14 @@ That means:
   sandbox *the processes* the agent starts.
 
 If you need real isolation, run DeerX inside a container. This is stated plainly
-because it is the thing most likely to be assumed rather than read.
+because it is the thing most likely to be assumed rather than read. The
+repository's `Dockerfile` builds that image — `docker build -t deerx .`, then
+create an account before the server will bind a published port; the file's
+header comments carry the full sequence.
+
+Note that this is a different mechanism from `execution = "docker"` below. The
+image isolates **all of DeerX** from the host; `execution` leaves DeerX on the
+host and isolates only the agent's commands. Pick one.
 
 ## Path confinement
 
