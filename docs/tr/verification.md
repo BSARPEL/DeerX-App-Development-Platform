@@ -8,7 +8,7 @@ doğrulama değildir, ve ikisini karıştırmak dürüst iddiaları da değersiz
 
 ## Süit
 
-Python 3.11 ve 3.13'te **1678 test geçiyor**, `ruff` temiz.
+Python 3.11 ve 3.13'te **1699 test geçiyor**, `ruff` temiz.
 
 Hiçbir test ağ çağrısı ya da gerçek model çağrısı yapmaz. Ajanlar
 `tests/conftest.py` içindeki sahte istemciye karşı koşar, yani süit
@@ -164,6 +164,12 @@ koruma gerektiren kategoridir, çünkü kendini duyuran hiçbir yanı yoktur.
 | `.githooks/pre-push` beş yerde anlatılıyordu ama hiç var olmadı | CI'nın yerine konan denetim hiçbir şey koşmuyordu; git olmayan bir kancayı tek kelime etmeden atlar |
 | Kayıt, süreç ağacı öldürülmeden düşürülüyordu | `alive` yalnızca doğrudan çocuğa bakar; ölen ara kabuk asıl sunucuyu yetim bırakıyordu — bir çalışma alanında 115 tanesi birikmiş, her biri bir portu tutuyordu |
 | Kurulum yoklaması var olmayan `Embedder.encode`'u çağırıyordu | `setup --with-embedding-model` hiçbir şey indirmiyordu; `AttributeError` yutulup indirme hatası olarak gösteriliyordu |
+| Anthropic istemcisi `ToolOutcome.images`'ı yok sayıyordu | `provider = "anthropic"` ile model ekran görüntüsünü hiç görmüyordu — yalnızca "kaydedildi" metnini. Öne çıkan yetenek, bütün modelleri gören sağlayıcıda yoktu |
+| Girdi tahmini base64 görsel baytlarını metin sayıyordu | 1 MB'lik bir ekran görüntüsü 559.816 token tahmin ettiriyordu, gerçek maliyeti ~1.600; 262K pencerede ajanın *ilk* ekran görüntüsü koşuyu `context_overflow` ile öldürüyordu |
+| Görseller geçmişten hiç kırpılmıyordu | İki kırpıcı da onlara dokunmuyordu; her ekran görüntüsü koşunun sonuna kadar her turda yeniden gönderiliyordu |
+| Kabuk politikasında yeni satır ayraç sayılmıyordu | Çok satırlı bir komutun yalnızca ilk satırı denetleniyor, bash hepsini çalıştırıyordu: tek başına reddedilen `whoami`, izinli bir satırın ardına konunca çalıştı. `approval_mode = "auto"` kipinde izin listesi tek bariyerdi |
+| Vekil, denetimden sonra adı yeniden çözüyordu | Doğrulanan adresler atılıyor ve `create_connection` adı baştan çözüyordu — DNS rebinding'in kullandığı ikinci çözümleme tam olarak buydu |
+| Stilsiz bir DOCX paragrafı bütün dosyayı düşürüyordu | `para.style` None olabiliyor; tek bir stilsiz paragraf yüzünden şartnamenin tamamı indekslenemiyordu |
 
 ## Yeniden üretme
 

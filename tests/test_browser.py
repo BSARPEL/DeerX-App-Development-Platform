@@ -8,6 +8,7 @@ guvenlik siniri en cok korunmasi gereken sey. Gercek Chrome gerektirenler
 from __future__ import annotations
 
 import http.server
+import ipaddress
 import socketserver
 import threading
 import urllib.error
@@ -559,3 +560,89 @@ class TestSearxng:
     def test_the_default_url_is_loopback(self, settings):
         """Arama ucu disari acilmis bir adres olmamali."""
         assert settings.searxng_url.startswith("http://127.0.0.1")
+
+
+class TestDnsRebinding:
+    """Denetimle baglanti arasinda ad IKINCI KEZ cozuluyordu.
+
+    `UrlPolicy` bir adin cozuldugu TUM adreslere bakiyor ve ic aga
+    cozulen her adi reddediyor. Ama vekil, denetimden GECEN adresleri
+    kullanmiyordu: `socket.create_connection((host, port))` adi bastan
+    cozuyordu.
+
+    Kisa TTL'li bir ad denetimde genel bir adrese, saniyeler sonra
+    baglanirken `169.254.169.254` (bulut kimlik bilgileri) ya da
+    `127.0.0.1` (kimlik dogrulamasiz yerel panel) adresine cozulebilir.
+    Savunma tam olmasin diye degil, cozumlemenin sonucu atildigi icin
+    aciklik kaliyordu.
+
+    SECURITY.md tarayici sinirini "DNS-rebinding savunmasi olan bir
+    filtre vekili" diye tarif ediyor; bu testler o cumlenin karsiligidir.
+    """
+
+    def test_the_checked_addresses_are_returned(self, monkeypatch):
+        """Politika artik denetledigi adresleri geri veriyor."""
+        from deerx.browser import policy as politika_modulu
+
+        monkeypatch.setattr(
+            politika_modulu.UrlPolicy,
+            "_resolve",
+            staticmethod(lambda host: [ipaddress.ip_address("93.184.216.34")]),
+        )
+        adresler = UrlPolicy().check_addresses("https://ornek.test/x")
+        assert adresler == ["93.184.216.34"]
+
+    def test_an_allowed_origin_connects_by_name(self, monkeypatch):
+        """Onizleme istisnasinda cozumleme yapilmaz: bos liste doner ve
+        vekil ada baglanir. Hedef zaten acikca izin verilmis bir
+        loopback adresi."""
+        politika = UrlPolicy()
+        politika.allow_origin("http://127.0.0.1:8123")
+        assert politika.check_addresses("http://127.0.0.1:8123/sayfa") == []
+
+    def test_the_proxy_connects_to_the_checked_address_not_the_name(self):
+        """Asil koruma: baglanti ADA degil, DENETLENEN ADRESE kurulur."""
+        from deerx.browser.proxy import _dogrulanan_hedef
+
+        assert _dogrulanan_hedef("ornek.test", ["93.184.216.34"]) == "93.184.216.34"
+        # Istisna yolu: adres yoksa ad kullanilir.
+        assert _dogrulanan_hedef("127.0.0.1", []) == "127.0.0.1"
+
+    def test_a_name_that_resolves_inside_is_still_refused(self, monkeypatch):
+        """Cozumlemenin kendisi degismedi: ic adrese cozulen ad reddedilir."""
+        from deerx.browser import policy as politika_modulu
+
+        monkeypatch.setattr(
+            politika_modulu.UrlPolicy,
+            "_resolve",
+            staticmethod(lambda host: [ipaddress.ip_address("169.254.169.254")]),
+        )
+        with pytest.raises(UrlBlocked):
+            UrlPolicy().check_addresses("https://ornek.test/x")
+
+    def test_a_second_resolution_cannot_change_the_target(self, monkeypatch):
+        """Rebinding taklidi: ad her cozuldugunde BASKA adres doner.
+
+        Ilk cozumleme genel adresi verir ve denetimi gecer; ikincisi ic
+        adresi verirdi. Vekil ilk cozumlemenin sonucunu kullandigi icin
+        ikincisi hic yapilmaz -- test tam olarak bunu sabitler.
+        """
+        from deerx.browser import policy as politika_modulu
+
+        sirasi = iter([
+            [ipaddress.ip_address("93.184.216.34")],   # denetim: genel
+            [ipaddress.ip_address("127.0.0.1")],       # baglanti: ic
+        ])
+        monkeypatch.setattr(
+            politika_modulu.UrlPolicy, "_resolve", staticmethod(lambda host: next(sirasi))
+        )
+
+        adresler = UrlPolicy().check_addresses("https://ornek.test/x")
+        from deerx.browser.proxy import _dogrulanan_hedef
+
+        hedef = _dogrulanan_hedef("ornek.test", adresler)
+        assert hedef == "93.184.216.34", (
+            "vekil ada baglaniyor; ikinci cozumleme ic adrese donebilir"
+        )
+        # Ikinci cozumleme HIC yapilmamis olmali.
+        assert next(sirasi, None) is not None, "cozumleme iki kez yapildi"

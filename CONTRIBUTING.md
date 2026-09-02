@@ -60,7 +60,7 @@ git config core.hooksPath .githooks
 uv run mypy src/deerx
 ```
 
-There is a baseline of 28 findings. A check that does not pass is a check
+There is a baseline of 25 findings. A check that does not pass is a check
 everyone learns to ignore, so it stays out of the gate until that reaches zero —
 at which point it belongs in `check.sh`. It is worth running anyway: the first
 run found a real defect (the setup probe called a method that does not exist, so

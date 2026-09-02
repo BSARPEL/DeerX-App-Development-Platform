@@ -116,7 +116,7 @@ timeout = 300
 # cagiriyor, hata yutuluyor ve model hic indirilmiyordu. Duzeltildi
 # (bkz. `test_gomme_yoklamasi_var_olan_bir_metodu_cagirir`).
 #
-# HENUZ BIR KAPI DEGIL: `check.sh` bunu kosturmuyor cunku 28 hata
+# HENUZ BIR KAPI DEGIL: `check.sh` bunu kosturmuyor cunku 25 hata
 # duruyor. Gecmeyen bir denetimi kapiya koymak, kapinin ilk gunden
 # yok sayilmasi demektir. Temel cizgi burada kayitli; sifira inince
 # `check.sh`e eklenmeli.

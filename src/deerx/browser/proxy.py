@@ -34,6 +34,20 @@ _IDLE_TIMEOUT = 120.0
 _MAX_HEADER_BYTES = 64 * 1024
 
 
+def _dogrulanan_hedef(host: str, adresler: list[str]) -> str:
+    """Baglanilacak hedef: dogrulanmis adres varsa o, yoksa adin kendisi.
+
+    Ad ancak `allowed_origins` istisnasinda (ajanin kendi onizleme
+    sunucusu) adres listesi bos doner; orada hedef zaten acikca izin
+    verilmis bir loopback adresidir.
+
+    Bunun disinda ADA BAGLANILMAZ: `socket.create_connection((host, ...))`
+    adi ikinci kez cozer ve denetimle baglanti arasindaki o ikinci
+    cozumleme DNS rebinding'in kullandigi acikliktir.
+    """
+    return adresler[0] if adresler else host
+
+
 class FilteringProxy:
     """Politikaya uymayan her istegi reddeden kucuk bir HTTP vekili."""
 
@@ -131,18 +145,25 @@ class FilteringProxy:
 
     # ------------------------------------------------------------------ #
 
-    def _check(self, url: str) -> str | None:
-        """Politikaya sorar; reddedilirse gerekce metnini doner."""
+    def _check(self, url: str) -> tuple[str | None, list[str]]:
+        """Politikaya sorar.
+
+        Doner: `(gerekce, adresler)`. `gerekce` None ise adres gecti ve
+        `adresler` DOGRULANMIS IP listesidir -- baglanti bunlara kurulmali,
+        ada degil (bkz. `UrlPolicy.check_addresses`). Bos liste "ada
+        baglan" demektir ve yalnizca acikca izin verilmis onizleme
+        adreslerinde olur.
+        """
         try:
-            self.policy.check(url)
+            adresler = self.policy.check_addresses(url)
         except UrlBlocked as exc:
             if self._on_request:
                 self._on_request(url, False)
             log.warning("Vekil reddetti: %s (%s)", url, exc)
-            return str(exc)
+            return str(exc), []
         if self._on_request:
             self._on_request(url, True)
-        return None
+        return None, adresler
 
     def _do_connect(self, client: socket.socket, target: str) -> socket.socket | None:
         """HTTPS tunelini acar. Yalnizca host:port gorunur; politika da host bazli."""
@@ -153,13 +174,15 @@ class FilteringProxy:
             _deny(client, "Gecersiz CONNECT hedefi.")
             return None
 
-        reason = self._check(f"https://{host}:{port}")
+        reason, adresler = self._check(f"https://{host}:{port}")
         if reason:
             _deny(client, reason)
             return None
 
         try:
-            upstream = socket.create_connection((host, port), timeout=_CONNECT_TIMEOUT)
+            upstream = socket.create_connection(
+                (_dogrulanan_hedef(host, adresler), port), timeout=_CONNECT_TIMEOUT
+            )
         except OSError as exc:
             _deny(client, f"Baglanti kurulamadi: {exc}", status="502 Bad Gateway")
             return None
@@ -180,7 +203,7 @@ class FilteringProxy:
             _deny(client, "Vekile yalnizca mutlak adresli istek gonderilebilir.")
             return None
 
-        reason = self._check(target)
+        reason, adresler = self._check(target)
         if reason:
             _deny(client, reason)
             return None
@@ -192,7 +215,11 @@ class FilteringProxy:
         path = f"/{path}" if slash else "/"
 
         try:
-            upstream = socket.create_connection((host, port), timeout=_CONNECT_TIMEOUT)
+            # Ada degil, DOGRULANAN adrese baglanilir. `Host` basligi
+            # oldugu gibi iletildigi icin sanal konak sunucular etkilenmez.
+            upstream = socket.create_connection(
+                (_dogrulanan_hedef(host, adresler), port), timeout=_CONNECT_TIMEOUT
+            )
         except OSError as exc:
             _deny(client, f"Baglanti kurulamadi: {exc}", status="502 Bad Gateway")
             return None

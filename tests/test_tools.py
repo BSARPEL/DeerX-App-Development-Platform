@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import pytest
 
+from deerx.config import ShellPolicy
 from deerx.errors import ApprovalDenied, ToolError, WorkspaceError
 from deerx.tools import build_registry
+from deerx.tools.shell import check_command
 
 
 class TestSandbox:
@@ -923,3 +925,67 @@ class TestTextToolsAreAllowed:
     ])
     def test_the_boundary_is_unchanged(self, komut):
         assert not self._gecer(komut), komut
+
+
+class TestYeniSatirBirAyractir:
+    """Cok satirli bir komutta yalnizca ILK satir denetleniyordu.
+
+    `shlex` yeni satiri bosluk sayar, dolayisiyla ikinci satirin ilk
+    sozcugu komut degil, birincinin argumani gibi gorunuyordu:
+
+        python -c "print(1)"
+        whoami
+
+    Politika burada yalnizca `python` goruyordu. Ama komut cok satirli
+    oldugu icin `_needs_real_shell` onu bir betige yazip bash'e veriyor
+    ve bash IKI komutu da calistiriyordu -- yani izin listesi, ilk satiri
+    izinli yapan herkes icin atlanabiliyordu.
+
+    OLCULDU: `whoami` tek basina reddedildi; izinli bir satirin ardina
+    konunca calisti ve kullanici adini dondurdu.
+
+    Onemi `approval_mode` ile degisir. `ask` kipinde kullanici komutun
+    tamamini gorur. Ama `auto` kipi otomasyon icin belgeleniyor ve MCP
+    ornek yapilandirmasi (`DEERX_APPROVAL_MODE: auto`) tam olarak onu
+    kullaniyor; orada izin listesi TEK bariyerdi.
+    """
+
+    def test_a_denied_command_on_the_second_line_is_refused(self):
+        politika = ShellPolicy()
+        assert "whoami" not in politika.allow_prefixes, "duzenek: ornek izinli olmamali"
+        with pytest.raises(ToolError):
+            check_command(politika, 'python -c "print(1)"\nwhoami')
+
+    def test_every_line_is_inspected(self):
+        from deerx.tools.shell import _command_heads
+
+        heads = _command_heads("echo a\necho b\ncurl http://ornek")
+        assert heads == ["echo", "echo", "curl"]
+
+    def test_a_denied_pattern_on_a_later_line_is_refused(self):
+        politika = ShellPolicy()
+        with pytest.raises(ToolError):
+            check_command(politika, "echo merhaba\nmkfs.ext4 /dev/sdb")
+
+    def test_a_newline_inside_quotes_does_not_split(self):
+        """Cok satirli komut destegi TAM DA bunun icin eklenmisti:
+        `python -c "..."` icindeki yeni satir bir ayrac degildir ve
+        bolmek mesru kullanimi reddederdi."""
+        from deerx.tools.shell import _command_heads
+
+        assert _command_heads('python -c "import x\nprint(1)"') == ["python"]
+        check_command(ShellPolicy(), 'python -c "import x\nprint(1)"')
+
+    def test_an_ordinary_multiline_script_still_runs(self):
+        """Duzeltme her satiri denetlemeye basladi; siradan bir betikteki
+        zararsiz kabuk yerlesikleri bu yuzden izin listesine girdi.
+        Guvenlik acigini kapatirken ajanin gunluk isini kirmak, bu kod
+        tabaninin `shutdown` desenindeyken bir kez odedigi bedeldi."""
+        check_command(ShellPolicy(), "cd src\npython -m pytest\necho bitti")
+
+    def test_a_multiline_command_counts_as_chained_for_approval(self):
+        """Onay ekrani cok satirli komutu zincirlenmis saymali; kullanici
+        tek bir komut onayladigini sanmamali."""
+        from deerx.tools.shell import _CHAIN_TOKENS
+
+        assert "\n" in _CHAIN_TOKENS

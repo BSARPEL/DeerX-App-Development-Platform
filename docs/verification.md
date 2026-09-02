@@ -9,7 +9,7 @@ worthless too.
 
 ## The suite
 
-**1678 tests pass**, `ruff` clean, on Python 3.11 and 3.13.
+**1699 tests pass**, `ruff` clean, on Python 3.11 and 3.13.
 
 No test makes a network call or a real model call. Agents run against a fake
 client in `tests/conftest.py`, so the suite is deterministic.
@@ -166,6 +166,12 @@ needs a permanent guard, because nothing about it announces itself.
 | `.githooks/pre-push` was documented in five places but never existed | The stated replacement for CI ran nothing; git skips a missing hook without a word |
 | A record was dropped without killing the process tree | `alive` only watches the direct child, so a dead intermediate shell orphaned the real server — 115 of them had accumulated in one workspace, each holding a port |
 | The setup probe called `Embedder.encode`, which does not exist | `setup --with-embedding-model` never downloaded anything; the `AttributeError` was swallowed and shown as a download failure |
+| The Anthropic client ignored `ToolOutcome.images` | On `provider = "anthropic"` the model never saw a screenshot — only the text "saved". The headline capability was absent on the provider whose models all have vision |
+| The input estimate counted base64 image bytes as text | A 1 MB screenshot was estimated at 559,816 tokens against a real cost of ~1,600; on a 262K window the agent's *first* screenshot killed the run with `context_overflow` |
+| Images were never trimmed from history | Neither trimmer touched them, so every screenshot was re-sent every turn for the rest of the run |
+| A newline was not a command separator in the shell policy | Only the first line of a multi-line command was checked, and bash ran them all: `whoami`, refused on its own, ran when placed after an allowed line. With `approval_mode = "auto"` the allow list was the only barrier |
+| The proxy re-resolved the hostname after checking it | The validated addresses were discarded and `create_connection` resolved the name again — the exact second lookup DNS rebinding exploits |
+| A DOCX paragraph with no style aborted the whole file | `para.style` can be `None`; one style-less paragraph meant the entire specification failed to index |
 
 ## Reproducing
 

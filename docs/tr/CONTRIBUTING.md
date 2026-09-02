@@ -35,7 +35,7 @@ push'unuzu engellemiyor.
 uv run mypy src/deerx
 ```
 
-28 bulgudan oluşan bir temel çizgi var. Geçmeyen bir denetim, herkesin yok
+25 bulgudan oluşan bir temel çizgi var. Geçmeyen bir denetim, herkesin yok
 saymayı öğrendiği bir denetimdir; o yüzden sıfıra inene kadar kapının dışında
 duruyor. Yine de koşturmaya değer: ilk koşu gerçek bir kusur buldu — kurulum
 yoklaması var olmayan bir metodu çağırıyordu, gömme modeli hiç indirilmiyordu

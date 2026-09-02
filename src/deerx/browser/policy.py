@@ -73,6 +73,28 @@ class UrlPolicy:
         Reddedilirse `UrlBlocked` firlatir; mesaj kullaniciya ve modele
         gosterilir, o yuzden nedenini acikca soyler.
         """
+        self.check_addresses(url)
+        return url
+
+    def check_addresses(self, url: str) -> list[str]:
+        """Adresi dogrular ve DOGRULANMIS adres listesini doner.
+
+        Vekil bu listeye baglanmali, ADA DEGIL. Ada baglanmak adi ikinci
+        kez cozer ve denetimle baglanti arasindaki o ikinci cozumleme DNS
+        rebinding'in kullandigi acikligin ta kendisidir: kisa TTL'li bir
+        ad denetimde genel bir adrese, saniyeler sonra baglanirken
+        `169.254.169.254` ya da `127.0.0.1`e cozulebilir. `_resolve` tum
+        adresleri denetliyor ama denetlenen adresler KULLANILMIYORDU;
+        `socket.create_connection((host, port))` adi bastan cozuyordu.
+
+        SECURITY.md tarayici sinirini "DNS-rebinding savunmasi olan bir
+        filtre vekili" diye tarif ediyor -- savunmanin tam olmasi icin
+        cozumleme bir kez yapilmali ve sonucu kullanilmali.
+
+        Bos liste "ada baglan" demektir: yalnizca `allowed_origins`
+        istisnasinda olur (ajanin kendi onizleme sunucusu), ve orada
+        hedef zaten acikca izin verilmis bir loopback adresidir.
+        """
         parsed = urlparse(url.strip())
         scheme = (parsed.scheme or "").lower()
 
@@ -92,18 +114,19 @@ class UrlPolicy:
         # Istisna once bakilir: onizleme sunucusu loopback uzerindedir ve
         # asagidaki ic ag kurali onu zaten reddederdi.
         if origin.lower() in self.allowed_origins:
-            return url
+            return []
 
         if host in METADATA_HOSTS:
             raise UrlBlocked(f"Bulut metadata ucu engellendi: {host}")
 
-        for address in self._resolve(host):
+        cozulen = self._resolve(host)
+        for address in cozulen:
             if not address.is_global:
                 raise UrlBlocked(
                     f"Ic ag adresi engellendi: {host} -> {address}. "
                     "Ajanin yerel aga erismesine izin verilmiyor."
                 )
-        return url
+        return [str(address) for address in cozulen]
 
     def allows(self, url: str) -> bool:
         try:
