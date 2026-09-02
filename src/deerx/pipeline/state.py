@@ -1296,6 +1296,10 @@ class ProjectState:
             "plan_id": row["plan_id"],
             "status": row["status"],
             "error": row["error"],
+            # Kosuyu YURUTEN surec. Arayuz "kayitta calisiyor ama yasayan
+            # bir surec var mi?" sorusunu bunsuz cevaplayamaz ve `deerx run`
+            # ile baslatilmis canli bir kosuyu yarida kalmis gosterir.
+            "pid": int(row["pid"] or 0),
             "cost": round(row["cost_usd"], 4),
             "started_at": row["started_at"],
             "finished_at": row["finished_at"],

@@ -602,7 +602,22 @@ def _step_state(
             return "needs_input"
         return "running"
     if run["status"] == Status.RUNNING:
-        # Kayitta calisiyor ama surec yok: yarida kalmis.
+        # Kayitta calisiyor. Yukaridaki `running` YALNIZCA "bu sunucunun
+        # kosu yoneticisi su an bunu yurutuyor" demek -- "hicbir surec
+        # yurutmuyor" demek DEGIL.
+        #
+        # OLCULDU: `deerx run` terminalde `implement` fazini kosarken
+        # acilan `deerx serve`, o adimi "yarida kaldi / sunucu yeniden
+        # baslatildi" diye gosterdi. Kosu calisiyordu ve token
+        # harciyordu; kullanici bitmis sandi. README kosuyu izlemek icin
+        # zaten arayuzu oneriyor, yani bu istisna degil beklenen akis.
+        #
+        # Ayni yanlis varsayim yetim toplamada da vardi ve orada kaydi
+        # BOZUYORDU; burada yalnizca yanlis gosteriyor.
+        from ..process import process_alive
+
+        if process_alive(int(run.get("pid") or 0)):
+            return "running"
         return "stalled"
     return str(run["status"])
 

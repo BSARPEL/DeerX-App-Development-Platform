@@ -139,6 +139,15 @@ class TestAdoptionMigration:
         assert sqlite3  # kullanildi
 
 
+def _sahibi_oldur(project, run_id: str) -> None:
+    """Kaydin sahipligini kesinlikle calismayan bir surece devreder."""
+    from deerx.process import process_alive
+
+    olu = next(a for a in range(600000, 600200) if not process_alive(a))
+    project._conn.execute("UPDATE runs SET pid = ? WHERE id = ?", (olu, run_id))
+    project._conn.commit()
+
+
 class TestStepStates:
     """Adimin hali tek kelimeyle anlatilabilmeli."""
 
@@ -179,12 +188,27 @@ class TestStepStates:
         assert step["questions"] == ["Q-001"]
 
     def test_record_says_running_but_nothing_is(self, app_state):
-        """Surec yok ama kayit 'calisiyor' diyorsa adim yarida kalmistir."""
+        """Kayit 'calisiyor' diyor ve SAHIBI OLMUS ise adim yarida kalmistir.
+
+        Olcut "bu sunucu kosturmuyor" DEGIL: `deerx run` terminalde
+        calisirken acilan `deerx serve` o adimi yarida kalmis gosterirdi
+        -- kosu devam ediyor ve token harciyorken. Bu yuzden test
+        sahipligi acikca olu bir surece devrediyor.
+        """
         project = app_state.orchestrator.state
         workflow = project.workflow_for_goal("Hesap makinesi")
         project.start_run("run-c", goal="Hesap makinesi", workflow_id=workflow["id"])
+        _sahibi_oldur(project, "run-c")
         step = self._detail(app_state, workflow["id"])["steps"][0]
         assert step["state"] == "stalled"
+
+    def test_a_run_owned_by_a_live_process_shows_as_running(self, app_state):
+        """Baska bir surecin kosturdugu kosu calisiyor gorunmeli."""
+        project = app_state.orchestrator.state
+        workflow = project.workflow_for_goal("Hesap makinesi")
+        project.start_run("run-c2", goal="Hesap makinesi", workflow_id=workflow["id"])
+        step = self._detail(app_state, workflow["id"])["steps"][0]
+        assert step["state"] == "running"
 
     def test_finished_steps_report_their_status(self, app_state):
         project = app_state.orchestrator.state

@@ -280,6 +280,27 @@
       <div id="run-list"></div>
       <div class="wf-meta" id="workflow-meta"></div>
       <ol class="wf-steps" id="workflow-steps"></ol>
+
+      <!-- Bu is akisi hakkinda konusma. Yalnizca bir is akisi ACIKKEN
+           gorunur: sohbetin kapsami tek bir is akisidir ve listede
+           dururken "hangisi hakkinda?" sorusunun cevabi yok. -->
+      <section class="panel wf-chat" id="workflow-chat" hidden>
+        <header class="panel-head">
+          <h2 data-i18n="chat.title">Bu iş akışı hakkında konuş</h2>
+          <button class="btn btn-ghost btn-sm" id="chat-clear" type="button"
+                  data-i18n="chat.clear">Geçmişi sil</button>
+        </header>
+        <div class="panel-body">
+          <div class="chat-log" id="chat-log"></div>
+          <p class="chat-status" id="chat-status" hidden></p>
+          <form class="chat-bar" id="chat-form">
+            <textarea id="chat-input" rows="2" data-i18n-placeholder="chat.placeholder"
+                      autocomplete="off"></textarea>
+            <button class="btn btn-primary" id="chat-send" type="submit"
+                    data-i18n="chat.send">Gönder</button>
+          </form>
+        </div>
+      </section>
     </section>
 
     <!-- Bilgi tabanı -->

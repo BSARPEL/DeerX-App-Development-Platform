@@ -1656,10 +1656,10 @@ def build_app(settings: Settings) -> Starlette:
         # Kosu surerken sohbet acilmaz: ikisi de ayni LLM istemcisini ve
         # ayni arac baglamini kullanir, ve `ToolContext.workflow_id`
         # kosunun altindan kayardi.
-        if state.runner.is_running():
+        if state.runner.is_running:
             return _error(t("chat.busy"), 409)
 
-        import anyio
+        import anyio.to_thread
 
         cevap = await anyio.to_thread.run_sync(
             lambda: state.orchestrator.chat(workflow_id, message)

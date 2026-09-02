@@ -1590,6 +1590,9 @@ async function loadWorkflowList() {
   const list = $("#run-list");
   $("#workflow-title").textContent = t("wf.title");
   $("#workflow-back").hidden = true;
+  // Sohbetin kapsami TEK bir is akisidir; listede "hangisi hakkinda?"
+  // sorusunun cevabi yok, o yuzden panel yalnizca detayda gorunur.
+  $("#workflow-chat").hidden = true;
   $("#workflow-expand-label").hidden = true;
   $("#workflow-meta").innerHTML = "";
   $("#workflow-steps").innerHTML = "";
@@ -1642,9 +1645,16 @@ function stateBadge(stateName) {
 
 // ── 2. seviye: is akisinin adimlari ──────────────────────────────────────
 async function loadWorkflowDetail(workflowId) {
+  // Detay GOSTERILEN is akisi, etkin is akisidir. Bunu yalnizca listedeki
+  // satirin tiklanmasina birakmak, goruntuye baska bir yoldan gelindiginde
+  // sohbetin "hangi is akisi?" sorusuna cevapsiz kalmasi demekti --
+  // gonder dugmesi sessizce hicbir sey yapmiyordu.
+  state.activeWorkflow = workflowId;
   $("#workflow-steps").innerHTML = "";
   $("#workflow-expand-label").hidden = true;
   $("#workflow-back").hidden = false;
+  $("#workflow-chat").hidden = false;
+  loadChat(workflowId);
   try {
     const data = await api(`/api/workflows/${encodeURIComponent(workflowId)}`);
     state.workflowDetail = data;
@@ -1932,6 +1942,100 @@ function renderRunDetail(data) {
       event.stopPropagation();
       retryRun(run.id, button.dataset.retryPhase, button);
     });
+  });
+}
+
+// ─── İş akışı sohbeti ─────────────────────────────────────────────────────
+// Kullanici bir is akisi hakkinda konusur; danisman cevaplar ve istenirse
+// durumu DEGISTIRIR. Degistirdikleri cevabin altinda ayrica gosterilir:
+// kullanici neyin degistigini metnin icinde aramak zorunda kalmasin.
+
+function renderChat(messages) {
+  const log = $("#chat-log");
+  if (!messages.length) {
+    log.innerHTML = emptyState(t("chat.emptyTitle"), t("chat.emptyHint"));
+    return;
+  }
+  log.innerHTML = messages.map((m) => {
+    const who = m.role === "user" ? t("chat.you") : t("chat.agent");
+    const changes = (m.changes || []).length
+      ? `<div class="chat-changes">
+           <span class="chat-changes-head">${esc(t("chat.changed"))}</span>
+           ${m.changes.map((c) => `<span class="chat-change">${esc(c)}</span>`).join("")}
+         </div>`
+      : "";
+    return `<article class="chat-msg" data-who="${esc(m.role)}">
+        <span class="chat-who">${esc(who)}</span>
+        <div class="chat-text">${esc(m.content)}</div>
+        ${changes}
+      </article>`;
+  }).join("");
+  // Son mesaj gorunur olsun; sohbette ilgilenilen yer daima sonudur.
+  log.scrollTop = log.scrollHeight;
+}
+
+async function loadChat(workflowId) {
+  try {
+    const data = await api(`/api/workflows/${encodeURIComponent(workflowId)}/chat`);
+    renderChat(data.messages || []);
+  } catch (error) {
+    $("#chat-log").innerHTML = emptyState(t("app.failed"), error.message);
+  }
+}
+
+function chatBusy(busy) {
+  $("#chat-send").disabled = busy;
+  $("#chat-input").disabled = busy;
+  const status = $("#chat-status");
+  status.hidden = !busy;
+  status.textContent = busy ? t("chat.thinking") : "";
+}
+
+async function sendChat() {
+  const workflowId = state.activeWorkflow;
+  const input = $("#chat-input");
+  const message = input.value.trim();
+  if (!workflowId || !message) return;
+
+  chatBusy(true);
+  try {
+    const data = await post(
+      `/api/workflows/${encodeURIComponent(workflowId)}/chat`, { message });
+    input.value = "";
+    renderChat(data.messages || []);
+    if (data.changes && data.changes.length) {
+      // Durum degisti: acik olan gorunumler eskimis veriyle kalmasin.
+      refreshActiveView();
+    }
+  } catch (error) {
+    toast(error.message, "err");
+  } finally {
+    chatBusy(false);
+  }
+}
+
+function initChat() {
+  $("#chat-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    sendChat();
+  });
+  // Enter gonderir, Shift+Enter satir atlar. Sohbet kutusunda beklenen bu;
+  // cok satirli bir mesaj yazmak isteyen de yolunu bulabilmeli.
+  $("#chat-input").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      sendChat();
+    }
+  });
+  $("#chat-clear").addEventListener("click", async () => {
+    if (!state.activeWorkflow) return;
+    try {
+      await api(`/api/workflows/${encodeURIComponent(state.activeWorkflow)}/chat`,
+                { method: "DELETE" });
+      renderChat([]);
+    } catch (error) {
+      toast(error.message, "err");
+    }
   });
 }
 
@@ -3092,6 +3196,7 @@ function boot() {
   initQuestionNav();
   initPlans();
   initWorkflow();
+  initChat();
   initSettings();
   initAudit();
   initWorkspace();

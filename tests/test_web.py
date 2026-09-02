@@ -2865,3 +2865,55 @@ class TestRetryingAFailedStep:
         yeni = state_of.list_runs(1)[0]
         assert yeni["id"] != run_id
         assert yeni["task_key"] == "T-014"
+
+
+class TestWorkflowChatApi:
+    """Is akisi sohbeti: oku, gonder, temizle.
+
+    Rota, modeli SENKRON cagiran orkestratoru bir is parcacigina aliyor;
+    aksi halde sohbet suren her saniye butun arayuz -- canli akis dahil --
+    donardi.
+    """
+
+    def _workflow(self, state_of):
+        return state_of.workflow_for_goal("Hesap makinesi", brief="ilk talimat")
+
+    def test_history_starts_empty(self, client, state_of):
+        wf = self._workflow(state_of)
+        data = client.get(f"/api/workflows/{wf['id']}/chat").json()
+        assert data["messages"] == []
+
+    def test_an_unknown_workflow_is_404(self, client):
+        assert client.get("/api/workflows/boyle-yok/chat").status_code == 404
+
+    def test_an_empty_message_is_refused(self, client, state_of):
+        wf = self._workflow(state_of)
+        r = client.post(f"/api/workflows/{wf['id']}/chat", json={"message": "  "})
+        assert r.status_code == 400
+
+    def test_a_sequence_number_also_works(self, client, state_of):
+        """Kullanici arayuzde `#1` goruyor; adres cubugunda da o gecmeli."""
+        wf = self._workflow(state_of)
+        r = client.get(f"/api/workflows/{wf['seq']}/chat")
+        assert r.status_code == 200
+
+    def test_history_can_be_deleted(self, client, state_of):
+        wf = self._workflow(state_of)
+        state_of.add_chat_message(wf["id"], role="user", content="merhaba")
+        state_of.add_chat_message(wf["id"], role="assistant", content="selam")
+
+        r = client.request("DELETE", f"/api/workflows/{wf['id']}/chat")
+
+        assert r.json()["deleted"] == 2
+        assert client.get(f"/api/workflows/{wf['id']}/chat").json()["messages"] == []
+
+    def test_the_changes_travel_with_the_message(self, client, state_of):
+        """Modelin ne DEGISTIRDIGI cevabin yaninda durmali; kullanici
+        bunu metnin icinde aramak zorunda kalmamali."""
+        wf = self._workflow(state_of)
+        state_of.add_chat_message(
+            wf["id"], role="assistant", content="tamam",
+            changes=["update_workflow: baslik"],
+        )
+        mesajlar = client.get(f"/api/workflows/{wf['id']}/chat").json()["messages"]
+        assert mesajlar[0]["changes"] == ["update_workflow: baslik"]
