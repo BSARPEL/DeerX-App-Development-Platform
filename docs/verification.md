@@ -64,6 +64,31 @@ kept, and no secret value appears in the raw bytes of the produced zip.
 really blocks the run thread and releases it on an answer, refusal of a
 concurrent run.
 
+**A complete `ingest → plan` run against a local vLLM** (`qwen3.8 max`, 262K
+window), on the sample field-service specification. Seven phases, **82 model
+calls, 3.4M input / 329K output tokens, free**, and every phase honoured its
+contract:
+
+| Phase | Produced |
+|---|---|
+| `ingest` | 11 chunks, real 1024-dim `multilingual-e5-large` vectors |
+| `analyze` | 35 requirements, 13 gaps, 5 questions, `analiz-raporu.md` in exactly the section structure its prompt prescribes |
+| `research` | 16 findings, 12 with source URLs, each tagged with a confidence level — real Chrome navigation, with page timeouts and a 404 absorbed rather than fatal |
+| `assess` | gaps 13 → 27 (1 critical, 7 high), `bosluk-analizi.md` |
+| `mockup` | 6 single-file screens, one per actor in the spec, all with JavaScript and all carrying empty and error states |
+| `design` | 18 ADRs — every one with rationale, alternatives **and** trade-offs — plus a 34 KB `mimari.md` whose choices cite the research phase's findings by version |
+| `plan` | 42 tasks over five lanes (backend 21, qa 8, frontend 7, infra 5, docs 1); 42/42 with an acceptance criterion and named files, 41/42 with dependencies |
+
+Two behaviours were observed live rather than inferred: the turn-budget warning
+fired at exactly 70% (`24/35`), and the readiness gate refused to package,
+naming the empty plan, the open critical gaps and the phases not yet run.
+
+**The interface, rendered.** Every view, both languages, both themes, a live
+model call from the settings screen (`qwen3.8 max · 2.3s · 64 → 43 tokens`),
+indexing and hybrid search from the browser, a generated mockup rendering inside
+its sandboxed frame, and the readiness gate. This closes what the next section
+used to list as unverified.
+
 **The container image, end to end.** `docker build` from the repository's
 `Dockerfile`, then the documented sequence: `deerx user add` against a mounted
 workspace, the server started on `0.0.0.0`, and `GET /` answering 200 with
@@ -129,15 +154,15 @@ environment, so the real request path in `llm/anthropic_client.py` — adaptive
 thinking, prompt caching — has not been exercised against the model. The
 contract is covered by tests; the other side of the contract is the API itself.
 
-**The visual output of the interface.** Screenshots could not be captured in the
-development environment (the browser pane produced no frames). Structure, the
-accessibility tree, console errors and interactions were verified; how it
-*looks* was not, beyond the measured contrast and scale.
+**Phases 8–13 against a real model.** `implement`, `qa`, `review`, `package`,
+`staging` and `live` have run only against the fake client. Phases 1–7 have now
+run end to end on a real local model (above), and one implementation task was
+verified separately, but nothing here reports a `plan → live` stretch: no agent
+has written code, run its own tests and had the result reviewed in one
+continuous run on this specification.
 
-**Phases 8–13 end to end against a real model.** The agent loop, lane routing
-and the deliverable check are tested with a fake client, and a full analyst
-phase ran against a real local model. A complete `ingest → live` run on a
-non-trivial specification has not been performed and reported here.
+This is the honest remainder. The half that is verified is the half that decides
+*what* to build; the half that is not is the half that builds it.
 
 ## Known fixes
 

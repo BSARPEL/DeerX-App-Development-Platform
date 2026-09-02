@@ -64,6 +64,30 @@ ve bloke eden soruda engelliyor. Gerçek bir çalışma alanında `.env`,
 parçacığını gerçekten bloke edip cevapla serbest bıraktığı, eşzamanlı koşu
 reddi.
 
+**Yerel bir vLLM'e karşı tam bir `ingest → plan` koşusu** (`qwen3.8 max`, 262K
+pencere), örnek saha servis şartnamesi üzerinde. Yedi faz, **82 model çağrısı,
+3,4M girdi / 329K çıktı token, ücretsiz**, ve her faz sözleşmesini tuttu:
+
+| Faz | Üretilen |
+|---|---|
+| `ingest` | 11 parça, gerçek 1024 boyutlu `multilingual-e5-large` vektörleri |
+| `analyze` | 35 gereksinim, 13 boşluk, 5 soru; `analiz-raporu.md` prompt'unun dayattığı bölüm yapısına birebir uyuyor |
+| `research` | 16 bulgu, 12'si kaynak URL'li, her biri güven düzeyi etiketli — gerçek Chrome gezinmesi; sayfa zaman aşımı ve 404 yutuldu, koşu düşmedi |
+| `assess` | boşluklar 13 → 27 (1 kritik, 7 yüksek), `bosluk-analizi.md` |
+| `mockup` | 6 tek dosyalık ekran, şartnamedeki her aktör için biri; hepsi JavaScript'li, hepsinde boş ve hata durumu |
+| `design` | 18 ADR — her birinde gerekçe, alternatif **ve** takas — artı 34 KB'lık `mimari.md`; kararlar araştırma bulgularını sürüm numarasıyla anıyor |
+| `plan` | beş şeride bölünmüş 42 görev (backend 21, qa 8, frontend 7, infra 5, docs 1); 42/42'sinde kabul ölçütü ve dosya adı, 41/42'sinde bağımlılık |
+
+İki davranış çıkarımla değil, canlı gözlemle doğrulandı: tur bütçesi uyarısı tam
+%70'te tetiklendi (`24/35`), ve hazırlık kapısı paketlemeyi reddedip boş planı,
+açık kritik boşlukları ve koşulmamış fazları tek tek saydı.
+
+**Arayüz, render edilmiş hâliyle.** Bütün görünümler, iki dil, iki tema, ayarlar
+ekranından canlı model çağrısı (`qwen3.8 max · 2,3 sn · 64 → 43 token`),
+tarayıcıdan indeksleme ve hibrit arama, üretilen bir mockup'ın kum havuzlu
+çerçevede render'ı, ve hazırlık kapısı. Bir sonraki bölümün doğrulanmamış diye
+saydığı madde böylece kapandı.
+
 **Konteyner imajı, uçtan uca.** Deponun `Dockerfile` dosyasından `docker build`,
 ardından belgelenen sıra: bağlanmış bir çalışma alanına `deerx user add`,
 sunucunun `0.0.0.0` üzerinde başlatılması ve `GET /` isteğine
@@ -127,15 +151,15 @@ yoktu, dolayısıyla `llm/anthropic_client.py` içindeki gerçek istek yolu —
 adaptif düşünme, prompt önbelleği — modele karşı sınanmadı. Sözleşme testlerle
 kapsanıyor; sözleşmenin diğer ucu API'nin kendisi.
 
-**Arayüzün görsel çıktısı.** Geliştirme ortamında ekran görüntüsü alınamıyordu
-(tarayıcı paneli kare üretmiyordu). Yapı, erişilebilirlik ağacı, konsol
-hataları ve etkileşimler doğrulandı; nasıl *göründüğü*, ölçülen kontrast ve
-ölçek dışında doğrulanmadı.
+**8–13. fazlar gerçek bir modele karşı.** `implement`, `qa`, `review`,
+`package`, `staging` ve `live` yalnızca sahte istemciyle koştu. 1–7. fazlar
+artık gerçek bir yerel modelle uçtan uca koşuldu (yukarıda) ve tek bir uygulama
+görevi ayrıca doğrulandı, ama burada `plan → live` aralığını raporlayan bir şey
+yok: bu şartname üzerinde hiçbir ajan tek bir kesintisiz koşuda kod yazıp kendi
+testlerini çalıştırıp sonucunu incelettirmedi.
 
-**8–13. fazlar gerçek bir modele karşı uçtan uca.** Ajan döngüsü, şerit
-yönlendirmesi ve çıktı kontrolü sahte istemciyle test edildi ve tam bir analist
-fazı gerçek bir yerel modele karşı koştu. Önemsiz olmayan bir şartname üzerinde
-tam bir `ingest → live` koşusu yapılıp burada raporlanmadı.
+Dürüst kalan bu. Doğrulanmış olan yarı, **neyin** yapılacağına karar veren yarı;
+doğrulanmamış olan ise onu yapan yarı.
 
 ## Bilinen düzeltmeler
 
