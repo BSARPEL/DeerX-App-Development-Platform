@@ -51,6 +51,8 @@ ROLE_TIERS: dict[str, str] = {
     "backend": "worker",
     "frontend": "worker",
     "staging": "worker",
+    # Kullaniciyla konusur ve kayit degistirir; muhakemesi agir sayilir.
+    "danisman": "lead",
     # Ucuz isler
     "summarizer": "fast",
 }

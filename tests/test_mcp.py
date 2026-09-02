@@ -52,7 +52,7 @@ class TestToolSurface:
             "deerx_state", "deerx_tasks", "deerx_update_task", "deerx_artifact",
             "deerx_run_phase", "deerx_next_task",
             "deerx_questions", "deerx_answer", "deerx_skip_question",
-            "deerx_package",
+            "deerx_package", "deerx_workflow_chat",
         }
 
     async def test_every_tool_has_description_and_schema(self, mcp_server):

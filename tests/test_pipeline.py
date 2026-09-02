@@ -474,8 +474,8 @@ class TestQuestionGate:
 
     def test_answers_land_in_the_knowledge_base(self, settings, workspace):
         """Cevap yalnizca hafizada kalmamali; ajanlar arayabilmeli."""
+        from deerx.pipeline.answers import ANSWERS_SOURCE
         from deerx.pipeline.models import Question
-        from deerx.pipeline.orchestrator import ANSWERS_SOURCE
 
         with self._orchestrator(settings) as orch:
             orch.state.add_question(

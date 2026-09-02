@@ -60,6 +60,11 @@ class ToolContext:
     # Ajanin baslattigi arka plan surecleri (dev sunucusu vb.). Kosuya
     # baglidir: kosu bitince hepsi kapatilir.
     services: ServiceManager | None = None
+    # Hakkinda konusulan is akisi. Danisman araclari kapsamlarini
+    # BURADAN alir, arac argumanindan degil: kimligi modele sormak,
+    # kullanici #3'u konusurken modelin #7'yi degistirmesine kapi acar.
+    # Bos dize "is akisi baglami yok" demektir ve o araclar reddeder.
+    workflow_id: str = ""
     # Onay isteme kancasi; None ise `approval_mode` uzerinden karar verilir.
     approval_hook: Callable[[str, str], bool] | None = None
     # Kosu suresince onaylanan tehlikeli islem imzalari (tekrar sormamak icin).

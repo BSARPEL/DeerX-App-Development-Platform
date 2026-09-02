@@ -154,6 +154,25 @@ CREATE TABLE IF NOT EXISTS workflows (
     finished_at REAL
 );
 
+-- Bir is akisi hakkinda kullanici ile model arasinda gecen konusma.
+-- Kalici: danisman bir sonraki soruda ne konusuldugunu bilmeli, ve
+-- kullanici da kimin neyi neden degistirdigini geriye donuk okuyabilmeli.
+-- Kosulardan AYRI durur; sohbet bir faz degil, is akisinin uzerine
+-- konusulan yerdir.
+CREATE TABLE IF NOT EXISTS workflow_chat (
+    id          INTEGER PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    -- "user" ya da "assistant".
+    role        TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    -- Modelin bu turda YAPTIGI degisiklikler (arac cagrilari). Metin
+    -- olarak degil, JSON listesi: arayuz "sunu degistirdi" diye
+    -- gosterebilsin ve kullanici sohbeti okurken etkiyi gorebilsin.
+    changes     TEXT NOT NULL DEFAULT '[]',
+    at          REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_by_workflow ON workflow_chat(workflow_id, id);
+
 CREATE TABLE IF NOT EXISTS runs (
     id          TEXT PRIMARY KEY,
     seq         INTEGER NOT NULL,
@@ -216,6 +235,15 @@ CREATE TABLE IF NOT EXISTS artifacts (
     created_at REAL NOT NULL
 );
 """
+
+
+def _loads_list(raw: str) -> list[str]:
+    """Bozuk JSON sohbeti dusurmemeli; en fazla o satirin etiketi kaybolur."""
+    try:
+        veri = json.loads(raw or "[]")
+    except (ValueError, TypeError):
+        return []
+    return [str(x) for x in veri] if isinstance(veri, list) else []
 
 
 def _surec_yasiyor(pid: int) -> bool:
@@ -890,6 +918,160 @@ class ProjectState:
             "created_at": row["created_at"],
             "finished_at": row["finished_at"],
         }
+
+    # ------------------------------------------------------------------ #
+    # Is akisi sohbeti
+    # ------------------------------------------------------------------ #
+    def update_workflow(
+        self,
+        workflow_id: str,
+        *,
+        title: str | None = None,
+        goal: str | None = None,
+        brief: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Is akisinin kimligini gunceller.
+
+        `goal` DEGISTIGINDE proje hedefi de guncellenir: fazlar hedefe
+        bakarak "bu analiz baska bir projeye ait" karari veriyor
+        (`_skip_reason`), ve is akisinin hedefi ile projenin hedefi
+        ayrisirsa o karar yanlis tarafa duser.
+        """
+        alanlar: list[str] = []
+        degerler: list[Any] = []
+        for ad, deger in (("title", title), ("goal", goal), ("brief", brief)):
+            if deger is not None:
+                alanlar.append(f"{ad} = ?")
+                degerler.append(deger)
+        if not alanlar:
+            return self.get_workflow(workflow_id)
+
+        degerler.append(workflow_id)
+        self._conn.execute(
+            f"UPDATE workflows SET {', '.join(alanlar)} WHERE id = ?", degerler
+        )
+        if goal is not None:
+            self.set_meta("goal", goal)
+        if brief is not None:
+            self.set_meta("brief", brief)
+        self._conn.commit()
+        return self.get_workflow(workflow_id)
+
+    def add_chat_message(
+        self,
+        workflow_id: str,
+        *,
+        role: str,
+        content: str,
+        changes: list[str] | None = None,
+    ) -> None:
+        """Sohbete bir satir ekler."""
+        self._conn.execute(
+            "INSERT INTO workflow_chat (workflow_id, role, content, changes, at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                workflow_id,
+                role,
+                content,
+                json.dumps(changes or [], ensure_ascii=False),
+                time.time(),
+            ),
+        )
+        self._conn.commit()
+
+    def chat_history(self, workflow_id: str, *, limit: int = 40) -> list[dict[str, Any]]:
+        """Is akisinin sohbeti, eskiden yeniye.
+
+        `limit` SON mesajlari verir: uzun bir sohbette baglama sigan sey
+        son konusulanlardir, ilk konusulanlar degil.
+        """
+        rows = self._conn.execute(
+            "SELECT * FROM workflow_chat WHERE workflow_id = ? "
+            "ORDER BY id DESC LIMIT ?",
+            (workflow_id, max(1, limit)),
+        ).fetchall()
+        return [
+            {
+                "id": r["id"],
+                "role": r["role"],
+                "content": r["content"],
+                "changes": _loads_list(r["changes"]),
+                "at": r["at"],
+            }
+            for r in reversed(rows)
+        ]
+
+    def clear_chat(self, workflow_id: str) -> int:
+        """Sohbeti siler; kac satir gittigini doner."""
+        satir = self._conn.execute(
+            "SELECT COUNT(*) FROM workflow_chat WHERE workflow_id = ?", (workflow_id,)
+        ).fetchone()[0]
+        self._conn.execute(
+            "DELETE FROM workflow_chat WHERE workflow_id = ?", (workflow_id,)
+        )
+        self._conn.commit()
+        return int(satir)
+
+    def workflow_context(self, workflow_id: str, *, max_items: int = 40) -> str:
+        """Is akisinin durumu, modele verilecek okunakli bicimde.
+
+        Kapsam ayrimi BILEREK yazili: `workflows`, `runs` ve `artifacts`
+        is akisina AITTIR; gereksinim, bosluk, karar ve sorular ise
+        PROJE duzeyindedir ve tablolarinda is akisi kimligi tasimazlar.
+        Danisman ikisini de gorur ama karistirmamali -- "bu is akisindaki
+        gereksinim" diye bir sey yok, "bu projenin gereksinimi" var.
+        """
+        workflow = self.get_workflow(workflow_id)
+        if workflow is None:
+            return ""
+
+        satirlar = [
+            f"# Is akisi #{workflow['seq']}",
+            f"Baslik: {workflow['title'] or '(yok)'}",
+            f"Durum: {workflow['status']}",
+            f"Hedef: {workflow['goal'] or '(yok)'}",
+        ]
+        if workflow["brief"]:
+            satirlar += ["", "## Kullanicinin talimati", workflow["brief"]]
+
+        kosular = self.workflow_runs(workflow_id)
+        satirlar += ["", f"## Adimlar ({len(kosular)} kosu)"]
+        plan_kimlikleri: set[str] = set()
+        for kosu in kosular:
+            plan_kimlikleri.add(kosu.get("plan_id") or "")
+            adimlar = ", ".join(
+                f"{a['phase']}={a['status']}" for a in self.run_step_rows(kosu["id"])
+            )
+            satirlar.append(
+                f"- #{kosu['seq']} [{kosu['status']}] {kosu.get('title') or ''}"
+                + (f" · {adimlar}" if adimlar else "")
+            )
+            if kosu.get("error"):
+                satirlar.append(f"    hata: {kosu['error'][:200]}")
+
+        kosu_kimlikleri = {k["id"] for k in kosular}
+        ciktilar = [a for a in self.list_artifacts() if a.run_id in kosu_kimlikleri]
+        satirlar += ["", f"## Bu is akisinin ciktilari ({len(ciktilar)})"]
+        satirlar += [
+            f"- {a.name} ({a.kind}) — {a.summary[:120]}" for a in ciktilar[:max_items]
+        ] or ["- (yok)"]
+
+        planlar = [p for p in self.list_plans() if p["id"] in plan_kimlikleri]
+        if planlar:
+            satirlar += ["", "## Bu is akisinin planlari"]
+            for plan in planlar:
+                gorevler = self.list_tasks(plan_id=plan["id"])
+                bitmis = sum(1 for g in gorevler if g.status == Status.DONE)
+                satirlar.append(
+                    f"- {plan['name']} ({plan['id']}): {bitmis}/{len(gorevler)} gorev tamam"
+                )
+
+        satirlar += [
+            "",
+            "## Proje kayitlari (is akisina DEGIL, projeye ait)",
+            self.snapshot(max_items=max_items),
+        ]
+        return "\n".join(satirlar)
 
     def reclaim_orphaned_runs(self) -> list[int]:
         """Yarida kesilmis kosulari kapatir.

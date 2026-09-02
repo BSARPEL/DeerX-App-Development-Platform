@@ -25,7 +25,7 @@
 
 | | |
 |---|---|
-| **[Agent tools](tools.md)** | All 36 tools, and how an agent runs and tests what it writes |
+| **[Agent tools](tools.md)** | All 39 tools, and how an agent runs and tests what it writes |
 | **[Architecture](architecture.md)** | The module map and the reasoning behind each decision |
 | **[Security model](security.md)** | Confinement, the shell policy, authentication, secret handling |
 | **[Bilingual architecture](i18n.md)** | How one setting reaches the UI, the CLI, the tools and the prompts |

@@ -3,7 +3,7 @@
 [← Dokümantasyon](README.md) · [English](../tools.md)
 
 Ajanlar serbest metinle cevap vermez — araçlarla hareket eder ve bulguları
-yapılandırılmış veri olarak kaydedilir. 36 araç var; her ajan rolü dar bir alt
+yapılandırılmış veri olarak kaydedilir. 39 araç var; her ajan rolü dar bir alt
 küme alır.
 
 ## Araç kümeleri
@@ -237,6 +237,20 @@ biner. Bir test her aracın ve açıklamalı her parametrenin ikisinde de karş�
 olduğunu doğrular — yeni bir araç tek dilli olarak yayımlanamaz. Bkz.
 [İki dilli mimari](i18n.md).
 
+## İş akışı danışmanı
+
+Üç araç yalnızca bir iş akışı sohbetinin içinde bulunur (`deerx chat`,
+`POST /api/workflows/{id}/chat`, `deerx_workflow_chat` MCP aracı).
+
+| Araç | Ne yapar |
+|---|---|
+| `read_workflow` | Konuşulan iş akışının hedefi, talimatı, koşuları, çıktıları ve planları |
+| `update_workflow` | O iş akışının başlığını, hedefini ya da talimatını değiştirir |
+| `resolve_question` | Açık bir soruyu kullanıcının cevabıyla kapatır, ya da belirtilen varsayımla atlar |
+
+Hiçbiri iş akışı argümanı almaz. Kapsam modelden değil çağırandan gelir:
+kimliği argüman yapmak, modele *hangi* iş akışını değiştireceğini
+sormaktır ve yanlış bir sayı üretmesi yanlış olanı düzenlemesine yeter.
 ## Ayrıca
 
 - [Güvenlik modeli](security.md) — kabuk politikası ve hapsetme nasıl çalışıyor

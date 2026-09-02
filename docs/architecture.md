@@ -29,7 +29,7 @@ src/deerx/
 │   ├── retriever.py       RRF fusion + MMR diversification
 │   └── knowledge.py       the single entry point
 │
-├── tools/               36 agent tools
+├── tools/               39 agent tools
 │   ├── base.py            Tool contract, registry, approval gate, path confinement
 │   ├── filesystem.py      read/write/edit/search, confined to the workspace
 │   ├── shell.py           deny list + allow list + approval

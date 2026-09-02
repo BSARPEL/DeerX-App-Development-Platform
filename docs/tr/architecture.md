@@ -29,7 +29,7 @@ src/deerx/
 │   ├── retriever.py       RRF füzyonu + MMR çeşitlendirme
 │   └── knowledge.py       tek giriş noktası
 │
-├── tools/               36 ajan aracı
+├── tools/               39 ajan aracı
 │   ├── base.py            Tool sözleşmesi, defter, onay kapısı, yol hapsi
 │   ├── filesystem.py      çalışma alanına hapsedilmiş oku/yaz/düzenle/ara
 │   ├── shell.py           reddetme listesi + izin listesi + onay

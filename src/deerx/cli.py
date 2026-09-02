@@ -843,6 +843,59 @@ def _report_remaining(orch: Orchestrator) -> None:
         )
 
 
+@app.command(help=t("cli.chat") + "\n\n" + t("cli.chat_detail"))
+def chat(
+    workflow: Annotated[str, typer.Argument(help=t("opt.chat_workflow"))],
+    message: Annotated[str, typer.Argument(help=t("opt.chat_message"))] = "",
+    history: Annotated[bool, typer.Option("--history", help=t("opt.chat_history"))] = False,
+    clear: Annotated[bool, typer.Option("--clear", help=t("opt.chat_clear"))] = False,
+    workspace: Annotated[Path | None, typer.Option("--workspace", help=t("opt.workspace"))] = None,
+) -> None:
+    """Bir is akisi hakkinda konusur; istenirse durumunu degistirir."""
+    settings = _settings(workspace)
+    with _orchestrator(settings, quiet=True) as orch:
+        workflow_id = _resolve_workflow(orch, workflow)
+
+        if clear:
+            silinen = orch.state.clear_chat(workflow_id)
+            console.print(t("chat.cleared", count=silinen))
+            return
+
+        if history or not message.strip():
+            satirlar = orch.state.chat_history(workflow_id)
+            if not satirlar:
+                console.print(t("chat.no_history"))
+                return
+            for mesaj in satirlar:
+                kim = "[bold]>[/bold]" if mesaj["role"] == "user" else "[agent]DeerX[/agent]"
+                console.print(f"{kim} {mesaj['content']}")
+                for degisim in mesaj["changes"]:
+                    console.print(f"    [dim]· {degisim}[/dim]")
+            return
+
+        cevap = orch.chat(workflow_id, message)
+        if not cevap.ok:
+            _fail(cevap.error or "")
+        console.print(cevap.text)
+        if cevap.changes:
+            console.print(f"\n[bold]{t('chat.changed_header')}[/bold]")
+            for degisim in cevap.changes:
+                console.print(f"  · {degisim}")
+
+
+def _resolve_workflow(orch: object, raw: str) -> str:
+    """`2`, `#2` ya da ham kimlik -> is akisi kimligi."""
+    state = orch.state  # type: ignore[attr-defined]
+    aday = raw.strip().lstrip("#")
+    if aday.isdigit():
+        workflow = state.get_workflow_by_seq(int(aday))
+    else:
+        workflow = state.get_workflow(aday)
+    if workflow is None:
+        _fail(t("chat.no_workflow", id=raw))
+    return workflow["id"]
+
+
 @app.command(help=t("cli.artifacts"))
 def artifacts(
     name: Annotated[str | None, typer.Argument(help=t("opt.artifact_name"))] = None,

@@ -3,7 +3,7 @@
 [← Documentation](README.md) · [Türkçe](tr/tools.md)
 
 Agents do not answer in free text — they act through tools, and their findings
-are recorded as structured data. There are 36 tools; each agent role gets a
+are recorded as structured data. There are 39 tools; each agent role gets a
 narrow subset.
 
 ## The tool sets
@@ -244,6 +244,21 @@ language calls for. A test asserts every tool and every described parameter has
 both — a new tool cannot ship English-only or Turkish-only. See
 [Bilingual architecture](i18n.md).
 
+## Workflow advisor
+
+Three tools exist only inside a workflow conversation (`deerx chat`,
+`POST /api/workflows/{id}/chat`, the `deerx_workflow_chat` MCP tool).
+
+| Tool | What it does |
+|---|---|
+| `read_workflow` | The discussed workflow's goal, brief, runs, artifacts and plans |
+| `update_workflow` | Changes that workflow's title, goal or brief |
+| `resolve_question` | Closes an open question with the user's answer, or skips it with a stated assumption |
+
+None of them takes a workflow argument. The scope comes from the caller,
+not from the model: making the id an argument would be asking the model
+*which* workflow to change, and a wrong number is all it takes to edit
+the wrong one.
 ## See also
 
 - [Security model](security.md) — how the shell policy and confinement work

@@ -19,6 +19,51 @@ from __future__ import annotations
 from ..services import DEFAULT_READY_SECONDS
 
 ENGLISH: dict[str, dict[str, str]] = {
+    # ── Is akisi danismani ────────────────────────────────────────────── #
+    "read_workflow": {
+        "": """
+    Reads the state of the workflow being discussed: its goal, the user's
+    brief, its steps (runs and their phases), the artifacts it produced and
+    its plans.
+
+    Read this BEFORE claiming anything. Project records (requirements, gaps,
+    decisions, questions) belong to the PROJECT rather than this workflow,
+    and appear under a separate heading in the output.
+    """,
+    },
+    "update_workflow": {
+        "": """
+    Changes the title, goal or brief of the workflow being discussed. Only
+    the fields you pass are changed.
+
+    Changing the GOAL is a heavy operation: phases decide whether to re-run
+    by asking "which goal was this phase completed for?", so changing the
+    goal makes completed phases eligible to run again. Leave it alone unless
+    the user asked for it.
+    """,
+        "title": "New title.",
+        "goal": "New goal.",
+        "brief": "New brief for the agents.",
+    },
+    "resolve_question": {
+        "": """
+    Closes an open question with the answer the user gave, or skips it with
+    a stated assumption when there is no answer.
+
+    Use it ONLY when the user gave the answer in this conversation. Do not
+    write your own guess as the answer — the reason these questions exist is
+    that only the user holds the answer. Ask if you are not sure.
+
+    The answer is written to the project memory AND the knowledge base, so
+    later phases can still find it after history trimming.
+    """,
+        "key": "Question key, e.g. Q-001.",
+        "answer": "The answer the user gave.",
+        "assumption": (
+            "The assumption to proceed with instead of an answer. Ignored "
+            "when `answer` is given."
+        ),
+    },
     # ── Bilgi tabani ──────────────────────────────────────────────────── #
     "search_knowledge": {
         "": """

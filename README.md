@@ -206,7 +206,7 @@ Details: **[The pipeline](docs/pipeline.md)**.
 | [Web interface](docs/web-ui.md) | Every screen and why it is arranged that way |
 | [CLI reference](docs/cli.md) | Commands, flags, exit codes, management scripts |
 | [Configuration](docs/configuration.md) | `deerx.toml`, environment, precedence |
-| [Agent tools](docs/tools.md) | All 36 tools, and how an agent tests its own work |
+| [Agent tools](docs/tools.md) | All 39 tools, and how an agent tests its own work |
 | [Architecture](docs/architecture.md) | Module map and the reasoning behind it |
 | [Security model](docs/security.md) | Confinement, shell policy, auth, secrets |
 | [Delivery packages](docs/delivery.md) | The readiness gate and secret exclusion |

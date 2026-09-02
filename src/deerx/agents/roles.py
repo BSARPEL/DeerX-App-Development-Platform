@@ -30,6 +30,10 @@ SERVER_TOOLS_BY_ROLE: dict[str, list[dict[str, Any]]] = {
 
 # Uzun surecek roller icin daha genis iterasyon butcesi.
 ITERATION_BUDGET: dict[str, int] = {
+    # Danisman bir sohbet turudur, bir faz degil: okur, cevaplar, belki bir
+    # kayit degistirir. Genis butce burada bekleme suresine donusur --
+    # kullanici cevabini bekliyor.
+    "danisman": 12,
     "analyst": 30,
     "researcher": 35,
     "assessor": 30,

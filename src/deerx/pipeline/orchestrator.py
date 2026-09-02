@@ -23,7 +23,8 @@ from ..llm import LLMClient, build_client
 from ..logging import EventLog, console, get_logger
 from ..rag import KnowledgeBase
 from ..services import ServiceManager
-from ..tools import LANE_ROLE, ToolContext, ToolRegistry, build_registry
+from ..tools import LANE_ROLE, TOOLSETS, ToolContext, ToolRegistry, build_registry
+from .answers import reindex_answers
 from .models import Phase, Question, Status, Task
 from .packaging import PackagingError, PackagingNotReady, build_package
 from .state import ProjectState
@@ -71,10 +72,6 @@ PHASE_DELIVERABLE: dict[Phase, tuple[str, str]] = {
     Phase.LIVE: ("canli-cikis-raporu.md", "cikis kapisi ve geri alma plani"),
 }
 
-# Kullanici cevaplarinin bilgi tabanindaki kaynak kimligi.
-ANSWERS_SOURCE = "deerx://cevaplar"
-
-
 @dataclass(slots=True)
 class PhaseResult:
     # `phase=None` faz sonucu degil, faz kapisidir (kullanici cevabi bekleniyor).
@@ -92,6 +89,65 @@ class PhaseResult:
     @property
     def label(self) -> str:
         return self.phase.label if self.phase is not None else "Bilgi bekleniyor"
+
+
+@dataclass(slots=True)
+class ChatReply:
+    """Is akisi danismaninin bir turluk cevabi."""
+
+    text: str
+    # Bu turda DEGISTIRILEN seyler: arac adlari ve kisa aciklamalari.
+    # Sohbet penceresinde cevabin altinda gosterilir; kullanici neyin
+    # degistigini metnin icinde aramak zorunda kalmasin.
+    changes: list[str] = field(default_factory=list)
+    cost: float = 0.0
+    iterations: int = 0
+    error: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.error is None
+
+
+# Durumu DEGISTIREN araclar. Sohbette hangi turun bir sey degistirdigini
+# isaretlemek icin; okuyan kisi cevabin altinda gormeli.
+MUTATING_TOOLS = frozenset({
+    "update_workflow", "resolve_question", "update_task", "save_artifact",
+    "record_requirements", "record_gaps", "record_decisions",
+    "record_questions", "record_tasks", "record_research",
+})
+
+
+class _RecordingRegistry(ToolRegistry):
+    """Calistirilan degistirici araclari kaydeden kayit defteri.
+
+    Neden sarmalayici: "bu turda ne degisti?" sorusunun cevabi konusma
+    gecmisinden de cikarilabilirdi, ama o gecmis SAGLAYICIYA OZGU --
+    Anthropic'in icerik bloklari ile OpenAI'nin `tool_calls` bicimi ayri.
+    Burada okumak ikisinde de ayni calisir.
+    """
+
+    def __init__(self, inner: ToolRegistry, applied: list[str] | None = None) -> None:
+        super().__init__([inner.get(ad) for ad in inner.names()])  # type: ignore[misc]
+        self.applied: list[str] = [] if applied is None else applied
+
+    def subset(self, names: list[str]) -> ToolRegistry:
+        """Alt kume de KAYIT TUTMALI ve ayni listeye yazmali.
+
+        OLCULDU: bu gecersiz kilma olmadan sarmalayici sessizce
+        dusuyordu. `build_agent` verilen kayit defterini kendi icinde
+        `subset(TOOLSETS[rol])` ile daraltiyor ve taban sinifin `subset`i
+        DUZ bir `ToolRegistry` donduruyor -- ajan sarmalanmamis defteri
+        kullaniyor, degisiklikler kaydedilmiyor ve sohbet "hicbir sey
+        degismedi" diyordu. Hedef gercekten degismisken.
+        """
+        return _RecordingRegistry(super().subset(names), self.applied)
+
+    def execute(self, name: str, arguments: dict[str, Any], ctx: ToolContext):
+        sonuc = super().execute(name, arguments, ctx)
+        if name in MUTATING_TOOLS and not sonuc.is_error:
+            self.applied.append(f"{name}: {sonuc.content[:120]}")
+        return sonuc
 
 
 @dataclass(slots=True)
@@ -506,34 +562,85 @@ class Orchestrator:
         return question
 
     def _reindex_answers(self) -> None:
-        """Cevaplanmis/atlanmis sorulari tek bir bilgi tabani dokumaninda toplar."""
-        resolved = [q for q in self.state.list_questions() if q.status != "open"]
-        if not resolved:
-            self.kb.forget(ANSWERS_SOURCE)
-            return
-        lines = ["# Kullanicinin verdigi cevaplar", ""]
-        for question in resolved:
-            lines.append(f"## {question.key}: {question.question}")
-            if question.why:
-                lines.append(f"_Neden onemli:_ {question.why}")
-            if question.status == "answered":
-                lines.append(f"**Cevap:** {question.answer}")
-            else:
-                lines.append(
-                    t(
-                        "pipeline.skipped_assumption",
-                        assumption=(
-                            question.suggestion or t("pipeline.own_assumption")
-                        ),
-                    )
-                )
-            lines.append("")
-        self.kb.ingest_text(
-            "\n".join(lines),
-            source=ANSWERS_SOURCE,
-            title="Kullanici cevaplari",
-            kind="doc",
+        """Cevaplanmis/atlanmis sorulari bilgi tabanina yazar.
+
+        Mantik `pipeline.answers` icinde: ayni isi is akisi danismani da
+        yapiyor ve iki ayri kopya, birinin unutulmasi demek. Bu kod
+        tabani o bedeli bir kez odedi -- goruntu gonderme iki istemciye
+        ayri yazilmisti, biri unutulmustu.
+        """
+        reindex_answers(self.state, self.kb)
+
+    # ------------------------------------------------------------------ #
+    # Is akisi sohbeti
+    # ------------------------------------------------------------------ #
+    def chat(self, workflow_id: str, message: str, *, stream: bool = False) -> ChatReply:
+        """Bir is akisi hakkinda konusur; istenirse durumunu degistirir.
+
+        Konusma gecmisi modele BAGLAM METNI olarak verilir, konusma
+        gecmisi nesnesi olarak degil. Sebep: gecmisin bicimi saglayiciya
+        ozgu (Anthropic icerik bloklari, OpenAI `tool_calls`) ve o bicimi
+        burada elle kurmak, `LLMClient`in tek sahibi oldugu seye ikinci
+        bir sahip eklemek olurdu. Sohbet turlari kisa; metne katlamak
+        hem yeterli hem tasinabilir.
+        """
+        message = (message or "").strip()
+        if not message:
+            raise DeerXError(t("chat.empty_message"))
+
+        workflow = self.state.get_workflow(workflow_id)
+        if workflow is None:
+            raise DeerXError(t("chat.no_workflow", id=workflow_id))
+
+        self.events.emit("agent", "danisman", t("chat.started", seq=workflow["seq"]))
+        self.state.add_chat_message(workflow_id, role="user", content=message)
+
+        # Arac kapsami baglamdan gelir; model baska bir is akisina gecemez.
+        onceki_workflow = self.ctx.workflow_id
+        self.ctx.workflow_id = workflow_id
+        kayitci = _RecordingRegistry(self.registry.subset(TOOLSETS["danisman"]))
+        try:
+            agent = build_agent(
+                "danisman",
+                settings=self.settings,
+                client=self.client,
+                registry=kayitci,
+                context=self.ctx,
+                events=self.events,
+                stream=stream,
+                should_stop=self.should_stop,
+            )
+            result = agent.run(message, context=self._chat_context(workflow_id))
+        finally:
+            self.ctx.workflow_id = onceki_workflow
+
+        metin = (result.text or "").strip() or t("chat.no_reply")
+        cevap = ChatReply(
+            text=metin,
+            changes=list(kayitci.applied),
+            cost=result.cost,
+            iterations=result.iterations,
+            error=result.error,
         )
+        self.state.add_chat_message(
+            workflow_id, role="assistant", content=metin, changes=cevap.changes
+        )
+        return cevap
+
+    def _chat_context(self, workflow_id: str) -> str:
+        """Danismana devredilen baglam: is akisinin durumu + konusma."""
+        parcalar = [self.state.workflow_context(workflow_id)]
+        gecmis = self.state.chat_history(workflow_id)[:-1]  # son mesaj gorevin kendisi
+        if gecmis:
+            parcalar += ["", "## Bu ana kadarki konusma"]
+            for mesaj in gecmis:
+                kim = "Kullanici" if mesaj["role"] == "user" else "Sen"
+                parcalar.append(f"\n**{kim}:** {mesaj['content']}")
+                if mesaj["changes"]:
+                    parcalar.append(
+                        "  _(degistirdiklerin: " + "; ".join(mesaj["changes"]) + ")_"
+                    )
+        return "\n".join(parcalar)
 
     # ------------------------------------------------------------------ #
     # Faz kapisi

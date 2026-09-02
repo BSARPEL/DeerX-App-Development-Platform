@@ -11,6 +11,7 @@ from .project import PROJECT_TOOLS
 from .services import SERVICE_TOOLS
 from .shell import SHELL_TOOLS
 from .web import WEB_TOOLS
+from .workflow import WORKFLOW_TOOLS
 
 ALL_TOOLS: list[Tool] = [
     *KNOWLEDGE_TOOLS,
@@ -21,6 +22,7 @@ ALL_TOOLS: list[Tool] = [
     *WEB_TOOLS,
     *IMAGE_TOOLS,
     *BROWSER_TOOLS,
+    *WORKFLOW_TOOLS,
 ]
 
 
@@ -113,6 +115,22 @@ TOOLSETS: dict[str, list[str]] = {
         "start_service", "service_log", "stop_service",
         "preview_open", "browser_snapshot", "browser_console", "browser_screenshot",
     ],
+    # Is akisi danismani. Kullanici bir is akisi hakkinda konusur, danisman
+    # cevaplar ve istenirse durumu DEGISTIRIR.
+    #
+    # Arac kumesi bilerek dar: kabuk yok, dosya yazma yok, tarayici yok.
+    # Bu bir sohbet; kullanicinin bir cumlesiyle kod calistirilmasi ya da
+    # dosya yazilmasi beklenmiyor. Yazabildigi tek sey proje kayitlari ve
+    # is akisinin kimligi -- hepsi geri alinabilir ve hepsi kayit altinda.
+    "danisman": [
+        "read_workflow", "read_project_state", "read_document",
+        "search_knowledge", "list_knowledge",
+        "read_file", "list_dir", "glob_files", "grep_files",
+        "update_workflow", "resolve_question",
+        "record_requirements", "record_gaps", "record_decisions",
+        "record_questions", "record_tasks", "update_task",
+        "save_artifact",
+    ],
     # Canli ajan dosya YAZMAZ: incelenmis ve staging'de dogrulanmis olani dagitir.
     "live": [
         "search_knowledge", "read_project_state", "update_task",
@@ -147,6 +165,7 @@ __all__ = [
     "ToolResult",
     "IMAGE_TOOLS",
     "WEB_TOOLS",
+    "WORKFLOW_TOOLS",
     "build_registry",
     "json_block",
 ]

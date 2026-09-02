@@ -25,7 +25,7 @@
 
 | | |
 |---|---|
-| **[Ajan araçları](tools.md)** | 36 aracın tamamı ve ajanın yazdığını çalıştırıp test etmesi |
+| **[Ajan araçları](tools.md)** | 39 aracın tamamı ve ajanın yazdığını çalıştırıp test etmesi |
 | **[Mimari](architecture.md)** | Modül haritası ve her kararın arkasındaki gerekçe |
 | **[Güvenlik modeli](security.md)** | Hapsetme, kabuk politikası, kimlik doğrulama, sırlar |
 | **[İki dilli mimari](i18n.md)** | Tek ayarın arayüze, CLI'ye, araçlara ve yönergelere ulaşması |

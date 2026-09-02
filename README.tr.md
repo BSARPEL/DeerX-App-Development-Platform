@@ -203,7 +203,7 @@ Ayrıntı: **[Boru hattı](docs/tr/pipeline.md)**.
 | [Web arayüzü](docs/tr/web-ui.md) | Her ekran ve neden öyle düzenlendiği |
 | [CLI referansı](docs/tr/cli.md) | Komutlar, bayraklar, çıkış kodları, betikler |
 | [Yapılandırma](docs/tr/configuration.md) | `deerx.toml`, ortam, öncelik sırası |
-| [Ajan araçları](docs/tr/tools.md) | 36 aracın tamamı ve ajanın kendi işini test etmesi |
+| [Ajan araçları](docs/tr/tools.md) | 39 aracın tamamı ve ajanın kendi işini test etmesi |
 | [Mimari](docs/tr/architecture.md) | Modül haritası ve arkasındaki gerekçe |
 | [Güvenlik modeli](docs/tr/security.md) | Hapsetme, kabuk politikası, kimlik, sırlar |
 | [Teslimat paketleri](docs/tr/delivery.md) | Hazırlık kapısı ve sır dışlama |

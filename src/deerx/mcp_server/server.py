@@ -457,6 +457,38 @@ def deerx_next_task() -> str:
 # ---------------------------------------------------------------------- #
 # Kaynaklar
 # ---------------------------------------------------------------------- #
+@mcp.tool()
+def deerx_workflow_chat(workflow: str, message: str = "") -> str:
+    """Bir is akisi hakkinda konusur; istenirse durumunu degistirir.
+
+    `workflow` sirali numara ("2") ya da kimlik olabilir. `message` bos
+    birakilirsa yalnizca konusma gecmisi doner -- once neyin konusuldugunu
+    okumak, ustune yazmaktan once gelir.
+    """
+    orch = _get()
+    aday = workflow.strip().lstrip("#")
+    kayit = (
+        orch.state.get_workflow_by_seq(int(aday))
+        if aday.isdigit()
+        else orch.state.get_workflow(aday)
+    )
+    if kayit is None:
+        return t("chat.no_workflow", id=workflow)
+
+    if not message.strip():
+        return _json(orch.state.chat_history(kayit["id"]))
+
+    cevap = orch.chat(kayit["id"], message)
+    return _json(
+        {
+            "reply": cevap.text,
+            "changes": cevap.changes,
+            "iterations": cevap.iterations,
+            "error": cevap.error,
+        }
+    )
+
+
 @mcp.resource("deerx://state")
 def state_resource() -> str:
     """Proje hafizasinin markdown ozeti."""

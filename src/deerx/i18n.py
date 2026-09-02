@@ -61,6 +61,110 @@ def t(key: str, /, **values: Any) -> str:
 # olmali; `tests/test_i18n_py.py` bunu kilitler.
 # ---------------------------------------------------------------------- #
 CATALOG: dict[str, dict[str, str]] = {
+    # ── Is akisi danismani ───────────────────────────────────────────── #
+    "cli.chat": {
+        "tr": "Bir is akisi hakkinda konusur; istenirse durumunu degistirir.",
+        "en": "Talks about a workflow, and changes its state when asked.",
+    },
+    "cli.chat_detail": {
+        "tr": "Ornek: deerx chat 2 \"SLA suresi 4 saat olsun\"\n"
+              "Gecmisi gormek icin: deerx chat 2 --history",
+        "en": "Example: deerx chat 2 \"make the SLA four hours\"\n"
+              "To see the history: deerx chat 2 --history",
+    },
+    "opt.chat_workflow": {
+        "tr": "Is akisi numarasi (or. 2) ya da kimligi.",
+        "en": "Workflow number (e.g. 2) or id.",
+    },
+    "opt.chat_message": {
+        "tr": "Gonderilecek mesaj.",
+        "en": "The message to send.",
+    },
+    "opt.chat_history": {
+        "tr": "Yalnizca konusma gecmisini gosterir.",
+        "en": "Only show the conversation history.",
+    },
+    "opt.chat_clear": {
+        "tr": "Konusma gecmisini siler.",
+        "en": "Delete the conversation history.",
+    },
+    "chat.changed_header": {
+        "tr": "Degistirilenler",
+        "en": "Changed",
+    },
+    "chat.no_history": {
+        "tr": "Bu is akisinda henuz konusma yok.",
+        "en": "No conversation on this workflow yet.",
+    },
+
+    "chat.no_workflow_context": {
+        "tr": "Bu arac yalnizca bir is akisi sohbetinde kullanilabilir.",
+        "en": "This tool is only available inside a workflow conversation.",
+    },
+    "chat.workflow_gone": {
+        "tr": "Is akisi bulunamadi: {id}",
+        "en": "Workflow not found: {id}",
+    },
+    "chat.nothing_to_update": {
+        "tr": "Degistirilecek alan verilmedi (title, goal ya da brief).",
+        "en": "No field given to change (title, goal or brief).",
+    },
+    "chat.approve_workflow": {
+        "tr": "Is akisi guncellenecek: {fields}",
+        "en": "The workflow will be updated: {fields}",
+    },
+    "chat.approve_workflow_detail": {
+        "tr": "hedef: {goal}\ntalimat: {brief}",
+        "en": "goal: {goal}\nbrief: {brief}",
+    },
+    "chat.workflow_updated": {
+        "tr": "is akisi guncellendi: {fields}",
+        "en": "workflow updated: {fields}",
+    },
+    "chat.answer_or_assumption": {
+        "tr": "Ya `answer` ya da `assumption` verilmeli.",
+        "en": "Either `answer` or `assumption` must be given.",
+    },
+    "chat.approve_question": {
+        "tr": "{key} kapatilacak",
+        "en": "{key} will be resolved",
+    },
+    "chat.no_such_question": {
+        "tr": "'{key}' diye acik bir soru yok.",
+        "en": "There is no open question '{key}'.",
+    },
+    "chat.answered": {
+        "tr": "{key} cevaplandi",
+        "en": "{key} answered",
+    },
+    "chat.skipped": {
+        "tr": "{key} atlandi",
+        "en": "{key} skipped",
+    },
+    "chat.started": {
+        "tr": "is akisi #{seq} hakkinda soruldu",
+        "en": "asked about workflow #{seq}",
+    },
+    "chat.no_workflow": {
+        "tr": "Is akisi bulunamadi: {id}. Listelemek icin: deerx status",
+        "en": "Workflow not found: {id}. To list them: deerx status",
+    },
+    "chat.empty_message": {
+        "tr": "Bos mesaj gonderilemez.",
+        "en": "An empty message cannot be sent.",
+    },
+    "chat.no_reply": {
+        "tr": "(model bir sey soylemedi)",
+        "en": "(the model said nothing)",
+    },
+    "chat.cleared": {
+        "tr": "{count} mesaj silindi.",
+        "en": "{count} messages deleted.",
+    },
+    "chat.busy": {
+        "tr": "Bu is akisinda bir kosu suruyor; sohbet kosu bitince acilir.",
+        "en": "A run is in progress on this workflow; chat opens when it ends.",
+    },
     # ── Servisler ────────────────────────────────────────────────────── #
     "service.started": {
         "tr": "baslatildi: {name} · {command}",

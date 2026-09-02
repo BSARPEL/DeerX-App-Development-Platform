@@ -1629,6 +1629,52 @@ def build_app(settings: Settings) -> Starlette:
             return _error(t("api.no_such_workflow", id=raw_id), 404)
         return _json(detail)
 
+    async def workflow_chat(request: Request) -> Response:
+        """Bir is akisi hakkinda konusma: gecmisi oku ya da mesaj gonder.
+
+        Model cagrisi SENKRON ve uzun surebilir; olay dongusunu bloke
+        etmemek icin bir is parcacigina alinir. Aksi halde sohbet suren
+        her saniye butun arayuz -- canli akis dahil -- donardi.
+        """
+        project = state.orchestrator.state
+        raw_id = request.path_params["workflow_id"]
+        workflow_id = _resolve_id(raw_id, project.get_workflow, project.get_workflow_by_seq)
+        if workflow_id is None:
+            return _error(t("api.no_such_workflow", id=raw_id), 404)
+
+        if request.method == "GET":
+            return _json({"messages": project.chat_history(workflow_id)})
+
+        if request.method == "DELETE":
+            return _json({"ok": True, "deleted": project.clear_chat(workflow_id)})
+
+        body = await _body(request)
+        message = str(body.get("message") or "").strip()
+        if not message:
+            return _error(t("chat.empty_message"))
+
+        # Kosu surerken sohbet acilmaz: ikisi de ayni LLM istemcisini ve
+        # ayni arac baglamini kullanir, ve `ToolContext.workflow_id`
+        # kosunun altindan kayardi.
+        if state.runner.is_running():
+            return _error(t("chat.busy"), 409)
+
+        import anyio
+
+        cevap = await anyio.to_thread.run_sync(
+            lambda: state.orchestrator.chat(workflow_id, message)
+        )
+        _audit(request, "workflow.chat", detail=message[:120])
+        return _json(
+            {
+                "reply": cevap.text,
+                "changes": cevap.changes,
+                "iterations": cevap.iterations,
+                "error": cevap.error,
+                "messages": project.chat_history(workflow_id),
+            }
+        )
+
     async def run_list(request: Request) -> Response:
         """Kosu gecmisi — en yenisi basta."""
         project = state.orchestrator.state
@@ -1942,6 +1988,11 @@ def build_app(settings: Settings) -> Starlette:
         Route("/api/run/steps", run_workflow),
         Route("/api/workflows", workflow_list_route),
         Route("/api/workflows/{workflow_id}", workflow_detail_route),
+        Route(
+            "/api/workflows/{workflow_id}/chat",
+            workflow_chat,
+            methods=["GET", "POST", "DELETE"],
+        ),
         Route("/api/runs", run_list),
         Route("/api/runs/{run_id}", run_detail_route),
         Route("/api/runs/{run_id}/retry", run_retry, methods=["POST"]),
