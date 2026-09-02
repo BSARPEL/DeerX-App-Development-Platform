@@ -9,7 +9,7 @@ worthless too.
 
 ## The suite
 
-**1709 tests pass**, `ruff` clean, on Python 3.11 and 3.13.
+**1712 tests pass**, `ruff` clean, on Python 3.11 and 3.13.
 
 No test makes a network call or a real model call. Agents run against a fake
 client in `tests/conftest.py`, so the suite is deterministic.

@@ -50,6 +50,26 @@ if [ "$COKLU" -eq 1 ]; then
     # CI ile ayni -- gomme ve tarayici ekleri olmadan da kosmali.
     ortam=".venv-check-$surum"
     printf '\n== Python %s (yan ortam: %s)\n' "$surum" "$ortam"
+
+    # Yan ortam SESSIZCE bozulabiliyor. OLCULDU: `uv`nin konsol betigi
+    # kalintisi `uv trampoline failed to canonicalize script path`
+    # veriyor, `python.exe` calisiyor ama `pytest.exe` calismiyor -- ve
+    # `uv sync` BUNU ONARMIYOR. Denetim tek test kosmadan duser, mesaj
+    # da neyin bozuldugunu soylemez.
+    #
+    # Surumler arasi kosu, CI kaldirildiktan sonra kalan iki
+    # dogrulamadan biri; sessizce kosmamasi en kotu basarisizlik bicimi.
+    # Yoklama ucuz, ortam gitignore'da ve yeniden kurmak birkac saniye.
+    # Yoklama KONSOL BETIGINI dogrudan calistirir. `uv run ... pytest`
+    # ya da `python -c "import pytest"` YETMEZ: ikisi de bozuk bir
+    # trampoline'i atlayip basarili doner -- olculdu, `pytest.exe`
+    # silinmisken her ikisi de "saglam" dedi.
+    betik="$ortam/bin/pytest"
+    [ -f "$betik" ] || betik="$ortam/Scripts/pytest.exe"
+    if [ -e "$betik" ] && ! "$betik" --version >/dev/null 2>&1; then
+      printf '   yan ortam bozuk; yeniden kuruluyor\n'
+      rm -rf "$ortam"
+    fi
     UV_PROJECT_ENVIRONMENT="$ortam" uv sync --quiet --extra dev --python "$surum"
     UV_PROJECT_ENVIRONMENT="$ortam" uv run --no-sync pytest -q
   done

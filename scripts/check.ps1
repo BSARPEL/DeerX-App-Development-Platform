@@ -48,6 +48,28 @@ if ($Pythons) {
         $onceki = $env:UV_PROJECT_ENVIRONMENT
         $env:UV_PROJECT_ENVIRONMENT = $ortam
         try {
+            # Yan ortam SESSIZCE bozulabiliyor. OLCULDU: `uv`nin konsol
+            # betigi kalintisi `uv trampoline failed to canonicalize
+            # script path` veriyor, `python.exe` calisiyor ama
+            # `pytest.exe` calismiyor -- ve `uv sync` BUNU ONARMIYOR.
+            # Denetim tek test kosmadan duser ve mesaj neyin bozuldugunu
+            # soylemez. Surumler arasi kosu, CI kaldirildiktan sonra
+            # kalan iki dogrulamadan biri.
+            if (Test-Path $ortam) {
+                # KONSOL BETIGINI dogrudan calistirir: `uv run` ya da
+                # `python -c "import pytest"` bozuk bir trampoline'i
+                # atlayip basarili doner -- olculdu.
+                $betik = Join-Path $ortam ("Scripts" + [IO.Path]::DirectorySeparatorChar + "pytest.exe")
+                $saglam = $true
+                if (Test-Path $betik) {
+                    & $betik --version 2>$null | Out-Null
+                    $saglam = ($LASTEXITCODE -eq 0)
+                }
+                if (-not $saglam) {
+                    Write-Host '   yan ortam bozuk; yeniden kuruluyor'
+                    Remove-Item -Recurse -Force $ortam
+                }
+            }
             uv sync --quiet --extra dev --python $surum
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             uv run --no-sync pytest -q

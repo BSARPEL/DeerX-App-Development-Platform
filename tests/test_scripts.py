@@ -1039,3 +1039,54 @@ class TestTheProjectsOwnKnowledgeBase:
         for yol in (ROOT / "docs" / "knowledge-base.md",
                     ROOT / "docs" / "tr" / "knowledge-base.md"):
             assert yol.is_file(), yol
+
+
+class TestBozukYanOrtamOnarilir:
+    """Bozuk bir yan ortam denetimi SESSIZCE dusuruyordu.
+
+    OLCULDU (kabul kosusu): `.venv-check-3.11` ve `.venv-check-3.13`
+    ikisi de `uv trampoline failed to canonicalize script path` veriyordu.
+    `python.exe` calisiyor, `pytest.exe` calismiyor. `check.sh --pythons`
+    ilk ortamda duruyor -- TEK TEST KOSMADAN -- ve mesaj neyin bozuldugunu
+    soylemiyor.
+
+    Onemi konumundan geliyor: CI kaldirildiktan sonra surumler arasi kosu,
+    kalan iki dogrulamadan biri. Sessizce kosmamasi en kotu basarisizlik
+    bicimi.
+
+    OLCULDU ayrica: `uv sync` bunu ONARMIYOR. Bozuk `pytest.exe` uzerine
+    sync calistirildiktan sonra da bozuk kaliyor. Ortamin silinmesi sart.
+    """
+
+    SH = ROOT / "scripts" / "check.sh"
+    PS1 = ROOT / "scripts" / "check.ps1"
+
+    def test_the_probe_runs_the_console_script_itself(self):
+        """`uv run ... pytest` ve `python -c "import pytest"` YETMEZ.
+
+        Ikisi de bozuk bir trampoline'i atlayip basarili doner -- olculdu,
+        `pytest.exe` bozukken her ikisi de ortami "saglam" ilan etti. Tek
+        guvenilir yoklama, kirilan seyi calistirmak.
+        """
+        metin = self.SH.read_text(encoding="utf-8")
+        assert 'uv run --no-sync python -c "import pytest"' not in metin, (
+            "yoklama modul ice aktarmasina bakiyor; bozuk trampoline'i gormez"
+        )
+        assert '"$betik" --version' in metin, "konsol betigi dogrudan kosulmuyor"
+        assert "Scripts/pytest.exe" in metin and "bin/pytest" in metin, (
+            "iki platformun betik yolu da aranmali"
+        )
+
+    def test_a_broken_environment_is_removed_before_the_sync(self):
+        """`uv sync` onarmadigi icin dizin SILINMELI; sirasi da onemli."""
+        metin = self.SH.read_text(encoding="utf-8")
+        silme = metin.index('rm -rf "$ortam"')
+        sync = metin.index('uv sync --quiet --extra dev --python "$surum"')
+        assert silme < sync, "silme, sync'ten SONRA yapiliyor; ortam onarilmaz"
+
+    def test_powershell_does_the_same(self):
+        """Iki betik ayni denetimi kosmali; biri onarir digeri onarmazsa
+        Windows kullanicisi ayni duvara carpar."""
+        metin = self.PS1.read_text(encoding="utf-8-sig")
+        assert "pytest.exe" in metin
+        assert "Remove-Item -Recurse -Force $ortam" in metin
