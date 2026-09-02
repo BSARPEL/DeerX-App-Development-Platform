@@ -12,7 +12,7 @@ import pytest
 
 from deerx import setup as kurulum
 from deerx.config import CONFIG_FILENAME, Settings
-from deerx.i18n import set_language, t
+from deerx.i18n import CATALOG, set_language, t
 
 
 @pytest.fixture(autouse=True)
@@ -295,3 +295,49 @@ class TestStepNamesResolveAtRender:
             assert adim.ad != adim.anahtar
 
 
+class TestIlkYonergeYapilandirmayaUyar:
+    """`init`in soyledigi ile YAZDIGI ayni saglayiciyi gostermeli.
+
+    OLCULDU: `init` calisma alanini `provider = "openai"` ve yerel bir uc
+    ile kuruyordu, ama ilk yonerge ".env icine ANTHROPIC_API_KEY yazin"
+    diyor ve `.env`i tam o satirla tohumluyordu. Yeni kullanicinin okudugu
+    ILK cumle onu kurulan yapilandirmayla ilgisi olmayan bir saglayiciya
+    gonderiyordu -- ustelik yerel bir uc cogu zaman anahtar istemiyor.
+
+    Sapma sessiz: iki taraf da kendi icinde dogru, yalnizca birbirini
+    tutmuyor. Bu yuzden kalici bir koruma gerekiyor.
+    """
+
+    def test_the_first_step_does_not_name_one_providers_key(self):
+        for dil in ("tr", "en"):
+            metin = CATALOG["cli.step_key"][dil]
+            assert "ANTHROPIC_API_KEY" not in metin, (
+                f"[{dil}] ilk adim tek bir saglayicinin anahtarini soyluyor; "
+                "varsayilan yapilandirma o saglayiciyi kullanmiyor"
+            )
+
+    def test_the_first_step_points_at_the_default_provider_setting(self):
+        """Varsayilan `provider = "openai"`; yonerge de o ayari gostermeli."""
+        assert Settings().provider == "openai", "varsayilan saglayici degismis"
+        for dil in ("tr", "en"):
+            assert "openai_base_url" in CATALOG["cli.step_key"][dil], dil
+
+    def test_the_env_template_covers_both_providers(self):
+        """Sablon tek bir saglayiciyi one cikarmamali; ikisi de bos gelir."""
+        for dil in ("tr", "en"):
+            sablon = CATALOG["cli.env_template"][dil]
+            assert "OPENAI_API_KEY=" in sablon, dil
+            assert "ANTHROPIC_API_KEY=" in sablon, dil
+            assert sablon.endswith("\n"), dil
+
+    def test_init_writes_that_template(self, tmp_path):
+        """Metnin katalogda durmasi, `init`in onu KULLANDIGINI kanitlamaz."""
+        import inspect
+
+        from deerx import cli, setup
+
+        for modul in (cli, setup):
+            kaynak = inspect.getsource(modul)
+            assert 'ANTHROPIC_API_KEY=\\n"' not in kaynak, (
+                f"{modul.__name__} hala tek saglayicili .env tohumluyor"
+            )
