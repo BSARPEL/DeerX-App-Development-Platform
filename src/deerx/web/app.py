@@ -417,12 +417,25 @@ def build_app(settings: Settings) -> Starlette:
         counts = orch.state.counts()
         phases = phase_catalog(orch.state)
         total_cost = sum(p["cost"] for p in phases)
+
+        # Ust ray IS AKISI BAZLI. Proje geneli faz durumu, birden fazla is
+        # akisi yasadiginda yaniltiyordu: birinin bitirdigi faz otekinde
+        # hic kosulmamis olabilir ve ray ikisini tek satirda topluyordu.
+        from .runner import workflow_step_load
+
+        akislar = orch.state.list_workflows(limit=1)
+        aktif = akislar[0] if akislar else None
+        adimlar = workflow_step_load(orch.state, aktif["id"]) if aktif else []
         return _json(
             {
                 "workspace": str(settings.workspace),
                 "goal": orch.state.get_meta("goal", ""),
                 "brief": orch.state.get_meta("brief", ""),
                 "phases": phases,
+                # Ust rayin verisi: is akisina kapsanmis, adim basina
+                # bekleyen is sayisiyla.
+                "workflow": aktif,
+                "workflow_steps": adimlar,
                 "counts": counts,
                 "knowledge_base": orch.kb.stats(),
                 "run": state.runner.status(),

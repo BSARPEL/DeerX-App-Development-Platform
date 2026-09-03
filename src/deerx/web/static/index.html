@@ -148,6 +148,7 @@
         </footer>
       </section>
 
+      <p class="rail-scope" id="phase-rail-scope"></p>
       <ol class="phase-rail" id="phase-rail" data-i18n-label="overview.phaseRail"
           aria-label="Boru hattı fazları"></ol>
 
@@ -281,26 +282,6 @@
       <div class="wf-meta" id="workflow-meta"></div>
       <ol class="wf-steps" id="workflow-steps"></ol>
 
-      <!-- Bu is akisi hakkinda konusma. Yalnizca bir is akisi ACIKKEN
-           gorunur: sohbetin kapsami tek bir is akisidir ve listede
-           dururken "hangisi hakkinda?" sorusunun cevabi yok. -->
-      <section class="panel wf-chat" id="workflow-chat" hidden>
-        <header class="panel-head">
-          <h2 data-i18n="chat.title">Bu iş akışı hakkında konuş</h2>
-          <button class="btn btn-ghost btn-sm" id="chat-clear" type="button"
-                  data-i18n="chat.clear">Geçmişi sil</button>
-        </header>
-        <div class="panel-body">
-          <div class="chat-log" id="chat-log"></div>
-          <p class="chat-status" id="chat-status" hidden></p>
-          <form class="chat-bar" id="chat-form">
-            <textarea id="chat-input" rows="2" data-i18n-placeholder="chat.placeholder"
-                      autocomplete="off"></textarea>
-            <button class="btn btn-primary" id="chat-send" type="submit"
-                    data-i18n="chat.send">Gönder</button>
-          </form>
-        </div>
-      </section>
     </section>
 
     <!-- Bilgi tabanı -->
@@ -948,5 +929,38 @@
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script src="/static/app.js"></script>
+
+  <!-- Sohbeti açan yüzen düğme: bir iş akışı açıkken sağ altta durur. -->
+  <button class="chat-fab" id="chat-open" type="button" hidden
+          data-i18n-label="chat.open" aria-label="Bu iş akışı hakkında konuş">
+    <span class="chat-fab-icon" aria-hidden="true">💬</span>
+    <span class="chat-fab-text" data-i18n="chat.fab">Yapay zekâ ile konuş</span>
+  </button>
+
+  <!-- İş akışı sohbeti: sağdan çekmece, görünümlerin DIŞINDA durur. -->
+  <div class="drawer-veil" id="chat-veil" hidden></div>
+  <aside class="drawer" id="chat-drawer" aria-hidden="true">
+    <header class="drawer-head">
+      <div>
+        <h2 class="drawer-title" data-i18n="chat.title">Bu iş akışı hakkında konuş</h2>
+        <p class="drawer-sub" id="chat-scope">—</p>
+      </div>
+      <div class="drawer-actions">
+        <button class="btn btn-ghost btn-sm" id="chat-clear" type="button"
+                data-i18n="chat.clear">Geçmişi sil</button>
+        <button class="icon-btn" id="chat-close" type="button"
+                data-i18n-label="chat.close" aria-label="Kapat">✕</button>
+      </div>
+    </header>
+    <div class="chat-log" id="chat-log"></div>
+    <p class="chat-status" id="chat-status" hidden></p>
+    <form class="chat-bar" id="chat-form">
+      <textarea id="chat-input" rows="2" data-i18n-placeholder="chat.placeholder"
+                autocomplete="off"></textarea>
+      <button class="btn btn-primary" id="chat-send" type="submit"
+              data-i18n="chat.send">Gönder</button>
+    </form>
+  </aside>
+
 </body>
 </html>

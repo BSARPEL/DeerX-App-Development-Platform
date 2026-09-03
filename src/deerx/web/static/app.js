@@ -165,7 +165,7 @@ function applyLanguageLocally(lang) {
   if (state.overview) {
     renderGoalLine(state.overview.goal);
     renderWorkspace(state.overview.workspace);
-    renderPhaseRail(state.phases);
+    renderPhaseRail(state.workflowSteps || [], state.overview.workflow);
     renderStats(state.overview);
     renderPhaseSummaries(state.phases);
     renderRunControls(state.overview);
@@ -292,7 +292,8 @@ async function loadOverview() {
   $("#c-dec").textContent = counts.decisions;
   $("#c-res").textContent = counts.research_notes;
 
-  renderPhaseRail(data.phases);
+  state.workflowSteps = data.workflow_steps || [];
+  renderPhaseRail(state.workflowSteps, data.workflow);
   renderStats(data);
   renderPhaseSummaries(data.phases);
   renderRunControls(data);
@@ -343,48 +344,70 @@ function renderWorkspace(path) {
 // ucuncusu ("Canli") kutuya sigmayip yatay kaydirmanin arkasinda kaliyordu.
 // Seridi ust asamalara boluyoruz: goz on uc adim yerine dort obek gorur,
 // ve izgara sabit sutunla kurulunca hepsi ekrana sigar.
-function renderPhaseRail(phases) {
+function renderPhaseRail(steps, workflow) {
   const rail = $("#phase-rail");
+  const etiket = $("#phase-rail-scope");
+
+  // Ray IS AKISI BAZLI. Proje geneli faz durumu, birden fazla is akisi
+  // yasadiginda yaniltiyordu: birinin bitirdigi faz otekinde hic
+  // kosulmamis olabilir ve ray ikisini tek satirda topluyordu.
+  if (!steps.length) {
+    rail.innerHTML = "";
+    etiket.textContent = t("overview.noWorkflow");
+    return;
+  }
+  etiket.textContent = workflow
+    ? t("overview.railScope", { seq: workflow.seq,
+                                name: workflow.title || workflow.goal || "—" })
+    : "";
+
+  // Asama gruplamasi KORUNUYOR: on uc esit nokta okunmuyor, dort obek
+  // okunuyor. Degisen sey basliklarin NE saydigi -- tamamlanan faz degil,
+  // o asamada BEKLEYEN is.
   const stages = [];
-  for (const phase of phases) {
+  for (const step of steps) {
     const last = stages[stages.length - 1];
-    if (!last || last.name !== phase.stage) stages.push({ name: phase.stage, phases: [phase] });
-    else last.phases.push(phase);
+    if (!last || last.name !== step.stage) stages.push({ name: step.stage, steps: [step] });
+    else last.steps.push(step);
   }
 
-  const terminal = (status) => ["done", "skipped"].includes(status);
-  const done = phases.filter((p) => terminal(p.status)).length;
-  rail.style.setProperty("--phases", String(phases.length));
-  rail.dataset.progress = `${done}/${phases.length}`;
+  rail.style.setProperty("--phases", String(steps.length));
+  rail.dataset.waiting = String(steps.reduce((n, s) => n + s.waiting, 0));
 
-  // Iki satirlik izgara: once asama basliklari (her biri kendi faz sayisi
-  // kadar sutun kaplar), sonra fazlar. Belge sirasi satirlari kendiliginden
-  // dogru diziyor; ayrica konumlandirma gerekmiyor.
   const heads = stages.map((stage) => {
-    const inStage = stage.phases.filter((p) => terminal(p.status)).length;
+    const bekleyen = stage.steps.reduce((n, s) => n + s.waiting, 0);
     return `
-      <li class="phase-stage" style="grid-column: span ${stage.phases.length}"
-          data-full="${inStage === stage.phases.length ? 1 : 0}">
+      <li class="phase-stage" style="grid-column: span ${stage.steps.length}"
+          data-full="${bekleyen === 0 ? 1 : 0}">
         <span class="phase-stage-name">${esc(t("stage." + stage.name))}</span>
-        <span class="phase-stage-count">${inStage}/${stage.phases.length}</span>
+        <span class="phase-stage-count">${
+          bekleyen === 0 ? "✓" : t("overview.stageWaiting", { n: bekleyen })
+        }</span>
       </li>`;
   }).join("");
 
-  const steps = phases.map((phase, index) => {
-    const previousDone = index > 0 && terminal(phases[index - 1].status);
+  const cells = steps.map((step) => {
+    // Sayinin NEYI saydigi fazdan faza degisir; ipucu bunu soylemeli,
+    // yoksa "1" ile "17" ayni sey saniliyor.
+    const ipucu = step.unit === "task"
+      ? t("overview.waitingTasks", { n: step.waiting, blocked: step.blocked })
+      : (step.terminal ? t("overview.stepDone") : t("overview.stepPending"));
     return `
-      <li class="phase" data-status="${esc(phase.status)}" data-done="${previousDone ? 1 : 0}"
-          data-first="${index === 0 ? 1 : 0}" data-last="${index === phases.length - 1 ? 1 : 0}"
-          title="${esc(t("overview.phaseTitle", {
-            summary: phase.summary || t("produces." + phase.phase),
-            agent: t("agent." + phase.phase) }))}">
-        <span class="phase-dot">${phase.status === "done" ? "✓" : phase.index + 1}</span>
-        <span class="phase-label">${esc(t("phase." + phase.phase))}</span>
-        <span class="phase-meta">${phase.cost ? fmtMoney(phase.cost) : ""}</span>
+      <li class="phase" data-status="${esc(step.status)}"
+          data-waiting="${step.waiting > 0 ? 1 : 0}"
+          title="${esc(t("phase." + step.phase))} — ${esc(ipucu)}">
+        <span class="phase-dot">${step.terminal ? "✓" : step.index + 1}</span>
+        <span class="phase-label">${esc(t("phase." + step.phase))}</span>
+        <span class="phase-count" data-unit="${esc(step.unit)}">${
+          step.terminal ? "" : step.waiting
+        }</span>
+        ${step.blocked
+          ? `<span class="phase-blocked">${step.blocked}</span>`
+          : ""}
       </li>`;
   }).join("");
 
-  rail.innerHTML = heads + steps;
+  rail.innerHTML = heads + cells;
 }
 
 function renderStats(data) {
@@ -1592,7 +1615,8 @@ async function loadWorkflowList() {
   $("#workflow-back").hidden = true;
   // Sohbetin kapsami TEK bir is akisidir; listede "hangisi hakkinda?"
   // sorusunun cevabi yok, o yuzden panel yalnizca detayda gorunur.
-  $("#workflow-chat").hidden = true;
+  $("#chat-open").hidden = true;
+  closeChat();
   $("#workflow-expand-label").hidden = true;
   $("#workflow-meta").innerHTML = "";
   $("#workflow-steps").innerHTML = "";
@@ -1653,7 +1677,7 @@ async function loadWorkflowDetail(workflowId) {
   $("#workflow-steps").innerHTML = "";
   $("#workflow-expand-label").hidden = true;
   $("#workflow-back").hidden = false;
-  $("#workflow-chat").hidden = false;
+  $("#chat-open").hidden = false;
   loadChat(workflowId);
   try {
     const data = await api(`/api/workflows/${encodeURIComponent(workflowId)}`);
@@ -2014,7 +2038,40 @@ async function sendChat() {
   }
 }
 
+function openChat() {
+  const drawer = $("#chat-drawer");
+  drawer.dataset.open = "1";
+  drawer.setAttribute("aria-hidden", "false");
+  $("#chat-veil").hidden = false;
+  // Cekmece acikken dugme gizlenir: ikisi ayni koseyi paylasiyor.
+  $("#chat-open").dataset.behind = "1";
+  const wf = state.workflowDetail && state.workflowDetail.workflow;
+  $("#chat-scope").textContent = wf
+    ? t("chat.scope", { seq: wf.seq, name: wf.title || wf.goal || "—" })
+    : "";
+  // Acilinca yaziya odaklan: sohbet penceresinde beklenen bu.
+  $("#chat-input").focus();
+}
+
+function closeChat() {
+  const drawer = $("#chat-drawer");
+  if (drawer.dataset.open !== "1") return;
+  delete drawer.dataset.open;
+  drawer.setAttribute("aria-hidden", "true");
+  $("#chat-veil").hidden = true;
+  delete $("#chat-open").dataset.behind;
+}
+
 function initChat() {
+  $("#chat-open").addEventListener("click", openChat);
+  $("#chat-close").addEventListener("click", closeChat);
+  $("#chat-veil").addEventListener("click", closeChat);
+  // Esc kapatir. Kacis yolu olmayan bir katman, kullaniciyi sayfayi
+  // yenilemeye zorlar.
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeChat();
+  });
+
   $("#chat-form").addEventListener("submit", (event) => {
     event.preventDefault();
     sendChat();

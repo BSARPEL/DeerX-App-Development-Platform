@@ -817,6 +817,78 @@ def run_steps(runner: RunManager, state: Any) -> dict[str, Any]:
     return {"run": status, "goal": state.get_meta("goal", ""), "steps": steps}
 
 
+def workflow_step_load(state: Any, workflow_id: str) -> list[dict[str, Any]]:
+    """Bir is akisinin adimlari ve HER ADIMDA BEKLEYEN IS sayisi.
+
+    "Bekleyen is" fazdan faza ayni sey degil ve bunu gizlemek yaniltici
+    olurdu:
+
+    * `implement` GERCEK bir kuyruk tasir -- plandaki gorevler. Sayi
+      oradaki `pending` gorev sayisidir ve onlarca olabilir.
+    * Oteki fazlar tek ajanlidir; kuyruklari yoktur. Orada bekleyen is
+      FAZIN KENDISIDIR: kosulmadiysa 1, kosulduysa 0.
+
+    Boylece ray "nerede yigilma var" sorusunu cevaplar: implement 17,
+    qa 1, review 1 -- darbogazin nerede oldugu tek bakista gorunur.
+
+    Durum is akisina gore cozulur, proje geneline gore degil: ayni proje
+    icinde birden fazla is akisi yasayabilir ve birinin bitirdigi faz
+    otekinde hic kosulmamis olabilir.
+    """
+    adimlar = state.workflow_runs(workflow_id)
+    # Bu is akisinin kosularinda her fazin EN SON durumu.
+    durumlar: dict[str, str] = {}
+    plan_kimlikleri: set[str] = set()
+    for kosu in adimlar:
+        if kosu.get("plan_id"):
+            plan_kimlikleri.add(kosu["plan_id"])
+        for satir in state.run_step_rows(kosu["id"]):
+            durumlar[satir["phase"]] = satir["status"]
+
+    # Gorevler: is akisinin planlari varsa onlar, yoksa etkin plan.
+    if plan_kimlikleri:
+        gorevler = [
+            g for pid in plan_kimlikleri for g in state.list_tasks(plan_id=pid)
+        ]
+    else:
+        gorevler = state.list_tasks(plan_id=state.active_plan_id())
+
+    bekleyen_gorev = sum(1 for g in gorevler if g.status == Status.PENDING)
+    bloke_gorev = sum(1 for g in gorevler if g.status == Status.BLOCKED)
+    kosan_gorev = sum(1 for g in gorevler if g.status == Status.RUNNING)
+
+    katalog = []
+    for phase in Phase.ordered():
+        durum = durumlar.get(str(phase), Status.PENDING)
+        bitti = durum in {Status.DONE, Status.SKIPPED}
+        if phase is Phase.IMPLEMENT:
+            bekleyen, bloke, kosan = bekleyen_gorev, bloke_gorev, kosan_gorev
+        else:
+            bekleyen = 0 if bitti else 1
+            bloke = 0
+            kosan = 1 if durum == Status.RUNNING else 0
+        katalog.append(
+            {
+                "phase": str(phase),
+                "label": phase.label,
+                "agent": phase.agent_label,
+                "produces": phase.produces,
+                "stage": phase.stage,
+                "index": phase.index,
+                "status": durum,
+                "terminal": bitti,
+                # Bu adimda BEKLEYEN is. `implement` icin gorev sayisi,
+                # otekiler icin fazin kendisi (0 ya da 1).
+                "waiting": bekleyen,
+                "blocked": bloke,
+                "running": kosan,
+                # Sayinin NEYI saydigi; arayuz ipucunu buna gore yazar.
+                "unit": "task" if phase is Phase.IMPLEMENT else "phase",
+            }
+        )
+    return katalog
+
+
 def phase_catalog(state: Any) -> list[dict[str, Any]]:
     """Arayuzun faz seridi icin faz listesi + guncel durumlari."""
     catalog = []

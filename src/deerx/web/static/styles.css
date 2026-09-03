@@ -2450,7 +2450,6 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 /* Kullanıcı bir iş akışı hakkında konuşur, danışman cevaplar ve istenirse
    durumu değiştirir. Panel yalnızca bir iş akışı açıkken görünür. */
 
-.wf-chat { margin-top: 16px; }
 
 .chat-log {
   display: flex; flex-direction: column; gap: 12px;
@@ -2525,4 +2524,116 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
   resize: vertical;
   min-height: 46px;
   line-height: 1.5;
+}
+
+/* ─── Sağdan çekmece ───────────────────────────────────────────────────── */
+/* Sohbet bir görünümün içine gömülü değil: gömülü olsaydı o görünümün
+   kaydırması ve yığın bağlamı çekmeceyi hapsederdi. */
+
+.drawer-veil {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, .45);
+  z-index: 40;
+}
+
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0;
+  z-index: 41;
+  display: flex; flex-direction: column;
+  width: min(460px, 100vw);
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  /* Kapaliyken sagda bekler; `transform` ile kayar. `display:none`
+     kullanilmiyor -- gecis animasyonu olmazdi. */
+  transform: translateX(100%);
+  transition: transform .18s ease-out;
+}
+
+.drawer[data-open="1"] { transform: translateX(0); }
+
+.drawer-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.drawer-title { font-size: 14px; font-weight: 600; }
+.drawer-sub { margin-top: 4px; font-size: 12px; color: var(--text-3); }
+.drawer-actions { display: flex; align-items: center; gap: 8px; }
+
+.drawer .chat-log {
+  flex: 1;
+  max-height: none;
+  padding: 16px 20px;
+}
+
+.drawer .chat-status { padding: 0 20px; }
+
+.drawer .chat-bar {
+  margin: 0;
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--border);
+}
+
+/* Hareketi kapatanlara saygi: cekmece yine acilir, kaymaz. */
+@media (prefers-reduced-motion: reduce) {
+  .drawer { transition: none; }
+}
+
+/* ─── Adım rayı: bekleyen iş sayacı ───────────────────────────────────── */
+
+.rail-scope {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.phase-count {
+  font-size: 12px; font-weight: 600;
+  color: var(--text-2);
+}
+
+/* Görev kuyruğu taşıyan adım (`implement`) ile kendisi bekleyen adım
+   aynı görünmemeli: 17 ile 1 aynı şey değil. */
+.phase-count[data-unit="task"] { color: var(--accent); }
+
+.phase-blocked {
+  margin-left: 4px;
+  font-size: 11px; font-weight: 600;
+  color: var(--warn);
+}
+
+/* ─── Sohbeti açan yüzen düğme ─────────────────────────────────────────── */
+/* Sağ altta durur, bir iş akışı açıkken görünür. Görünümün içinde bir satır
+   olsaydı sayfayı aşağı kaydırınca kaybolurdu; sohbet her an erişilebilir
+   olmalı. */
+
+.chat-fab {
+  position: fixed; right: 24px; bottom: 24px;
+  z-index: 39;
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 20px;
+  border: 1px solid var(--accent-solid);
+  border-radius: 999px;
+  background: var(--accent-solid);
+  color: var(--accent-solid-text);
+  font-size: 13px; font-weight: 600;
+  box-shadow: var(--shadow-lg);
+  cursor: pointer;
+}
+
+.chat-fab:hover { background: var(--accent-solid-hover); }
+.chat-fab:active { transform: translateY(1px); }
+
+/* Çekmece açıkken gizlenir: ikisi aynı köşeyi paylaşıyor. */
+.chat-fab[data-behind="1"] { opacity: 0; pointer-events: none; }
+
+.chat-fab-icon { font-size: 14px; line-height: 1; }
+
+/* Dar ekranda yalnızca simge kalır; metin köşeyi kaplardı. */
+@media (max-width: 640px) {
+  .chat-fab { padding: 14px; }
+  .chat-fab-text { display: none; }
 }

@@ -2917,3 +2917,126 @@ class TestWorkflowChatApi:
         )
         mesajlar = client.get(f"/api/workflows/{wf['id']}/chat").json()["messages"]
         assert mesajlar[0]["changes"] == ["update_workflow: baslik"]
+
+
+class TestWorkflowStepLoad:
+    """Ust ray IS AKISI BAZLI ve adim basina BEKLEYEN IS sayar.
+
+    Proje geneli faz durumu yaniltiyordu: ayni projede birden fazla is
+    akisi yasayabilir ve birinin bitirdigi faz otekinde hic kosulmamis
+    olabilir; ray ikisini tek satirda topluyordu.
+
+    "Bekleyen is" fazdan faza ayni sey degil ve bunu gizlemek yaniltici
+    olurdu -- `implement` gercek bir gorev kuyrugu tasir, oteki fazlar
+    tek ajanlidir ve orada bekleyen is fazin kendisidir.
+    """
+
+    def _load(self, state_of, workflow_id):
+        from deerx.web.runner import workflow_step_load
+
+        return {a["phase"]: a for a in workflow_step_load(state_of, workflow_id)}
+
+    def test_implement_counts_pending_tasks(self, state_of):
+        from deerx.pipeline.models import Status, Task
+
+        wf = state_of.workflow_for_goal("Hesap makinesi")
+        for i in range(3):
+            state_of.add_task(Task(key=f"T-00{i+1}", title=f"gorev {i}"))
+        state_of.update_task("T-001", status=Status.DONE)
+
+        adim = self._load(state_of, wf["id"])["implement"]
+
+        assert adim["waiting"] == 2, "bekleyen gorev sayisi yanlis"
+        assert adim["unit"] == "task"
+
+    def test_blocked_tasks_are_counted_apart(self, state_of):
+        """Bloke gorev bekleyen degildir; ayni sayida gostermek
+        'birazdan kosacak' izlenimi verirdi."""
+        from deerx.pipeline.models import Status, Task
+
+        wf = state_of.workflow_for_goal("Hesap makinesi")
+        state_of.add_task(Task(key="T-001", title="a"))
+        state_of.add_task(Task(key="T-002", title="b"))
+        state_of.update_task("T-002", status=Status.BLOCKED)
+
+        adim = self._load(state_of, wf["id"])["implement"]
+
+        assert adim["waiting"] == 1 and adim["blocked"] == 1
+
+    def test_a_single_agent_phase_waits_on_itself(self, state_of):
+        """Kuyrugu olmayan fazda bekleyen is FAZIN KENDISIDIR: 1 ya da 0."""
+        wf = state_of.workflow_for_goal("Hesap makinesi")
+        yuk = self._load(state_of, wf["id"])
+
+        assert yuk["qa"]["waiting"] == 1
+        assert yuk["qa"]["unit"] == "phase"
+
+    def test_a_finished_phase_waits_for_nothing(self, state_of):
+        from deerx.pipeline.models import Phase, Status
+
+        wf = state_of.workflow_for_goal("Hesap makinesi")
+        state_of.start_run("r1", goal="Hesap makinesi", workflow_id=wf["id"])
+        state_of.start_run_step("r1", Phase.ANALYZE, 0)
+        state_of.finish_run_step("r1", Phase.ANALYZE, status=Status.DONE)
+
+        adim = self._load(state_of, wf["id"])["analyze"]
+
+        assert adim["waiting"] == 0 and adim["terminal"]
+
+    def test_the_status_comes_from_this_workflow_not_the_project(self, state_of):
+        """Baska bir is akisinda biten faz, BU is akisinda bitmis
+        sayilmamali -- rayin is akisi bazli olmasinin butun sebebi bu."""
+        from deerx.pipeline.models import Phase, Status
+
+        birinci = state_of.workflow_for_goal("Hesap makinesi")
+        state_of.start_run("r1", goal="Hesap makinesi", workflow_id=birinci["id"])
+        state_of.start_run_step("r1", Phase.ANALYZE, 0)
+        state_of.finish_run_step("r1", Phase.ANALYZE, status=Status.DONE)
+
+        ikinci = state_of.create_workflow("Baska hedef")
+        adim = self._load(state_of, ikinci["id"])["analyze"]
+
+        assert adim["waiting"] == 1, "baska is akisinin ilerlemesi buraya sizdi"
+
+    def test_every_pipeline_phase_appears(self, state_of):
+        from deerx.pipeline.models import Phase
+
+        wf = state_of.workflow_for_goal("Hesap makinesi")
+        assert set(self._load(state_of, wf["id"])) == {str(p) for p in Phase.ordered()}
+
+
+class TestChatDrawer:
+    """Sohbet sagdan cikan bir cekmece; gorunumlerin DISINDA durur."""
+
+    @staticmethod
+    def _asset(name: str) -> str:
+        from deerx.web.app import STATIC_DIR
+
+        return (STATIC_DIR / name).read_text(encoding="utf-8")
+
+    def test_the_drawer_lives_outside_the_views(self):
+        """Bir gorunumun icine gomulseydi o gorunumun kaydirmasi ve yigin
+        baglami cekmeceyi hapsederdi."""
+        html = self._asset("index.html")
+        cekmece = html.index('id="chat-drawer"')
+        son_view = html.rindex('class="view"')
+        assert cekmece > son_view, "cekmece bir gorunumun icinde"
+
+    def test_it_slides_rather_than_appearing(self):
+        """`display:none` ile gizlemek gecis animasyonunu imkansiz kilar."""
+        css = self._asset("styles.css")
+        blok = css[css.index(".drawer {"):css.index(".drawer-head")]
+        assert "transform: translateX(100%)" in blok
+        assert "transition: transform" in blok
+
+    def test_reduced_motion_is_respected(self):
+        css = self._asset("styles.css")
+        assert "prefers-reduced-motion" in css
+
+    def test_there_are_three_ways_out(self):
+        """Kacis yolu olmayan bir katman kullaniciyi sayfayi yenilemeye
+        zorlar: dugme, perde ve Esc."""
+        js = self._asset("app.js")
+        assert '$("#chat-close").addEventListener("click", closeChat)' in js
+        assert '$("#chat-veil").addEventListener("click", closeChat)' in js
+        assert '"Escape"' in js and "closeChat()" in js
