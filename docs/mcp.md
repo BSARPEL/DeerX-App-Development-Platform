@@ -55,6 +55,28 @@ terminal to ask on. Understand what that means before setting it — see
 | `deerx_answer` | Answer one |
 | `deerx_skip_question` | Move on with an assumption |
 | `deerx_package` | Readiness gate + delivery zip |
+| `deerx_workflow_chat` | Talk to the advisor about one workflow; empty `message` returns the history |
+
+## Talking about a workflow
+
+`deerx_workflow_chat` is the MCP face of `deerx chat` and of the drawer on a
+workflow's detail view. There is one conversation per workflow, not one per
+surface.
+
+`workflow` is the sequential number (`"2"`) or the raw id. Leave `message`
+empty to read the history first — writing on top of a conversation you have
+not seen is how an outside agent duplicates an answer the user already
+gave.
+
+The advisor can close a question or change that workflow's title, goal or
+brief. It cannot run a command. The workflow id is an argument *you* pass,
+not one the model inside DeerX chooses; see
+[Concepts — The advisor](concepts.md#the-advisor).
+
+**Do not let the outside agent answer blocking questions itself** through
+this tool either. Closing a question with a guess is the same failure as
+`deerx_answer` on the agent's own authority — the recorded text then looks
+like the user's. Pass the question out.
 
 ## Resources
 

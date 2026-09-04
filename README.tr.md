@@ -198,6 +198,7 @@ Ayrıntı: **[Boru hattı](docs/tr/pipeline.md)**.
 | | |
 |---|---|
 | [Başlangıç](docs/tr/getting-started.md) | Kurulum, yapılandırma, ilk koşu |
+| [Kavramlar](docs/tr/concepts.md) | Çalışma alanı, iş akışı ile koşu, dört depo, danışman |
 | [Boru hattı](docs/tr/pipeline.md) | Fazlar, ajanlar, şeritler, soru kapısı |
 | [Model sağlayıcıları](docs/tr/providers.md) | vLLM, Ollama, OpenAI, Anthropic |
 | [Web arayüzü](docs/tr/web-ui.md) | Her ekran ve neden öyle düzenlendiği |

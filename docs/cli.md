@@ -3,7 +3,22 @@
 [← Documentation](README.md) · [Türkçe](tr/cli.md)
 
 Every command follows the interface language. `deerx --help` is available in
-both; see [Bilingual architecture](i18n.md).
+both; see [Bilingual architecture](i18n.md). The words behind the commands —
+workspace, workflow, run, the advisor — are in [Concepts](concepts.md).
+
+## Command index
+
+| Command | What it does |
+|---|---|
+| `init` · `setup` · `doctor` | Create a workspace, install what is missing, check it |
+| `ingest` · `search` | Index documents; hybrid-search them |
+| `run` · `phase` · `implement` | Drive the pipeline |
+| `questions` · `answer` · `skip` | The question gate |
+| `chat` | Talk to the advisor about one workflow |
+| `status` · `tasks` · `artifacts` | Inspect the project memory |
+| `package` | Readiness gate + delivery zip |
+| `user …` | Accounts |
+| `serve` · `mcp` | The other two surfaces |
 
 ## Workspace
 
@@ -14,6 +29,23 @@ Creates a workspace: `deerx.toml`, an empty `.env`, `docs/` and `.deerx/`.
 | Flag | |
 |---|---|
 | `--force` | Overwrite an existing `deerx.toml` |
+
+### `deerx setup [path]`
+
+Creates the workspace if needed, then closes the gaps `doctor` would report.
+`doctor` never writes; `setup` does. The distinction is deliberate.
+
+| Flag | |
+|---|---|
+| `--no-deps` | Do not install missing extras |
+| `--no-searxng` | Do not start a SearXNG container |
+| `--with-embedding-model` | Download the embedding model now, not on first search |
+
+It prints a table with `✓` (already fine), `+` (installed just now), `!`
+(warning, DeerX still runs) and `✗` (blocked). Only `✗` is an exit code `1`.
+When SearXNG comes up healthy it also switches `search_provider` to `searxng`
+and writes `searxng_url` — installing a search engine you then ignore is
+wasted work.
 
 ### `deerx doctor`
 
@@ -103,6 +135,29 @@ Moves on with an assumption.
 | Flag | |
 |---|---|
 | `--assumption` / `-a "..."` | The assumption to record; without it the agent forms its own |
+
+## Talking to a workflow
+
+### `deerx chat <workflow> ["message"]`
+
+A conversation with the advisor about **one** workflow. The advisor can
+answer questions about that workflow and, if you ask it to, change its
+title, goal or brief, or close an open question. It cannot run a command or
+write a project file. See [Concepts — The advisor](concepts.md#the-advisor).
+
+`<workflow>` is the sequential number (`2`, `#2`) or the raw id.
+
+| Flag | |
+|---|---|
+| *(no message)* | Print the conversation so far |
+| `--history` | Same as an empty message |
+| `--clear` | Delete the conversation |
+
+```bash
+uv run deerx chat 2 "What is still blocking the plan?"
+uv run deerx chat 2 --history
+uv run deerx chat 2 --clear
+```
 
 ## Inspecting
 

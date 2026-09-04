@@ -2,11 +2,21 @@
 
 [← Back to the project README](../README.md) · [Türkçe](tr/README.md)
 
+```mermaid
+flowchart LR
+  start[Getting started] --> ideas[Concepts]
+  ideas --> pipe[The pipeline]
+  ideas --> use[Web · CLI · MCP]
+  pipe --> deep[Tools · Architecture · Security]
+  use --> cfg[Configuration · Providers]
+```
+
 ## Start here
 
 | | |
 |---|---|
 | **[Getting started](getting-started.md)** | Install, configure a provider, run the pipeline for the first time |
+| **[Concepts](concepts.md)** | Workspace, the four stores of state, workflows vs runs, the advisor |
 | **[The pipeline](pipeline.md)** | The 13 phases, the agent cast, lane routing, the question gate |
 | **[Model providers](providers.md)** | Local vLLM, Ollama, OpenAI, Anthropic — and what actually differs |
 

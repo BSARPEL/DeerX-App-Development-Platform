@@ -5,7 +5,8 @@
 Bu sayfa hiçbir şey varsaymıyor. Python, `uv`, Docker ya da yerel bir model
 sunucusu hiç kullanmadıysanız yukarıdan aşağıya takip edin, sonunda çalışan bir
 DeerX elde edersiniz. Her adım, işe yarayıp yaramadığını söyleyen bir komutla
-biter.
+biter. Sözcüklerin *anlamı* — çalışma alanı, iş akışı, koşu, danışman —
+[Kavramlar](concepts.md) sayfasında.
 
 **Toplam süre:** yaklaşık 20 dakika, artı model ağırlıklarınızın inme süresi.
 
@@ -345,8 +346,10 @@ bekleniyor.
 ```
 
 Web arayüzü aynı şeyleri gösterir: **Çıktılar** koşuya göre gruplu (her biri
-ait olduğu iş akışını taşır), **İş akışları** adım adım süre ve maliyetle, ve
-**Canlı akış** her araç çağrısıyla.
+ait olduğu iş akışını taşır), **İş akışları** adım adım süre ve maliyetle,
+**Bilgi tabanı** gerçekten indekslenen için, ve **Canlı akış** her araç
+çağrısıyla. Bir iş akışını açmak danışmanı da açar — bir soruyu kapatabilen
+ya da o iş akışını yeniden adlandırabilen, komut çalıştıramayan bir konuşma.
 
 ---
 
@@ -361,6 +364,7 @@ ait olduğu iş akışını taşır), **İş akışları** adım adım süre ve 
 
 ## Sonra
 
+- [Kavramlar](concepts.md) — harita: çalışma alanı, dört depo, iş akışı ile koşu
 - [Boru hattı](pipeline.md) — 13 fazın her biri ne yapıyor
 - [Yapılandırma](configuration.md) — her ayar ve nereden verilebileceği
 - [Model sağlayıcıları](providers.md) — vLLM bayrakları ve sağlayıcı farkları

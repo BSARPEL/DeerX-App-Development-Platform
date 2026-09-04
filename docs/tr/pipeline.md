@@ -3,7 +3,25 @@
 [← Dokümantasyon](README.md) · [English](../pipeline.md)
 
 DeerX bir şartnameyi on üç fazdan geçirir. Her faz bulgularını proje hafızasına
-yapılandırılmış kayıt olarak yazar, sonraki faz onları devralır.
+yapılandırılmış kayıt olarak yazar, sonraki faz onları devralır. Boru
+hattının etrafındaki sözcükler — çalışma alanı, iş akışı, koşu, plan —
+[Kavramlar](concepts.md) sayfasında.
+
+```mermaid
+flowchart LR
+  subgraph Anla
+    ingest --> analyze --> research --> assess
+  end
+  subgraph Tasarla
+    assess --> mockup --> design --> plan
+  end
+  subgraph Yap
+    plan --> implement --> qa --> review
+  end
+  subgraph Teslim
+    review --> package --> staging --> live
+  end
+```
 
 ```
 ingest → analyze → research → assess → mockup → design → plan
@@ -118,6 +136,18 @@ faz biter → çıktı diskte mi?
 Yönlendirme modele tam olarak ne beklendiğini ve okumakla araştırmanın işin
 yalnızca yarısı olduğunu söyler. İkinci deneme de bir şey üretmezse faz sessizce
 geçmek yerine yüksek sesle başarısız olur.
+
+## İş akışları ve koşular
+
+**İş akışı**, başlattığınız adlandırılmış iştir: bir hedef, bir talimat,
+seçtiğiniz adımlar. **Koşu**, o iş akışının içinde bir adım aralığının bir
+kez çalışmasıdır. Geliştirme'den başlatmak ikisini birden açar. Kırılan bir
+adımı yeniden koşturmak *aynı* iş akışının yeni bir koşusunu açar; o
+adımdan başlar ve özgün koşunun kendi listesini izler — tüm boru hattını
+değil.
+
+Danışman bir koşu hakkında değil, bir iş akışı hakkında konuşur. Bkz.
+[Kavramlar](concepts.md#iş-akışları-koşular-planlar-ve-görevler).
 
 ## Planlar
 

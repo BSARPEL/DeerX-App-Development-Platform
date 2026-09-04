@@ -58,6 +58,27 @@ bkz. [Güvenlik modeli](security.md).
 | `deerx_answer` | Birini cevaplar |
 | `deerx_skip_question` | Bir varsayımla geçer |
 | `deerx_package` | Hazırlık kapısı + teslimat zip'i |
+| `deerx_workflow_chat` | Bir iş akışı hakkında danışmanla konuş; boş `message` geçmişi döner |
+
+## Bir iş akışı hakkında konuşmak
+
+`deerx_workflow_chat`, `deerx chat`'in ve bir iş akışının ayrıntı
+görünümündeki çekmecenin MCP yüzüdür. Yüz başına değil, iş akışı başına
+bir konuşma vardır.
+
+`workflow` sıralı numaradır (`"2"`) ya da ham kimlik. Önce geçmişi okumak
+için `message`'ı boş bırakın — görmediğiniz bir konuşmanın üstüne yazmak,
+dışarıdaki ajanın kullanıcının verdiği cevabı çoğaltmasının yoludur.
+
+Danışman bir soruyu kapatabilir ya da o iş akışının başlığını, hedefini
+veya talimatını değiştirebilir. Komut çalıştıramaz. İş akışı kimliği *sizin*
+verdiğiniz argümandır, DeerX içindeki modelin seçtiği değil; bkz.
+[Kavramlar — Danışman](concepts.md#danışman).
+
+**Dışarıdaki ajanın bloke eden soruları bu araçla da kendisinin
+cevaplamasına izin vermeyin.** Bir soruyu tahminle kapatmak, ajanın kendi
+yetkisiyle `deerx_answer` çağırmasıyla aynı hatadır — kaydedilen metin
+artık kullanıcınınki gibi görünür. Soruyu dışarı iletin.
 
 ## Kaynaklar
 

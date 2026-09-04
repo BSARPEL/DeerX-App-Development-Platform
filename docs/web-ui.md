@@ -85,6 +85,10 @@ Rows also show which agent will run, a badge if the step is already done, and
 its cost. The presets `All` / `Analysis` / `Code` come ready, and the path the
 run will follow is summarised on one line below the list.
 
+A start from this screen creates a **workflow** and a **run** inside it. The
+difference — and why a retry is a new run of the same workflow — is in
+[Concepts](concepts.md#workflows-runs-plans-and-tasks).
+
 Two behaviours worth knowing:
 
 - The selection is arranged in **pipeline order** regardless of the order you
@@ -141,6 +145,23 @@ twice. Answer it in **Overview** instead.
 
 The retry is recorded in the audit log as `run.retry`.
 
+## Talking about a workflow
+
+A workflow's detail view has **Talk about this workflow**. It opens a drawer
+scoped to *that* workflow — the floating button says the same thing.
+
+You ask, or you tell it what to change. The advisor can close a question,
+rename the workflow, edit the goal or the brief, and record a finding. It
+cannot run a command or write a project file. Changes it does make are listed
+under the reply, so a silent edit cannot hide.
+
+The conversation is stored with the workflow. **Delete history** clears it.
+The same conversation is `deerx chat` on the CLI and `deerx_workflow_chat` on
+MCP; there is one history, not three.
+
+See [Concepts — The advisor](concepts.md#the-advisor) for what it is allowed
+to touch, and why the workflow id is not an argument the model gets to pick.
+
 ## Live stream
 
 ![The live feed: every tool call and model step, filterable by type](images/stream-en.png)
@@ -188,6 +209,26 @@ into the knowledge base like any other. Only *blocking* questions used to be
 answerable, and only during the halt — a question the pipeline had walked past
 could never be answered, which sits badly with a product whose first claim is
 that it asks instead of guessing.
+
+## Knowledge base
+
+What the model can actually search. Two panels.
+
+**Search.** A query plus kind chips — document, code, web, data. The same
+hybrid search as `deerx search`: semantic plus BM25, fused by rank. Results
+name the source and the chunk, so "did it index my spec?" is answered here
+rather than forty minutes into a run.
+
+**Indexing.** A path, an optional **Force**, and the list of documents already
+in the index, paginated. Uploading on **Develop** lands the file under `docs/`
+and indexes it; this screen is for everything else — an extra folder, a
+re-index after you changed the embedding model, a check that a fetched page
+stayed.
+
+Unchanged files are skipped unless you force them. Changing `embedding_model`
+without `--force` (or this checkbox) leaves old vectors next to a new
+dimension, and DeerX refuses to search rather than return silently wrong
+hits.
 
 ## Artifacts
 

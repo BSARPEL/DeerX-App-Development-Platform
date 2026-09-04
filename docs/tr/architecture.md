@@ -39,13 +39,14 @@ src/deerx/
 │   ├── web.py             fetch_url (kalıcı indeksleme), browse_page
 │   ├── images.py          find_images / download_image, lisans farkindaligiyla
 │   ├── project.py         record_*, save_artifact, read_project_state
+│   ├── workflow.py        read_workflow, update_workflow, resolve_question
 │   └── descriptions_en.py araç açıklamalarının İngilizce tarafı
 │
-├── agents/              12 rol ajanı
+├── agents/              13 rol ajanı (12 boru hattı + danışman)
 │   ├── base.py            düşün → araç → gözlemle döngüsü, kırpma, iptal
 │   ├── roles.py           rol → araç kümesi + sunucu araçları + iterasyon bütçesi
 │   ├── prompts.py         çalışma alanı ve dil ezmeleriyle prompt yükleme
-│   └── prompts/           13 prompt (markdown) + prompts/en/
+│   └── prompts/           13 rol prompt'u + _shared + prompts/en/
 │
 ├── pipeline/
 │   ├── models.py          13 faz, Requirement, Question, Gap, Decision, Task, Artifact
@@ -67,6 +68,20 @@ src/deerx/
 ├── mcp_server/server.py MCP arayüzü
 └── cli.py               Typer CLI
 ```
+
+```mermaid
+flowchart LR
+  ui[Web / CLI / MCP] --> orch[Orkestratör]
+  orch --> agents[Rol ajanları]
+  agents --> tools[Araç defteri]
+  tools --> kb[(Bilgi)]
+  tools --> mem[(Proje hafızası)]
+  tools --> host[Konak ya da sanal alan]
+  orch --> gate{Soru kapısı}
+```
+
+Üç yüz, tek orkestratör ve tek veritabanıdır. Bir *iş akışının* ne olduğu
+ve bir koşudan nasıl ayrıldığı [Kavramlar](concepts.md) sayfasında.
 
 ## Neden bu tasarım
 
@@ -200,5 +215,6 @@ ajanlar `tests/conftest.py` içindeki sahte istemciye karşı koşar.
 
 ## Ayrıca
 
+- [Kavramlar](concepts.md) — çalışma alanı, iş akışları, dört depo
 - [Boru hattı](pipeline.md) · [Ajan araçları](tools.md) · [Güvenlik modeli](security.md)
 - [Doğrulama durumu](verification.md) — gerçekten koşularak doğrulananlar

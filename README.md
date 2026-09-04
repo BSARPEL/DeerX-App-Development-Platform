@@ -201,6 +201,7 @@ Details: **[The pipeline](docs/pipeline.md)**.
 | | |
 |---|---|
 | [Getting started](docs/getting-started.md) | Install, configure, first run |
+| [Concepts](docs/concepts.md) | Workspace, workflows vs runs, the four stores, the advisor |
 | [The pipeline](docs/pipeline.md) | Phases, agents, lanes, the question gate |
 | [Model providers](docs/providers.md) | vLLM, Ollama, OpenAI, Anthropic |
 | [Web interface](docs/web-ui.md) | Every screen and why it is arranged that way |

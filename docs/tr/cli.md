@@ -3,7 +3,22 @@
 [← Dokümantasyon](README.md) · [English](../cli.md)
 
 Her komut arayüz dilini takip eder. `deerx --help` iki dilde de mevcut; bkz.
-[İki dilli mimari](i18n.md).
+[İki dilli mimari](i18n.md). Komutların arkasındaki sözcükler — çalışma
+alanı, iş akışı, koşu, danışman — [Kavramlar](concepts.md) sayfasında.
+
+## Komut dizini
+
+| Komut | Ne yapar |
+|---|---|
+| `init` · `setup` · `doctor` | Çalışma alanı kur, eksiği kapat, yokla |
+| `ingest` · `search` | Doküman indeksle; hibrit ara |
+| `run` · `phase` · `implement` | Boru hattını sür |
+| `questions` · `answer` · `skip` | Soru kapısı |
+| `chat` | Bir iş akışı hakkında danışmanla konuş |
+| `status` · `tasks` · `artifacts` | Proje hafızasına bak |
+| `package` | Hazırlık kapısı + teslimat zip'i |
+| `user …` | Hesaplar |
+| `serve` · `mcp` | Diğer iki yüz |
 
 ## Çalışma alanı
 
@@ -14,6 +29,22 @@ Her komut arayüz dilini takip eder. `deerx --help` iki dilde de mevcut; bkz.
 | Bayrak | |
 |---|---|
 | `--force` | Var olan `deerx.toml` üzerine yaz |
+
+### `deerx setup [yol]`
+
+Gerekirse çalışma alanını kurar, sonra `doctor`'ın bildireceği boşlukları
+kapatır. `doctor` asla yazmaz; `setup` yazar. Ayrım bilinçlidir.
+
+| Bayrak | |
+|---|---|
+| `--no-deps` | Eksik ekleri yükleme |
+| `--no-searxng` | SearXNG konteyneri başlatma |
+| `--with-embedding-model` | Gömme modelini ilk aramada değil şimdi indir |
+
+`✓` (zaten tamam), `+` (az önce kuruldu), `!` (uyarı, DeerX yine çalışır)
+ve `✗` (engel) ile bir tablo basar. Yalnızca `✗` çıkış kodu `1`'dir.
+SearXNG sağlam kalktığında `search_provider`'ı `searxng` yapar ve
+`searxng_url` yazar — kurup yok saymak boşa kurmaktır.
 
 ### `deerx doctor`
 
@@ -101,6 +132,29 @@ Bir varsayımla ilerler.
 | Bayrak | |
 |---|---|
 | `--assumption` / `-a "..."` | Kaydedilecek varsayım; verilmezse ajan kendi kurar |
+
+## Bir iş akışı hakkında konuşmak
+
+### `deerx chat <iş-akışı> ["ileti"]`
+
+Danışmanla **tek bir** iş akışı hakkında konuşma. Danışman o iş akışı
+hakkındaki soruları cevaplar ve isterseniz başlığını, hedefini ya da
+talimatını değiştirir, açık bir soruyu kapatır. Komut çalıştıramaz, proje
+dosyası yazamaz. Bkz. [Kavramlar — Danışman](concepts.md#danışman).
+
+`<iş-akışı>` sıralı numaradır (`2`, `#2`) ya da ham kimlik.
+
+| Bayrak | |
+|---|---|
+| *(ileti yok)* | Şimdiye kadarki konuşmayı bas |
+| `--history` | Boş iletiyle aynı |
+| `--clear` | Konuşmayı sil |
+
+```bash
+uv run deerx chat 2 "Plani hala ne bloke ediyor?"
+uv run deerx chat 2 --history
+uv run deerx chat 2 --clear
+```
 
 ## İnceleme
 

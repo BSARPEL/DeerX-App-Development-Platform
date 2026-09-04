@@ -25,11 +25,15 @@ silently never applied was a bug worth never repeating.
 | `model_worker` | `"qwen3.8 max"` | research, mockup, backend, frontend, staging |
 | `model_fast` | `"qwen3.8 max"` | short auxiliary calls |
 | `effort_lead` · `effort_worker` | `"high"` | Anthropic only; local models ignore them |
+| `effort_fast` | `"low"` | Short auxiliary calls on Anthropic |
 | `temperature` | *(endpoint default)* | Leave unset to use the server's own |
 | `request_timeout_seconds` | `1800` | A local model can take minutes for one answer |
 | `context_window` | *(auto)* | Override when the endpoint does not report `max_model_len` |
-| `max_tokens` | `8000` | Output ceiling per turn |
+| `max_tokens` | `32000` | Output ceiling per turn, including thinking |
+| `thinking_display` | `"summarized"` | `"summarized"` or `"omitted"` — whether thinking appears in the stream |
 | `max_iterations` | `40` | Turn ceiling per agent, capped against the role budget |
+| `max_tool_output_chars` | `80000` | Ceiling for one tool result |
+| `max_turn_output_chars` | `240000` | Ceiling for *all* tool results in one turn |
 | `language` | `"tr"` | `tr` or `en` — see [Bilingual architecture](i18n.md) |
 | `approval_mode` | `"ask"` | `auto`, `ask` or `dry-run` |
 | `enable_web` | `true` | Internet access for research |
@@ -48,10 +52,17 @@ and the failure looks like a model problem.
 
 DeerX checks the pair at startup and warns when they contradict each other.
 
-The default of `8000` leaves room for thinking while keeping a turn to a
-reasonable length. Raise it if the model's thinking is being cut off — the agent
-will tell you, because a truncated response is detected and reported rather than
-mistaken for a finished one.
+The default is `32000` because it was measured: at `4000` a local reasoning
+model spent the entire budget thinking and returned no answer and no tool
+call; at `8000` the `assess` phase was cut off three times in a row; at
+`32000` it produced its report. Raise it further on a fast endpoint if
+thinking is still being cut off — the agent will tell you, because a
+truncated response is detected and reported rather than mistaken for a
+finished one.
+
+`max_tool_output_chars` alone is not enough. Ten parallel tool calls at 80K
+each is 800K characters in one turn and blows the context window;
+`max_turn_output_chars` caps the sum.
 
 ### `approval_mode`
 
@@ -73,6 +84,11 @@ mistaken for a finished one.
 | `chunk_tokens` | `700` | |
 | `chunk_overlap_tokens` | `100` | |
 | `top_k` | `8` | Results per search |
+| `rrf_k` | `60` | Rank-fusion constant; smaller values reward the top ranks more |
+| `mmr_lambda` | `0.6` | Relevance vs diversity after fusion (`1.0` = relevance only) |
+| `include_globs` | markdown, code, HTML, … | What `deerx ingest` with no paths reads |
+| `exclude_globs` | `.git`, `node_modules`, `.venv`, `.deerx`, lockfiles | |
+| `max_file_bytes` | `2000000` | Larger files are skipped |
 
 Smaller alternatives:
 
@@ -92,7 +108,7 @@ cannot be compared, and a quiet empty result set is worse than an error.
 |---|---|
 | `enabled` | `true` |
 | `timeout_seconds` | `300` |
-| `allow_prefixes` | `git`, `python`, `uv`, `pip`, `pytest`, `ruff`, `mypy`, `node`, `npm`, `npx`, `pnpm`, `yarn`, `tsc`, `jest`, `vitest`, `ls`, `cat`, `head`, `tail`, `grep`, `find`, `wc`, `echo`, `mkdir`, `docker`, `make`, `go`, `cargo` |
+| `allow_prefixes` | Unix tools plus Windows counterparts (`findstr`, `type`, `dir`, `where`), shell builtins (`cd`, `export`, …), text tools (`sed`, `awk`, …), and `docker` / `make` / `go` / `cargo` | The packaged `deerx.toml` lists every prefix; an empty list means only the deny list applies |
 
 An empty `allow_prefixes = []` means only the deny list applies — every command
 not explicitly destructive is permitted. Read [Security model](security.md)
@@ -128,6 +144,26 @@ bomb or a memory hog would not stay in the container.
 See [Security](security.md) for what this does and does not isolate — in
 particular, the workspace is mounted, so the machine is protected but the
 project is not.
+
+## `[deerx]` — browser
+
+The agent's browser is a real Chrome on the server, started lazily: no
+process opens until a browser tool is called. The profile lives under
+`.deerx/browser/`, not in your own Chrome profile — using yours would hand
+the agent every account you are signed into.
+
+| Key | Default | Notes |
+|---|---|---|
+| `browser_channel` | `"auto"` | `auto`, `chrome`, `edge` or `chromium` |
+| `browser_headless` | `true` | `false` opens a visible window |
+| `browser_idle_seconds` | `600` | Idle browser exits; `0` keeps it open |
+| `browser_allow_preview` | `true` | Let the agent open *its own* app on `127.0.0.1` |
+
+`browser_allow_preview` is not `enable_web`. Closing internet access must not
+stop QA from opening the application it just wrote; the permission is for one
+port, granted by the server, and dropped when the run ends. The QA instruction
+treats using the app as an acceptance criterion — with this off,
+`preview_open` refuses and that phase cannot meet its own bar.
 
 ## Environment variables
 
@@ -191,8 +227,8 @@ workspace/prompts/<role>.md   →   package prompts/<language>/<role>.md   →  
 ```
 
 Roles: `analyst`, `researcher`, `assessor`, `mockup`, `architect`, `planner`,
-`backend`, `frontend`, `qa`, `reviewer`, `staging`, `live`, and `_shared` which
-is prepended to all of them.
+`backend`, `frontend`, `qa`, `reviewer`, `staging`, `live`, `danisman`
+(the advisor), and `_shared` which is prepended to all of them.
 
 ## Settings in the web interface
 

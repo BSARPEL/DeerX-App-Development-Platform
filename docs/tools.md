@@ -22,8 +22,11 @@ narrow subset.
 | Reviewer | 10 | 35 | ● | | ● | | | |
 | Staging | 19 | 40 | ● | ● | ● | ● | ● | |
 | Live | 10 | 30 | ● | | ● | | | |
+| Advisor | 18 | 12 | ● | | | | | |
 
-Every role also gets `search_knowledge` and `read_project_state`.
+Every pipeline role also gets `search_knowledge` and `read_project_state`.
+The advisor is not a phase — it is the conversation on a workflow; see
+below.
 
 The turn budget is the role's own ceiling; what an agent actually gets is
 `min(role budget, max_iterations)`. With the default `max_iterations = 40` the
@@ -246,8 +249,14 @@ both — a new tool cannot ship English-only or Turkish-only. See
 
 ## Workflow advisor
 
-Three tools exist only inside a workflow conversation (`deerx chat`,
-`POST /api/workflows/{id}/chat`, the `deerx_workflow_chat` MCP tool).
+A thirteenth role, not a pipeline phase. You talk to it about one workflow
+(`deerx chat`, `POST /api/workflows/{id}/chat`, the `deerx_workflow_chat`
+MCP tool). It reads, it answers, and if you ask it to it changes that
+workflow's records. Twelve turns is the budget on purpose: this is a
+conversation, and a wide budget here is time you spend waiting.
+
+It has no shell, no `write_file` and no browser. The three tools that exist
+only inside this conversation:
 
 | Tool | What it does |
 |---|---|
@@ -259,6 +268,11 @@ None of them takes a workflow argument. The scope comes from the caller,
 not from the model: making the id an argument would be asking the model
 *which* workflow to change, and a wrong number is all it takes to edit
 the wrong one.
+
+It can also call the ordinary recording tools (`record_requirements`,
+`record_gaps`, `record_decisions`, `record_questions`, `record_tasks`) and
+`save_artifact`. Those writes are reversible and they are audited.
+
 ## See also
 
 - [Security model](security.md) — how the shell policy and confinement work

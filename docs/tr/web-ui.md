@@ -80,6 +80,10 @@ Satırlar ayrıca hangi ajanın koşacağını, adım zaten bitmişse rozetini v
 maliyetini gösterir. `Tümü` / `Analiz` / `Kod` ön ayarları hazır gelir ve
 koşunun izleyeceği yol listenin altında tek satırda özetlenir.
 
+Bu ekrandan başlatmak bir **iş akışı** ve içinde bir **koşu** açar. Fark —
+ve bir tekrarın neden aynı iş akışının yeni koşusu olduğu —
+[Kavramlar](concepts.md#iş-akışları-koşular-planlar-ve-görevler) sayfasında.
+
 Bilinmesi gereken iki davranış:
 
 - Seçim, ne sırayla tıkladığınıza bakılmaksızın **boru hattı sırasına** dizilir.
@@ -133,6 +137,24 @@ sizi bekliyor; tekrar koşmak aynı soruyu ikinci kez sormaktır. Onun yeri
 
 Tekrar, denetim günlüğüne `run.retry` olarak yazılır.
 
+## Bir iş akışı hakkında konuşmak
+
+Bir iş akışının ayrıntı görünümünde **Bu iş akışı hakkında konuş** vardır.
+*O* iş akışına kilitli bir çekmece açar — yüzen düğme aynı şeyi söyler.
+
+Sorarsınız, ya da neyin değişmesini istediğinizi söylersiniz. Danışman bir
+soruyu kapatabilir, iş akışını yeniden adlandırabilir, hedefi ya da talimatı
+düzenleyebilir, bir bulgu kaydedebilir. Komut çalıştıramaz, proje dosyası
+yazamaz. Yaptığı değişiklikler yanıtın altında listelenir; sessiz bir
+düzenleme gizlenemez.
+
+Konuşma iş akışıyla saklanır. **Geçmişi sil** onu temizler. Aynı konuşma
+CLI'de `deerx chat`, MCP'de `deerx_workflow_chat`'tir; üç değil, bir geçmiş
+vardır.
+
+Neye dokunabildiği, ve iş akışı kimliğinin modele neden argüman olarak
+verilmediği: [Kavramlar — Danışman](concepts.md#danışman).
+
 ## Canlı akış
 
 ![Canlı akış: her araç çağrısı ve model adımı, türe göre filtrelenebilir](../images/stream-tr.png)
@@ -181,6 +203,26 @@ bilgi tabanına yazılır. Eskiden yalnızca boru hattını *durduran* sorular, 
 yalnızca durduğu anda cevaplanabiliyordu — hattın yanından geçtiği bir soru bir
 daha cevaplanamıyordu. İlk iddiası "tahmin etmek yerine sorar" olan bir ürüne
 yakışmıyordu.
+
+## Bilgi tabanı
+
+Modelin gerçekten arayabileceği şey. İki panel.
+
+**Arama.** Bir sorgu ve tür yongaları — doküman, kod, web, veri. `deerx
+search` ile aynı hibrit arama: anlamsal artı BM25, sıra bazlı füzyon.
+Sonuçlar kaynağı ve parçayı adlandırır; "şartnamemi indeksledi mi?" sorusu
+kırk dakika sonra değil burada cevaplanır.
+
+**İndeksleme.** Bir yol, isteğe bağlı **Zorla**, ve indeksteki belgeler,
+sayfalanmış. **Geliştirme** ekranından yüklemek dosyayı `docs/` altına
+indirir ve indeksler; bu ekran gerisi içindir — ekstra bir klasör, gömme
+modelini değiştirdikten sonra yeniden indeks, çekilmiş bir sayfanın durup
+durmadığı.
+
+Değişmemiş dosyalar, zorlamadıkça atlanır. `embedding_model`'i `--force`
+(ya da bu kutu) olmadan değiştirmek eski vektörleri yeni bir boyutun
+yanında bırakır ve DeerX sessizce yanlış isabet döndürmek yerine aramayı
+reddeder.
 
 ## Çıktılar
 

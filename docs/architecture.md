@@ -39,13 +39,14 @@ src/deerx/
 │   ├── web.py             fetch_url (persistent indexing), browse_page
 │   ├── images.py          find_images / download_image, licence-aware
 │   ├── project.py         record_*, save_artifact, read_project_state
+│   ├── workflow.py        read_workflow, update_workflow, resolve_question
 │   └── descriptions_en.py the English side of tool descriptions
 │
-├── agents/              12 role agents
+├── agents/              13 role agents (12 pipeline + advisor)
 │   ├── base.py            think → tool → observe loop, trimming, cancellation
 │   ├── roles.py           role → tool set + server tools + iteration budget
 │   ├── prompts.py         prompt loading with workspace and language overrides
-│   └── prompts/           13 prompts (markdown) + prompts/en/
+│   └── prompts/           13 role prompts + _shared + prompts/en/
 │
 ├── pipeline/
 │   ├── models.py          13 phases, Requirement, Question, Gap, Decision, Task, Artifact
@@ -67,6 +68,20 @@ src/deerx/
 ├── mcp_server/server.py the MCP interface
 └── cli.py               the Typer CLI
 ```
+
+```mermaid
+flowchart LR
+  ui[Web / CLI / MCP] --> orch[Orchestrator]
+  orch --> agents[Role agents]
+  agents --> tools[Tool registry]
+  tools --> kb[(Knowledge)]
+  tools --> mem[(Project memory)]
+  tools --> host[Host or sandbox]
+  orch --> gate{Question gate}
+```
+
+The three surfaces are one orchestrator and one database. What a *workflow*
+is, and how it differs from a run, is in [Concepts](concepts.md).
 
 ## Why this design
 
@@ -201,5 +216,6 @@ Three files carry unusual jobs:
 
 ## See also
 
+- [Concepts](concepts.md) — workspace, workflows, the four stores
 - [The pipeline](pipeline.md) · [Agent tools](tools.md) · [Security model](security.md)
 - [Verification status](verification.md) — what was verified by running it

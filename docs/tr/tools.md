@@ -22,8 +22,11 @@ küme alır.
 | İnceleyici | 10 | 35 | ● | | ● | | | |
 | Staging | 19 | 40 | ● | ● | ● | ● | ● | |
 | Canlı | 10 | 30 | ● | | ● | | | |
+| Danışman | 18 | 12 | ● | | | | | |
 
-Her rol ayrıca `search_knowledge` ve `read_project_state` alır.
+Her boru hattı rolü ayrıca `search_knowledge` ve `read_project_state` alır.
+Danışman bir faz değildir — bir iş akışı üzerindeki konuşmadır; aşağıya
+bakın.
 
 Tur bütçesi rolün kendi tavanıdır; ajanın gerçekte aldığı
 `min(rol bütçesi, max_iterations)`. Varsayılan `max_iterations = 40` ile 45
@@ -239,8 +242,14 @@ olduğunu doğrular — yeni bir araç tek dilli olarak yayımlanamaz. Bkz.
 
 ## İş akışı danışmanı
 
-Üç araç yalnızca bir iş akışı sohbetinin içinde bulunur (`deerx chat`,
-`POST /api/workflows/{id}/chat`, `deerx_workflow_chat` MCP aracı).
+On üçüncü rol, bir boru hattı fazı değil. Onunla bir iş akışı hakkında
+konuşursunuz (`deerx chat`, `POST /api/workflows/{id}/chat`,
+`deerx_workflow_chat` MCP aracı). Okur, cevaplar ve isterseniz o iş
+akışının kayıtlarını değiştirir. On iki tur bilinçli bir bütçedir: bu bir
+konuşmadır ve geniş bütçe burada sizin bekleme sürenize dönüşür.
+
+Kabuğu yoktur, `write_file`'ı yoktur, tarayıcısı yoktur. Yalnızca bu
+konuşmanın içinde var olan üç araç:
 
 | Araç | Ne yapar |
 |---|---|
@@ -251,6 +260,11 @@ olduğunu doğrular — yeni bir araç tek dilli olarak yayımlanamaz. Bkz.
 Hiçbiri iş akışı argümanı almaz. Kapsam modelden değil çağırandan gelir:
 kimliği argüman yapmak, modele *hangi* iş akışını değiştireceğini
 sormaktır ve yanlış bir sayı üretmesi yanlış olanı düzenlemesine yeter.
+
+Sıradan kayıt araçlarını da çağırabilir (`record_requirements`,
+`record_gaps`, `record_decisions`, `record_questions`, `record_tasks`) ve
+`save_artifact`. Bu yazmalar geri alınabilir ve denetim altındadır.
+
 ## Ayrıca
 
 - [Güvenlik modeli](security.md) — kabuk politikası ve hapsetme nasıl çalışıyor

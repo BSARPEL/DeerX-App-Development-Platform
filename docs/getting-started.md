@@ -5,6 +5,8 @@
 This page assumes nothing. If you have never used Python, `uv`, Docker or a
 local model server before, follow it top to bottom and you will end up with a
 working DeerX. Every step ends with a command that tells you whether it worked.
+What the words *mean* — workspace, workflow, run, the advisor — is
+[Concepts](concepts.md).
 
 **Total time:** about 20 minutes, plus however long your model weights take to
 download.
@@ -349,7 +351,9 @@ awaited.
 
 The web interface shows the same things: **Artifacts** grouped by run (each
 carrying the workflow it belongs to), **Workflows** step by step with duration
-and cost, and **Live feed** with every tool call.
+and cost, **Knowledge** for what was actually indexed, and **Live feed** with
+every tool call. Opening a workflow also opens the advisor — a conversation
+that can close a question or rename that workflow, and cannot run a command.
 
 ---
 
@@ -364,6 +368,7 @@ and cost, and **Live feed** with every tool call.
 
 ## Next
 
+- [Concepts](concepts.md) — the map: workspace, the four stores, workflows vs runs
 - [The pipeline](pipeline.md) — what each of the 13 phases does
 - [Configuration](configuration.md) — every setting and where it can be set
 - [Model providers](providers.md) — vLLM flags and what differs between providers

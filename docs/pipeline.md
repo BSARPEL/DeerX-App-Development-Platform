@@ -4,6 +4,24 @@
 
 DeerX runs a specification through thirteen phases. Each one writes its findings
 into the project memory as structured records, and the next phase inherits them.
+The words around the pipeline — workspace, workflow, run, plan — are in
+[Concepts](concepts.md).
+
+```mermaid
+flowchart LR
+  subgraph Understand
+    ingest --> analyze --> research --> assess
+  end
+  subgraph Design
+    assess --> mockup --> design --> plan
+  end
+  subgraph Build
+    plan --> implement --> qa --> review
+  end
+  subgraph Deliver
+    review --> package --> staging --> live
+  end
+```
 
 ```
 ingest → analyze → research → assess → mockup → design → plan
@@ -122,6 +140,17 @@ phase ends → is the deliverable on disk?
 The nudge tells the model exactly what is expected and that reading and
 researching is only half the job. If the second attempt still produces nothing,
 the phase fails loudly instead of passing quietly.
+
+## Workflows and runs
+
+A **workflow** is the named piece of work you started: a goal, a brief, the
+steps you picked. A **run** is one execution of a step range inside that
+workflow. Starting from Develop creates both. Re-running a failed step
+creates a new run of the *same* workflow, beginning at that step and
+following the original run's own list — not the full pipeline.
+
+The advisor talks about a workflow, not about a run. See
+[Concepts](concepts.md#workflows-runs-plans-and-tasks).
 
 ## Plans
 

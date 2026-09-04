@@ -25,8 +25,8 @@ LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 
 # Iki dilin de ayni dosyalari tasimasi gereken kume.
 SAYFALAR = (
-    "README", "getting-started", "pipeline", "providers", "web-ui", "cli",
-    "configuration", "tools", "architecture", "security", "delivery",
+    "README", "getting-started", "concepts", "pipeline", "providers", "web-ui",
+    "cli", "configuration", "tools", "architecture", "security", "delivery",
     "mcp", "i18n", "verification", "troubleshooting", "extending",
 )
 

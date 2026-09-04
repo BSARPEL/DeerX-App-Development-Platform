@@ -2,11 +2,21 @@
 
 [← Proje README'sine dön](../../README.tr.md) · [English](../README.md)
 
+```mermaid
+flowchart LR
+  start[Başlangıç] --> ideas[Kavramlar]
+  ideas --> pipe[Boru hattı]
+  ideas --> use[Web · CLI · MCP]
+  pipe --> deep[Araçlar · Mimari · Güvenlik]
+  use --> cfg[Yapılandırma · Sağlayıcılar]
+```
+
 ## Buradan başlayın
 
 | | |
 |---|---|
 | **[Başlangıç](getting-started.md)** | Kurulum, sağlayıcı yapılandırması, ilk koşu |
+| **[Kavramlar](concepts.md)** | Çalışma alanı, dört durum deposu, iş akışı ile koşu, danışman |
 | **[Boru hattı](pipeline.md)** | 13 faz, ajan kadrosu, şerit yönlendirmesi, soru kapısı |
 | **[Model sağlayıcıları](providers.md)** | Yerel vLLM, Ollama, OpenAI, Anthropic — ve gerçek farkları |
 

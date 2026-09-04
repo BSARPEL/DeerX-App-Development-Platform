@@ -25,11 +25,15 @@ sessizce hiç uygulanmayan bir ayar, bir daha yaşanmaması gereken bir hataydı
 | `model_worker` | `"qwen3.8 max"` | research, mockup, backend, frontend, staging |
 | `model_fast` | `"qwen3.8 max"` | kısa yardımcı çağrılar |
 | `effort_lead` · `effort_worker` | `"high"` | Yalnızca Anthropic; yerel modeller yok sayar |
+| `effort_fast` | `"low"` | Anthropic'te kısa yardımcı çağrılar |
 | `temperature` | *(ucun varsayılanı)* | Sunucunun kendi değerini kullanmak için tanımsız bırakın |
 | `request_timeout_seconds` | `1800` | Yerel bir model tek yanıt için dakikalar alabilir |
 | `context_window` | *(otomatik)* | Uç `max_model_len` bildirmiyorsa elle verin |
-| `max_tokens` | `8000` | Tur başına çıktı tavanı |
+| `max_tokens` | `32000` | Tur başına çıktı tavanı, düşünme dahil |
+| `thinking_display` | `"summarized"` | `"summarized"` veya `"omitted"` — düşünmenin akışta görünüp görünmeyeceği |
 | `max_iterations` | `40` | Ajan başına tur tavanı, rol bütçesiyle kırpılır |
+| `max_tool_output_chars` | `80000` | Tek araç sonucunun tavanı |
+| `max_turn_output_chars` | `240000` | Bir turdaki *bütün* araç sonuçlarının tavanı |
 | `language` | `"tr"` | `tr` veya `en` — bkz. [İki dilli mimari](i18n.md) |
 | `approval_mode` | `"ask"` | `auto`, `ask` veya `dry-run` |
 | `enable_web` | `true` | Araştırma için internet erişimi |
@@ -48,9 +52,16 @@ hata bir model sorunu gibi görünür.
 
 DeerX ikisini açılışta karşılaştırır ve çeliştiklerinde uyarır.
 
-Varsayılan `8000` düşünmeye yer bırakırken turu makul uzunlukta tutar. Modelin
-düşüncesi kesiliyorsa yükseltin — ajan size söyleyecektir, çünkü kesilmiş bir
-yanıt tespit edilip bildiriliyor, bitmiş bir yanıtla karıştırılmıyor.
+Varsayılan `32000`'dir çünkü ölçüldü: `4000`'de yerel bir akıl yürütme
+modeli bütün bütçeyi düşünmeye harcayıp yanıt da araç çağrısı da
+döndürmedi; `8000`'de `assess` fazı üst üste üç kez kesildi; `32000`'de
+raporunu üretti. Hızlı bir uçta düşünme hâlâ kesiliyorsa daha da yükseltin
+— ajan size söyleyecektir, çünkü kesilmiş bir yanıt tespit edilip
+bildiriliyor, bitmiş bir yanıtla karıştırılmıyor.
+
+Yalnızca `max_tool_output_chars` yetmez. 80K'lık on paralel araç çağrısı
+tek turda 800K karakterdir ve bağlam penceresini taşır;
+`max_turn_output_chars` toplamı keser.
 
 ### `approval_mode`
 
@@ -72,6 +83,11 @@ yanıt tespit edilip bildiriliyor, bitmiş bir yanıtla karıştırılmıyor.
 | `chunk_tokens` | `700` | |
 | `chunk_overlap_tokens` | `100` | |
 | `top_k` | `8` | Arama başına sonuç |
+| `rrf_k` | `60` | Sıra füzyon sabiti; küçük değer üst sıraları daha çok ödüllendirir |
+| `mmr_lambda` | `0.6` | Füzyondan sonra alaka / çeşitlilik (`1.0` = yalnızca alaka) |
+| `include_globs` | markdown, kod, HTML, … | Yolsuz `deerx ingest`'in okuduğu |
+| `exclude_globs` | `.git`, `node_modules`, `.venv`, `.deerx`, kilit dosyaları | |
+| `max_file_bytes` | `2000000` | Daha büyük dosyalar atlanır |
 
 Daha küçük alternatifler:
 
@@ -91,7 +107,7 @@ vektörler karşılaştırılamaz ve sessiz bir boş sonuç kümesi bir hatadan 
 |---|---|
 | `enabled` | `true` |
 | `timeout_seconds` | `300` |
-| `allow_prefixes` | `git`, `python`, `uv`, `pip`, `pytest`, `ruff`, `mypy`, `node`, `npm`, `npx`, `pnpm`, `yarn`, `tsc`, `jest`, `vitest`, `ls`, `cat`, `head`, `tail`, `grep`, `find`, `wc`, `echo`, `mkdir`, `docker`, `make`, `go`, `cargo` |
+| `allow_prefixes` | Unix araçları artı Windows karşılıkları (`findstr`, `type`, `dir`, `where`), kabuk yerleşikleri (`cd`, `export`, …), metin araçları (`sed`, `awk`, …) ve `docker` / `make` / `go` / `cargo` | Paketlenmiş `deerx.toml` her öneki listeler; boş liste yalnızca reddetme listesinin uygulanması demektir |
 
 Boş bir `allow_prefixes = []` yalnızca reddetme listesinin uygulanması demektir
 — açıkça yıkıcı olmayan her komut serbest kalır. Bunu yapmadan önce
@@ -126,6 +142,26 @@ ya da bellek doldurma konteynerde kalmazdı.
 
 Neyin yalıtıldığı ve neyin yalıtılmadığı için [Güvenlik](security.md) — özellikle
 şu: çalışma alanı bağlanır, yani makine korunur ama proje korunmaz.
+
+## `[deerx]` — tarayıcı
+
+Ajanın tarayıcısı sunucudaki gerçek Chrome'dur ve tembel başlar: bir
+tarayıcı aracı çağrılmadan hiçbir süreç açılmaz. Profil `.deerx/browser/`
+altındadır, sizin Chrome profilinizde değil — sizinkini kullanmak, ajana
+giriş yapmış bütün hesaplarınızı vermek olurdu.
+
+| Anahtar | Varsayılan | Not |
+|---|---|---|
+| `browser_channel` | `"auto"` | `auto`, `chrome`, `edge` veya `chromium` |
+| `browser_headless` | `true` | `false` görünür pencere açar |
+| `browser_idle_seconds` | `600` | Boş kalan tarayıcı kapanır; `0` açık tutar |
+| `browser_allow_preview` | `true` | Ajanın *kendi* uygulamasını `127.0.0.1`'de açmasına izin |
+
+`browser_allow_preview`, `enable_web` değildir. İnternet erişimini kapatmak
+QA'nın az önce yazdığı uygulamayı açmasını engellememelidir; izin bir port
+içindir, sunucu verir ve koşu bitince düşer. QA yönergesi uygulamayı
+kullanmayı kabul ölçütü sayar — bu kapalıyken `preview_open` reddeder ve o
+faz kendi çıtasını tutturamaz.
 
 ## Ortam değişkenleri
 
@@ -191,8 +227,8 @@ calisma-alani/prompts/<rol>.md   →   paket prompts/<dil>/<rol>.md   →   pake
 ```
 
 Roller: `analyst`, `researcher`, `assessor`, `mockup`, `architect`, `planner`,
-`backend`, `frontend`, `qa`, `reviewer`, `staging`, `live`, ve hepsinin önüne
-eklenen `_shared`.
+`backend`, `frontend`, `qa`, `reviewer`, `staging`, `live`, `danisman`
+(danışman), ve hepsinin önüne eklenen `_shared`.
 
 ## Web arayüzündeki ayarlar
 
