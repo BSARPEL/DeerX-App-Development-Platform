@@ -1134,6 +1134,32 @@ def build_app(settings: Settings) -> Starlette:
         response.delete_cookie(SESSION_COOKIE, path="/")
         return response
 
+    async def auth_sessions(request: Request) -> Response:
+        """Kullanicinin ACIK oturumlari.
+
+        `list_sessions` bugune kadar yalnizca testte cagriliyordu:
+        kullanici "su an nerelerden girisim acik" diye soramiyordu -- ve
+        bu, calinmis bir cerezi fark etmenin en dogrudan yolu.
+        """
+        user = getattr(request.state, "user", None)
+        if user is None:
+            return _error(t("api.login_required"), 401)
+        simdiki = request.cookies.get(SESSION_COOKIE, "")
+        satirlar = []
+        for oturum in state.auth.list_sessions(user.id):
+            satirlar.append({**oturum, "current": simdiki.startswith(oturum["id"])})
+        return _json({"sessions": satirlar})
+
+    async def auth_session_close(request: Request) -> Response:
+        user = getattr(request.state, "user", None)
+        if user is None:
+            return _error(t("api.login_required"), 401)
+        onek = str(request.path_params.get("session_id", ""))
+        if not state.auth.close_session_by_prefix(user.id, onek):
+            return _error(t("api.unknown_session"), 404)
+        _audit(request, "session.close", detail=onek)
+        return _json({"ok": True})
+
     async def auth_password(request: Request) -> Response:
         """Kullanici kendi parolasini degistirir; eskisini bilmesi gerekir."""
         user = request.state.user
@@ -2626,6 +2652,9 @@ def build_app(settings: Settings) -> Starlette:
         Route("/api/auth/login", auth_login, methods=["POST"]),
         Route("/api/auth/logout", auth_logout, methods=["POST"]),
         Route("/api/auth/password", auth_password, methods=["POST"]),
+        Route("/api/auth/sessions", auth_sessions),
+        Route("/api/auth/sessions/{session_id}", auth_session_close,
+              methods=["DELETE"]),
         Route("/api/environment", environment),
         Route("/api/environment/rebuild", environment_rebuild, methods=["POST"]),
         Route("/api/projects", projects_list),

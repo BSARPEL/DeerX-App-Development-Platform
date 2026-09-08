@@ -589,6 +589,10 @@ const I18N = {
     "account.newPassword": "Yeni parola",
     "account.changePassword": "Parolayı değiştir",
     "account.logout": "Çıkış yap",
+    "account.sessions": "Açık oturumlar",
+    "account.thisSession": "bu oturum",
+    "account.closeSession": "Kapat",
+    "account.sessionClosed": "Oturum kapatıldı.",
     "account.note": "Parola değişince tüm oturumlarınız kapanır.",
     "account.changed": "Parola değişti. Diğer oturumlarınız kapandı.",
 
@@ -647,6 +651,8 @@ const I18N = {
     "audit.grp.knowledge": "Bilgi tabanı",
     "audit.grp.project": "Proje",
     "audit.grp.env": "Ortam",
+    "audit.grp.session": "Oturum",
+    "audit.act.session.close": "Oturumu kapattı",
     "audit.act.env.rebuild": "Ortamı yeniden kurdu",
 
     "audit.act.setup": "İlk yönetici kuruldu",
@@ -1420,6 +1426,10 @@ const I18N = {
     "account.newPassword": "New password",
     "account.changePassword": "Change password",
     "account.logout": "Sign out",
+    "account.sessions": "Open sessions",
+    "account.thisSession": "this session",
+    "account.closeSession": "Close",
+    "account.sessionClosed": "Session closed.",
     "account.note": "Changing your password ends all of your sessions.",
     "account.changed": "Password changed. Your other sessions were closed.",
 
@@ -1473,6 +1483,8 @@ const I18N = {
     "audit.grp.knowledge": "Knowledge base",
     "audit.grp.project": "Project",
     "audit.grp.env": "Environment",
+    "audit.grp.session": "Session",
+    "audit.act.session.close": "Closed a session",
     "audit.act.env.rebuild": "Rebuilt the environment",
 
     "audit.act.setup": "Set up the first admin",

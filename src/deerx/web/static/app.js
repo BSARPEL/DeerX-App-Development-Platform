@@ -234,7 +234,12 @@ function showView(name) {
   // formu bos birakiyor ve bir daha denemiyordu -- yorumunun soyledigi gibi
   // yalnizca sekmeye girerken ve kaydettikten sonra calisiyor. Sonuc: ayarlar
   // ekrani bombos aciliyordu. `develop` sekmesi bastan beri once yukluyor.
-  if (name === "settings")  { loadOverview().then(renderSettings); loadUsers(); loadAudit(); }
+  if (name === "settings")  {
+    loadOverview().then(renderSettings);
+    loadUsers();
+    loadSessions();
+    loadAudit();
+  }
 }
 
 function initRouting() {
@@ -1435,6 +1440,35 @@ function fillFilter(select, values, allLabel, label) {
   // Seçilen değer artık listede yoksa "hepsi"ne düşer; sessizce başka bir
   // süzgece atlamak, yönetici baktığı şeyin değiştiğini fark etmez.
   select.value = values.includes(secili) ? secili : "";
+}
+
+async function loadSessions() {
+  const hedef = $("#session-list");
+  if (!hedef) return;
+  try {
+    const veri = await api("/api/auth/sessions");
+    hedef.innerHTML = `<ul class="session-list">${veri.sessions.map((o) => `
+      <li class="session${o.current ? " is-current" : ""}">
+        <span class="session-id">${esc(o.id)}</span>
+        <span class="session-agent">${esc(o.agent || "—")}</span>
+        <span class="session-when">${esc(fmtTime(o.seen_at))}</span>
+        ${o.current
+          ? `<span class="badge" data-v="ready">${esc(t("account.thisSession"))}</span>`
+          : `<button class="btn btn-ghost btn-sm" data-close-session="${esc(o.id)}">${
+              esc(t("account.closeSession"))
+            }</button>`}
+      </li>`).join("")}</ul>`;
+
+    $$("[data-close-session]", hedef).forEach((b) => b.addEventListener("click", async () => {
+      try {
+        await api(`/api/auth/sessions/${b.dataset.closeSession}`, { method: "DELETE" });
+        toast(t("account.sessionClosed"), "ok");
+        loadSessions();
+      } catch (error) { toast(error.message, "err"); }
+    }));
+  } catch (error) {
+    hedef.innerHTML = emptyState(t("app.failed"), error.message);
+  }
 }
 
 async function loadAudit() {

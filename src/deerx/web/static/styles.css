@@ -2950,3 +2950,38 @@ tr[data-inactive="1"] .doc-row-source { opacity: .6; }
   font-family: var(--mono); font-size: 12px; color: var(--text-3);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* ─── Açık oturumlar ───────────────────────────────────────────────────── */
+/* `list_sessions` bugüne kadar yalnızca testte çağrılıyordu: kullanıcı
+   "şu an nerelerden girişim açık" diye soramıyordu — ve bu, çalınmış bir
+   çerezi fark etmenin en doğrudan yolu. */
+
+.account-sessions { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+.account-sessions-title {
+  margin-bottom: 8px;
+  font-size: 11px; font-weight: 600; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: var(--track-caps);
+}
+
+.session-list { display: flex; flex-direction: column; list-style: none; }
+.session {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.session:last-child { border-bottom: none; }
+.session-id {
+  font-family: var(--mono); font-size: 12px; color: var(--text-3);
+  flex-shrink: 0;
+}
+.session-agent {
+  flex: 1; min-width: 0; font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.session-when {
+  font-size: 12px; color: var(--text-3);
+  font-variant-numeric: tabular-nums; flex-shrink: 0;
+}
+/* Icinde bulunulan oturum one cikar: yanlislikla kendini disari atmak
+   kolay olmamali. */
+.session.is-current .session-id { color: var(--accent); font-weight: 600; }

@@ -809,6 +809,30 @@ class TestBriefAndGate:
         assert client.get("/api/run").json()["last"]["status"] == "done"
 
 
+def _settings_dispatch(js: str) -> str:
+    """`showView` icindeki ayarlar dali -- tek satir da olsa blok da.
+
+    Onceki hali `splitlines()` ile TEK SATIR ariyordu ve dal okunurluk
+    icin coka bolununce test kirildi. Kural bicimle ilgili degil: ayarlar
+    ekrani acilirken NELERIN kostugu.
+    """
+    i = js.index('name === "settings"')
+    kuyruk = js[i:]
+    ilk_satir = kuyruk.split("\n", 1)[0]
+    if "{" not in ilk_satir:
+        return ilk_satir
+    bas = kuyruk.index("{")
+    derinlik = 0
+    for j, ch in enumerate(kuyruk[bas:], start=bas):
+        if ch == "{":
+            derinlik += 1
+        elif ch == "}":
+            derinlik -= 1
+            if derinlik == 0:
+                return kuyruk[:j + 1]
+    return kuyruk[:400]
+
+
 class TestStaticAssets:
     """Arayuz varliklarinin sessizce bozulabilecek yanlari."""
 
@@ -914,9 +938,7 @@ class TestStaticAssets:
         `settings_snapshot` ciktisi otuz uc alanla doluydu.
         """
         js = self._asset("app.js")
-        satir = next(
-            (s for s in js.splitlines() if 'name === "settings"' in s), None
-        )
+        satir = _settings_dispatch(js)
         assert satir, "ayarlar sekmesi gecisi bulunamadi"
         assert "loadOverview" in satir, (
             "ayarlar sekmesi genel durumu yuklemeli; yoksa renderSettings "
@@ -2735,8 +2757,8 @@ class TestTheAuditLogIsReachableFromTheInterface:
 
     def test_it_is_loaded_when_the_settings_screen_opens(self):
         js = self._asset("app.js")
-        satir = next(s for s in js.splitlines() if 'name === "settings"' in s)
-        assert "loadAudit()" in satir, satir.strip()
+        dal = _settings_dispatch(js)
+        assert "loadAudit()" in dal, dal.strip()
 
     def test_action_names_are_translated_not_stored(self):
         """Sunucu sabit tanimlayici gonderir ('run.start'); sozcuk sozlukten

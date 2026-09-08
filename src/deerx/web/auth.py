@@ -603,6 +603,23 @@ class AuthStore:
             for r in rows
         ]
 
+    def close_session_by_prefix(self, user_id: int, prefix: str) -> bool:
+        """Kullanicinin oturumlarindan birini on ekiyle kapatir.
+
+        Jetonun kendisi arayuze HIC gitmiyor; ayirt etmek icin yalnizca
+        ilk sekiz karakter donuyor. Kapatma da o on ekle isteniyor ve
+        `user_id` ile birlikte araniyor: bir kullanici baskasinin
+        oturumunu kapatamaz, on ek cakissa bile.
+        """
+        if len(prefix) < 8:
+            return False
+        cur = self._conn.execute(
+            "DELETE FROM sessions WHERE user_id = ? AND substr(token, 1, 8) = ?",
+            (user_id, prefix[:8]),
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
+
     def purge_expired(self) -> int:
         now = time.time()
         cursor = self._conn.execute(

@@ -347,6 +347,44 @@ class TestUnconfiguredServer:
         assert client.get("/api/overview").status_code == 200
 
 
+class TestAcikOturumlar:
+    """Kullanici "su an nerelerden girisim acik" diye sorabilmeli.
+
+    `list_sessions` bugune kadar YALNIZCA testte cagriliyordu; hicbir uc
+    nokta ona baglanmamisti. Bu, calinmis bir cerezi fark etmenin en
+    dogrudan yolu ve kullanicidan saklanmasi icin bir sebep yok.
+    """
+
+    def test_the_current_session_is_marked(self, guarded):
+        _login(guarded)
+        oturumlar = guarded.get("/api/auth/sessions").json()["sessions"]
+        assert len(oturumlar) == 1
+        assert oturumlar[0]["current"] is True
+
+    def test_the_token_itself_is_never_returned(self, guarded):
+        """Ayirt etmek icin yalnizca on ek doner; jetonun kendisi arayuze
+        gitmemeli."""
+        _login(guarded)
+        cerez = guarded.cookies.get(SESSION_COOKIE)
+        govde = json.dumps(guarded.get("/api/auth/sessions").json())
+        assert cerez not in govde
+        assert len(guarded.get("/api/auth/sessions").json()["sessions"][0]["id"]) == 8
+
+    def test_a_session_can_be_closed(self, guarded):
+        _login(guarded)
+        onek = guarded.get("/api/auth/sessions").json()["sessions"][0]["id"]
+        assert guarded.delete(f"/api/auth/sessions/{onek}").status_code == 200
+        # Kendi oturumunu kapattigi icin artik giremez.
+        assert guarded.get("/api/overview").status_code == 401
+
+    def test_an_unknown_prefix_is_refused(self, guarded):
+        _login(guarded)
+        assert guarded.delete("/api/auth/sessions/00000000").status_code == 404
+
+    def test_signing_out_requires_a_session(self, guarded):
+        assert guarded.get("/api/auth/sessions").status_code == 401
+
+
 class TestPlatformMigration:
     """Hesaplar proje veritabanindan platform veritabanina tasinir.
 

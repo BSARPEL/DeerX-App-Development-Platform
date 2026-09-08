@@ -2211,6 +2211,10 @@ CATALOG: dict[str, dict[str, str]] = {
         "tr": "yeniden etkinlestirildi: {source}",
         "en": "reactivated: {source}",
     },
+    "api.unknown_session": {
+        "tr": "Boyle bir oturum yok.",
+        "en": "No such session.",
+    },
     "api.settings_not_saved": {
         "tr": "Ayar bu oturumda gecerli ama dosyaya yazilamadi: {error}",
         "en": "The setting applies to this session but could not be saved: {error}",
