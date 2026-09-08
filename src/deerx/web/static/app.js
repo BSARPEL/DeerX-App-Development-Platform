@@ -25,14 +25,25 @@ const fmtTime  = (ts) => new Date(ts * 1000).toLocaleTimeString("tr-TR", { hour1
 const fmtBytes = (n) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
 
 async function api(path, options = {}) {
+  const ek = options.body ? { "Content-Type": "application/json" } : {};
+  // Adres projeyi tasir: paylasilan bir baglantinin hangi projeyi actigini
+  // GONDEREN belirler, alicinin cerezi degil. Cerez tarayici genelidir ve
+  // iki sekmede iki proje acmayi imkansiz kilardi.
+  const slug = readRoute().slug || state.projectSlug;
+  if (slug && slug !== "-") ek["X-DeerX-Project"] = slug;
+
   const response = await fetch(path, {
-    headers: options.body ? { "Content-Type": "application/json" } : {},
     ...options,
+    headers: { ...ek, ...(options.headers || {}) },
   });
   let payload = null;
   try { payload = await response.json(); } catch { /* govdesiz yanit */ }
   if (!response.ok) {
-    throw new Error(payload?.error || `${response.status} ${response.statusText}`);
+    // DURUM KODU TASINIR. Atildiginda "yetkin yok", "proje arsivlendi",
+    // "baskasi kosuyor" ve "sunucu coktu" ayni griye boyaniyordu.
+    const err = new Error(payload?.error || `${response.status} ${response.statusText}`);
+    err.status = response.status;
+    throw err;
   }
   return payload;
 }
@@ -53,8 +64,34 @@ function toast(message, tone = "info", ttl = 4200) {
   }, ttl);
 }
 
-const emptyState = (title, hint = "") =>
-  `<p class="empty"><strong>${esc(title)}</strong>${hint ? esc(hint) : ""}</p>`;
+const emptyState = (title, hint = "", action = null) =>
+  `<p class="empty"><strong>${esc(title)}</strong>${hint ? esc(hint) : ""}` +
+  (action
+    ? `<button class="btn btn-sm empty-action" type="button"` +
+      (action.view ? ` data-view="${esc(action.view)}"` : "") +
+      (action.retry ? ` data-retry="1"` : "") +
+      `>${esc(action.label)}</button>`
+    : "") + "</p>";
+
+/* Yuklenirken hedefi ESKI VERIYLE birakmak yalan soyluyordu: proje
+   degistirdiginizde bir saniye boyunca onceki projenin plani duruyor ve
+   o sirada tiklanan satir yanlis projeye gidiyordu. */
+const busyState = () =>
+  `<p class="empty" data-busy="1" role="status"><span class="spinner"></span>` +
+  `<strong>${esc(t("app.loading"))}</strong></p>`;
+
+/* Durum kodu ANLAM tasir. Ucu de "Yuklenemedi" diye ayni griye boyandiginda
+   kullanici ne yapacagini bilmiyordu: yetki mi istesin, listeye mi donsun,
+   beklesin mi? */
+function hataDurumu(error) {
+  if (error.status === 403) {
+    return emptyState(t("access.deniedTitle"), t("access.deniedHint"),
+                      { label: t("nav.projects"), view: "projects" });
+  }
+  if (error.status === 404) return emptyState(t("access.goneTitle"), t("access.goneHint"));
+  if (error.status === 409) return emptyState(t("access.busyTitle"), error.message);
+  return emptyState(t("app.failed"), error.message, { label: t("app.retry"), retry: true });
+}
 
 // ─── Durum ────────────────────────────────────────────────────────────────
 const state = {
@@ -81,6 +118,10 @@ const state = {
   // bos bir kume "hicbir belge" demek ve o mesru bir secim.
   docScope: null,
   docPickFilter: "",
+  // Adresteki proje kisa adi ve gorunum detayi.
+  projectSlug: "",
+  routeDetail: "",
+  settingsScope: "proje",
   activeArtifact: null,
   pollTimer: null,
   // Sorular teker teker sorulur; kuyrukta nerede oldugumuz ve yazilmis
@@ -213,12 +254,71 @@ async function changeLanguage(lang) {
 const VIEWS = ["overview", "develop", "workflow", "knowledge", "analysis",
                "plan", "artifacts", "stream", "env", "projects", "settings"];
 
-function showView(name) {
-  if (!VIEWS.includes(name)) name = "overview";
+/* Adres iki katmanli: `#/p/<slug>/<gorunum>[/<detay>]`.
+   `p/` oneki bilincli -- bir gun "plan" ya da "settings" slug'li bir proje
+   kaydedilirse tek segmentli gramer ikiye bolunurdu. */
+/* Kapsam seridi: bu ekran neye ait?
+
+   Uc kelime uc yerde ayni: rayda obek etiketi, burada serit, Ayarlar'da
+   sekme. Ayni soruyu uc farkli kelimeyle cevaplamak, cevabi ogrenilecek
+   bir sey haline getirirdi. */
+const PROJE_GORUNUMLERI = new Set([
+  "overview", "develop", "workflow", "knowledge", "analysis",
+  "plan", "artifacts", "stream", "env",
+]);
+
+function renderContentScope(name = state.view) {
+  const serit = $("#content-scope");
+  if (!serit) return;
+  const proje = state.overview?.project;
+  if (PROJE_GORUNUMLERI.has(name) && proje) {
+    serit.hidden = false;
+    serit.textContent = t("scope.project", {
+      name: proje.name, role: tv("projectRole", proje.role),
+    });
+    return;
+  }
+  if (name === "projects") {
+    serit.hidden = false;
+    serit.textContent = t("scope.platform");
+    return;
+  }
+  serit.hidden = true;
+}
+
+function readRoute() {
+  const p = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+  if (p[0] === "p") {
+    return { slug: p[1] || "", view: p[2] || "", detail: p[3] || "" };
+  }
+  // Eski tek segmentli adresler kirilmaz: gorunum olarak okunur.
+  return { slug: "", view: VIEWS.includes(p[0]) ? p[0] : "", detail: p[1] || "" };
+}
+
+const routePath = (r) =>
+  "/p/" + (r.slug || state.projectSlug || "-") + "/" + (r.view || "overview") +
+  (r.detail ? "/" + r.detail : "");
+
+function writeRoute(r, { replace = false } = {}) {
+  const path = routePath(r);
+  if (location.hash === "#" + path) return;
+  // Duzeltme ile GEZINME ayrilir: her duzeltmede gecmise kayit itmek,
+  // `/` ile acilan sayfada Geri tusunu ise yaramaz kiliyordu -- geri
+  // basiyorsunuz, duzeltme yeniden kosuyor, yeni kayit dusuyor.
+  if (replace) history.replaceState(null, "", "#" + path);
+  else location.hash = path;
+}
+
+function showView(name, detail = "") {
+  const duzeltildi = !VIEWS.includes(name);
+  if (duzeltildi) { name = "overview"; detail = ""; }
   state.view = name;
+  state.routeDetail = detail;
+  clearBlock();
   $$(".view").forEach((section) => section.classList.toggle("is-active", section.id === `view-${name}`));
   $$(".rail-item").forEach((item) => item.classList.toggle("is-active", item.dataset.view === name));
-  if (location.hash.replace("#", "") !== name) location.hash = name;
+  writeRoute({ slug: state.projectSlug, view: name, detail }, { replace: duzeltildi });
+  renderContentScope(name);
 
   if (name === "develop")   { loadOverview(); loadDocuments(); }
   if (name === "workflow")  loadWorkflow();
@@ -235,6 +335,7 @@ function showView(name) {
   // yalnizca sekmeye girerken ve kaydettikten sonra calisiyor. Sonuc: ayarlar
   // ekrani bombos aciliyordu. `develop` sekmesi bastan beri once yukluyor.
   if (name === "settings")  {
+    showSettingsScope(detail || state.settingsScope || "proje");
     loadOverview().then(renderSettings);
     loadUsers();
     loadSessions();
@@ -242,14 +343,86 @@ function showView(name) {
   }
 }
 
+/* Erisim engeli tum ekrani kaplar ama gorunumun ic HTML'ini EZMEZ:
+   ezmek `#btn-run`, `#plan-tabs` gibi kimlikleri kalici olarak silerdi ve
+   yetki geri geldiginde ekran bir daha kurulamazdi -- yalnizca sayfayi
+   yenilemek kurtarirdi. */
+function showBlock(error) {
+  const kutu = $("#access-block");
+  kutu.innerHTML = hataDurumu(error);
+  kutu.hidden = false;
+  document.body.dataset.blocked = "1";
+}
+
+function clearBlock() {
+  $("#access-block").hidden = true;
+  delete document.body.dataset.blocked;
+}
+
+/* projects.py PROJECT_ROLES ile AYNI SIRA: gucten guclu artan. */
+const PROJE_ROLLERI = ["viewer", "developer", "owner"];
+const projeRolu = () => state.overview?.project?.role || "";
+
+function yetkiVar(gereken) {
+  const r = projeRolu();
+  return r ? PROJE_ROLLERI.indexOf(r) >= PROJE_ROLLERI.indexOf(gereken) : false;
+}
+
+/* Yetkiyi ekrana uygular. YALNIZCA KAPATIR, ASLA ACMAZ.
+
+   Acmak da yazsaydi, suren bir kosunun ortasinda "Baslat" geri acilirdi:
+   `syncRunState` dugmeleri kosu durumuna gore kapatiyor ve bu islev ondan
+   SONRA cagriliyor. Iki kural birbirini ezmemeli -- kosu durumu ve yetki
+   ayri sebeplerdir ve ikisi de "kapali" diyebilir. */
+function applyPermissions(root = document) {
+  const yonetici = state.auth?.configured === false || state.auth?.user?.role === "admin";
+  $$("[data-needs-role]", root).forEach((node) => {
+    const gereken = node.dataset.needsRole;
+    const izin = gereken === "admin" ? yonetici : yetkiVar(gereken);
+    if (!izin) {
+      // `<form>` uzerinde `disabled` diye bir ozellik YOK: isareti bir
+      // kapsayiciya yazmak sessizce hicbir sey yapmazdi.
+      if (node.matches("button, input, select, textarea")) node.disabled = true;
+      else $$("button, input, select, textarea", node).forEach((k) => { k.disabled = true; });
+    }
+    node.toggleAttribute("data-denied", !izin);
+    node.title = izin ? "" : t("perm.needs", {
+      role: gereken === "admin"
+        ? tv("platformRole", "admin")
+        : tv("projectRole", gereken),
+    });
+  });
+  // BOLUM gizleme burada YAPILMAZ: `#users-panel` ve `#audit-panel`
+  // kararini `loadUsers`/`loadAudit` veriyor ve onlarin kurali daha dar
+  // (hic hesap yokken panel bos aciliyordu). Iki yerde iki kural olsaydi
+  // hangisinin son kostugu belirlerdi.
+  document.body.dataset.role = projeRolu();
+}
+
 function initRouting() {
   document.addEventListener("click", (event) => {
+    if (event.target.closest("[data-retry]")) {
+      showView(state.view, state.routeDetail);
+      return;
+    }
     const trigger = event.target.closest("[data-view]");
-    if (trigger) showView(trigger.dataset.view);
+    if (trigger) showView(trigger.dataset.view, trigger.dataset.detail || "");
   });
   // Tarayici geri/ileri tuslari ve dogrudan verilen #baglantilar da calissin.
-  window.addEventListener("hashchange", () => showView(location.hash.replace("#", "")));
-  showView(location.hash.replace("#", ""));
+  window.addEventListener("hashchange", () => {
+    const r = readRoute();
+    // Adresteki proje degistiyse ekran degil BAGLAM degisir: veriyi
+    // yeniden yukleriz, gorunumde kaliriz.
+    if (r.slug && r.slug !== "-" && state.projectSlug && r.slug !== state.projectSlug) {
+      state.projectSlug = r.slug;
+      loadOverview().then(() => showView(r.view, r.detail));
+      return;
+    }
+    showView(r.view, r.detail);
+  });
+  const ilk = readRoute();
+  if (ilk.slug && ilk.slug !== "-") state.projectSlug = ilk.slug;
+  showView(ilk.view, ilk.detail);
 }
 
 // ─── Genel bakis ──────────────────────────────────────────────────────────
@@ -262,10 +435,19 @@ async function loadOverview() {
     data = await api("/api/overview");
   } catch (error) {
     state.overviewError = error.message;
-    toast(t("app.serverUnreachable", { msg: error.message }), "err");
+    // Yetki ve catisma EKRANDIR: gordugunuz seyi degistiriyorlar. Dusen
+    // sunucu ise rozettir -- ayni anda 13 yukleyici dustugunde 13 toast
+    // ust uste binip birbirini okunmaz kiliyordu.
+    if (error.status === 403 || error.status === 404 || error.status === 409) {
+      showBlock(error);
+      return false;
+    }
+    $("#run-pill").dataset.state = "offline";
+    $("#run-pill-text").textContent = t("app.offlinePill");
     return false;
   }
   state.overviewError = null;
+  clearBlock();
   state.overview = data;
   state.phases = data.phases;
 
@@ -288,6 +470,13 @@ async function loadOverview() {
   $("#rail-models").innerHTML =
     `lead · ${esc(data.settings.model_lead)}<br>worker · ${esc(data.settings.model_worker)}`;
   renderWorkspace(data.workspace);
+  if (data.project?.slug) state.projectSlug = data.project.slug;
+  // Secici her ekranda dolu olmali; Projeler ekranina girmeden de
+  // proje degistirilebilmeli.
+  api("/api/projects").then((p) => {
+    state.projects = p.projects;
+    renderProjectSwitch(p.projects, p.active);
+  }).catch(() => {});
   $("#approval-mode").value = data.settings.approval_mode;
   state.approvalMode = data.settings.approval_mode;
 
@@ -317,6 +506,7 @@ async function loadOverview() {
   // duzenlemeler yerinde kalir.
   if (state.view === "settings") refreshSettingsStatus();
   syncRunState(data.run);
+  applyPermissions();
   return true;
 }
 
@@ -819,6 +1009,8 @@ function renderUploadedDocs(documents) {
 
 async function loadDocuments() {
   const target = $("#doc-table");
+  // Beklerken eski projenin verisi ekranda kalmaz.
+  target.innerHTML = busyState();
   try {
     const data = await api("/api/documents");
     const stats = data.stats;
@@ -828,7 +1020,7 @@ async function loadDocuments() {
     state.docItems = data.documents;
     renderDocPage();
   } catch (error) {
-    target.innerHTML = emptyState(t("app.failed"), error.message);
+    target.innerHTML = hataDurumu(error);
     $("#doc-pager").hidden = true;
   }
 }
@@ -958,7 +1150,7 @@ function renderEnvironment(data) {
   const servisler = data.services || [];
 
   $("#env-scope").textContent = t("env.scope", { name: data.project.name });
-  $("#env-rebuild").hidden = k.execution !== "docker" || data.project.role !== "owner";
+  $("#env-rebuild").hidden = k.execution !== "docker";
 
   $("#env-body").innerHTML = `
     <section class="panel">
@@ -1001,10 +1193,12 @@ function renderEnvironment(data) {
 }
 
 async function loadEnvironment() {
+  // Beklerken eski projenin verisi ekranda kalmaz.
+  $("#env-body").innerHTML = busyState();
   try {
     renderEnvironment(await api("/api/environment"));
   } catch (error) {
-    $("#env-body").innerHTML = emptyState(t("app.failed"), error.message);
+    $("#env-body").innerHTML = hataDurumu(error);
   }
 }
 
@@ -1030,6 +1224,9 @@ function renderProjects(data) {
     hedef.innerHTML = emptyState(t("projects.none"), t("projects.noneHint"));
     return;
   }
+
+  state.projects = data.projects;
+  renderProjectSwitch(data.projects, aktif);
 
   hedef.innerHTML = data.projects.map((p) => `
     <section class="panel project-card" data-archived="${p.archived ? 1 : 0}">
@@ -1096,6 +1293,8 @@ function renderProjects(data) {
 async function loadMembers(project) {
   const hedef = $(`#members-${project.id}`);
   if (!hedef) return;
+  // Beklerken eski projenin verisi ekranda kalmaz.
+  hedef.innerHTML = busyState();
   try {
     const data = await api(`/api/projects/${project.id}/members`);
     hedef.innerHTML = `
@@ -1128,20 +1327,69 @@ async function loadMembers(project) {
       } catch (error) { toast(error.message, "err"); }
     }));
   } catch (error) {
-    hedef.innerHTML = emptyState(t("app.failed"), error.message);
+    hedef.innerHTML = hataDurumu(error);
   }
+}
+
+/* Ust bardaki secici: her ekranda gorunur ve her ekrandan degistirilir. */
+function renderProjectSwitch(projeler, aktif) {
+  const kutu = $("#project-switch");
+  const sec = $("#project-select");
+  if (!kutu || !sec) return;
+
+  // Tek proje varken secici GURULTU: secilecek bir sey yok ve ust barda
+  // yer kapliyor. Ad zaten sol rayda yaziyor.
+  const gorunur = projeler.length > 1;
+  kutu.hidden = !gorunur;
+  if (!gorunur) return;
+
+  sec.innerHTML = projeler
+    .filter((p) => !p.archived)
+    .map((p) => `<option value="${esc(p.slug)}"${
+      p.id === aktif?.id ? " selected" : ""
+    }>${esc(p.name)}</option>`).join("");
+}
+
+async function switchProject(slug) {
+  const proje = (state.projects || []).find((p) => p.slug === slug);
+  if (!proje) return;
+  try {
+    await post(`/api/projects/${proje.id}/activate`);
+    state.projectSlug = slug;
+    resetProjectState();
+    // Gorunum KORUNUR, detay DUSER: detay kimlikleri projeye ozgudur ve
+    // tasimak yanlis veriyi dogru baslikla gostermek olurdu.
+    writeRoute({ slug, view: state.view, detail: "" });
+    await loadOverview();
+    showView(state.view);
+  } catch (error) { toast(error.message, "err"); }
+}
+
+/* Proje degisince onceki projenin verisi ekranda KALMAMALI. */
+function resetProjectState() {
+  state.overview = null;
+  state.activeWorkflow = null;
+  state.workflowDetail = null;
+  state.docItems = [];
+  state.docScope = null;
+  state.events = [];
+  state.lastSeq = 0;
+  state.approvals = [];
 }
 
 async function loadProjects() {
   const arsiv = $("#project-show-archived").checked ? "?archived=1" : "";
+  // Beklerken eski projenin verisi ekranda kalmaz.
+  $("#project-list").innerHTML = busyState();
   try {
     renderProjects(await api(`/api/projects${arsiv}`));
   } catch (error) {
-    $("#project-list").innerHTML = emptyState(t("app.failed"), error.message);
+    $("#project-list").innerHTML = hataDurumu(error);
   }
 }
 
 function initProjects() {
+  $("#project-select").addEventListener("change", (e) => switchProject(e.target.value));
   $("#project-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const not = $("#project-note");
@@ -1327,9 +1575,12 @@ async function loadUsers() {
   $("#users-panel").hidden = !(me && me.role === "admin");
   if (!me) return;
 
-  $("#account-who").textContent = `${me.username} · ${me.role}`;
+  $("#account-who").textContent =
+    `${me.username} · ${tv("platformRole", me.role)}`;
   if (me.role !== "admin") return;
 
+  // Beklerken eski projenin verisi ekranda kalmaz.
+  $("#users-table").innerHTML = busyState();
   try {
     const data = await api("/api/users");
     $("#users-hint").textContent = t("users.count", { n: data.users.length });
@@ -1397,7 +1648,7 @@ async function loadUsers() {
       });
     });
   } catch (error) {
-    $("#users-table").innerHTML = emptyState(t("app.failed"), error.message);
+    $("#users-table").innerHTML = hataDurumu(error);
   }
 }
 
@@ -1467,7 +1718,7 @@ async function loadSessions() {
       } catch (error) { toast(error.message, "err"); }
     }));
   } catch (error) {
-    hedef.innerHTML = emptyState(t("app.failed"), error.message);
+    hedef.innerHTML = hataDurumu(error);
   }
 }
 
@@ -1485,6 +1736,8 @@ async function loadAudit() {
   if ($("#audit-user").value) parametre.set("user", $("#audit-user").value);
   if ($("#audit-action").value) parametre.set("action", $("#audit-action").value);
 
+  // Beklerken eski projenin verisi ekranda kalmaz.
+  $("#audit-table").innerHTML = busyState();
   try {
     const data = await api(`/api/audit?${parametre}`);
     $("#audit-hint").textContent =
@@ -1531,7 +1784,7 @@ async function loadAudit() {
         </tbody>
       </table></div>`;
   } catch (error) {
-    $("#audit-table").innerHTML = emptyState(t("app.failed"), error.message);
+    $("#audit-table").innerHTML = hataDurumu(error);
   }
 }
 
@@ -1635,9 +1888,15 @@ function renderSettings() {
   // etkiler: modelin ucu, kimlik bilgileri, yalitim, dis erisim. Alt
   // kullanici bunlari GORUR ama yazamaz -- gizlemek "boyle bir ayar yok"
   // demek olurdu, oysa var ve yoneticisi degistirebilir.
+  // IKI kaynak, IKI rol. Bir platform "yoneticisi" bir projede
+  // "izleyici" olabilir; tek kume bunu gizlerdi ve proje ayarlarini
+  // yazamayacagi halde acik gosterirdi.
   const me = state.auth?.user;
   const yonetici = state.auth?.configured === false || me?.role === "admin";
-  const kilitli = new Set(yonetici ? [] : (s.platform_fields || []));
+  const kilitli = new Set([
+    ...(yonetici ? [] : (s.platform_fields || [])),
+    ...(yetkiVar("developer") ? [] : (s.project_fields || [])),
+  ]);
 
   for (const [id, name, kind] of SETTING_INPUTS) {
     const node = $(id);
@@ -1780,10 +2039,26 @@ function refreshSettingsStatus() {
     </table></div>`;
 }
 
-function collectSettings() {
+const SETTING_SCOPES = ["proje", "hesap", "platform"];
+
+/* Bir alanin kapsami SUNUCUDAN gelir (`field_scopes`). JS'e kopyalanmis
+   bir liste, alan tablosuna yeni bir ayar eklendigi gun ondan sessizce
+   ayrilir ve o ayar hicbir sekmede gorunmez. */
+const fieldScope = (name) =>
+  state.overview?.settings?.field_scopes?.[name] || "proje";
+
+/* Yalnizca ISTENEN kapsamin, KILITLI OLMAYAN alanlarini toplar.
+
+   Once tek "Kaydet" 38 alani birden gonderiyordu: dilini degistiren alt
+   kullanicinin govdesinde `sandbox_image` de gidiyordu, sunucu ilk
+   platform alaninda 403 donuyordu ve kisi HICBIR ayarini
+   kaydedemiyordu. */
+function collectSettings(scope) {
   const payload = {};
   for (const [id, name, kind] of SETTING_INPUTS) {
+    if (fieldScope(name) !== scope) continue;
     const node = $(id);
+    if (node.disabled) continue;   // kilitli alan GONDERILMEZ
     if (kind === "bool") payload[name] = node.checked;
     else if (kind === "number") payload[name] = Number(node.value);
     else if (kind === "float") payload[name] = node.value === "" ? "" : Number(node.value);
@@ -1791,27 +2066,53 @@ function collectSettings() {
   }
   // Bos birakilan gizli alan "degistirme" demektir; gonderirsek silerdik.
   for (const [id, name] of SECRET_INPUTS) {
+    if (fieldScope(name) !== scope) continue;
+    if ($(id).disabled) continue;
     const value = $(id).value.trim();
     if (value) payload[name] = value;
   }
   return payload;
 }
 
-function initSettings() {
-  $("#btn-save-settings").addEventListener("click", async () => {
-    const button = $("#btn-save-settings");
-    button.disabled = true;
+function showSettingsScope(scope) {
+  if (!SETTING_SCOPES.includes(scope)) scope = "proje";
+  state.settingsScope = scope;
+  $$("[data-settings-scope]").forEach((b) =>
+    b.classList.toggle("is-active", b.dataset.settingsScope === scope));
+  $$(".settings-scope").forEach((s) => { s.hidden = s.dataset.scope !== scope; });
+  // Adreste kalir: "ayarlarin su sekmesine bak" diye link paylasilabilsin.
+  if (state.view === "settings") {
+    writeRoute({ slug: state.projectSlug, view: "settings", detail: scope },
+               { replace: true });
+  }
+}
+
+function initSaveButton(scope) {
+  const dugme = $(`#btn-save-${scope}`);
+  dugme.addEventListener("click", async () => {
+    const govde = collectSettings(scope);
+    dugme.disabled = true;
     try {
-      const result = await post("/api/settings", collectSettings());
-      toast(t("settings.saved", { n: Object.keys(result.changed).length }), "ok");
+      const sonuc = await post("/api/settings", govde);
+      toast(t("settings.savedScope", {
+        scope: tv("settingsScope", scope),
+        n: Object.keys(sonuc.changed).length,
+      }), "ok");
       await loadOverview();
       renderSettings();
     } catch (error) {
       toast(error.message, "err", 8000);
     } finally {
-      button.disabled = false;
+      dugme.disabled = false;
+      applyPermissions();   // yetki kapattiysa kapali kalsin
     }
   });
+}
+
+function initSettings() {
+  SETTING_SCOPES.forEach(initSaveButton);
+  $$("[data-settings-scope]").forEach((b) =>
+    b.addEventListener("click", () => showSettingsScope(b.dataset.settingsScope)));
 
   // Ust bardaki anahtarla ayni yol: aninda degisir ve sunucuda kalir.
   // "Kaydet"i beklemek, arayuzu Ingilizce olay akisini Turkce birakirdi.
@@ -2011,6 +2312,8 @@ async function loadWorkflowList() {
   $("#workflow-meta").innerHTML = "";
   $("#workflow-steps").innerHTML = "";
 
+  // Beklerken eski projenin verisi ekranda kalmaz.
+  list.innerHTML = busyState();
   try {
     const data = await api("/api/workflows");
     $("#workflow-sub").textContent = data.workflows.length
@@ -2046,7 +2349,7 @@ async function loadWorkflowList() {
     });
     $("#rail-workflow").hidden = !data.running;
   } catch (error) {
-    list.innerHTML = emptyState(t("app.failed"), error.message);
+    list.innerHTML = hataDurumu(error);
   }
 }
 
@@ -2070,12 +2373,14 @@ async function loadWorkflowDetail(workflowId) {
   $("#workflow-new").hidden = true;
   $("#chat-open").hidden = false;
   loadChat(workflowId);
+  // Beklerken eski projenin verisi ekranda kalmaz.
+  $("#workflow-steps").innerHTML = busyState();
   try {
     const data = await api(`/api/workflows/${encodeURIComponent(workflowId)}`);
     state.workflowDetail = data;
     renderWorkflowDetail(data);
   } catch (error) {
-    $("#run-list").innerHTML = emptyState(t("app.failed"), error.message);
+    $("#run-list").innerHTML = hataDurumu(error);
   }
 }
 
@@ -2244,12 +2549,14 @@ async function loadRunDetail(runId) {
   $("#workflow-back").hidden = false;
   $("#workflow-new").hidden = true;
   $("#workflow-expand-label").hidden = false;
+  // Beklerken eski projenin verisi ekranda kalmaz.
+  $("#workflow-steps").innerHTML = busyState();
   try {
     const data = await api(`/api/runs/${encodeURIComponent(runId)}`);
     state.workflow = data;
     renderRunDetail(data);
   } catch (error) {
-    $("#workflow-steps").innerHTML = emptyState(t("app.failed"), error.message);
+    $("#workflow-steps").innerHTML = hataDurumu(error);
     $("#workflow-meta").innerHTML = "";
   }
 }
@@ -2391,11 +2698,13 @@ function renderChat(messages) {
 }
 
 async function loadChat(workflowId) {
+  // Beklerken eski projenin verisi ekranda kalmaz.
+  $("#chat-log").innerHTML = busyState();
   try {
     const data = await api(`/api/workflows/${encodeURIComponent(workflowId)}/chat`);
     renderChat(data.messages || []);
   } catch (error) {
-    $("#chat-log").innerHTML = emptyState(t("app.failed"), error.message);
+    $("#chat-log").innerHTML = hataDurumu(error);
   }
 }
 
@@ -2673,12 +2982,14 @@ const ANALYSIS_VIEWS = {
 
 async function loadAnalysis() {
   const target = $("#analysis-body");
+  // Beklerken eski projenin verisi ekranda kalmaz.
+  target.innerHTML = busyState();
   try {
     const data = await api(`/api/state/${state.analysisTab}`);
     state.analysisItems = data.items;
     renderAnalysisPage();
   } catch (error) {
-    target.innerHTML = emptyState(t("app.failed"), error.message);
+    target.innerHTML = hataDurumu(error);
     $("#analysis-pager").hidden = true;
   }
 }
@@ -2939,6 +3250,8 @@ const TASK_STATUSES = ["pending", "running", "done", "blocked", "failed", "skipp
 
 async function loadTasks() {
   const target = $("#task-list");
+  // Beklerken eski projenin verisi ekranda kalmaz.
+  target.innerHTML = busyState();
   try {
     const scope = state.selectedPlan
       ? `?plan=${encodeURIComponent(state.selectedPlan)}` : "";
@@ -2946,7 +3259,7 @@ async function loadTasks() {
     state.taskItems = data.items;
     renderTaskPage();
   } catch (error) {
-    target.innerHTML = emptyState(t("app.failed"), error.message);
+    target.innerHTML = hataDurumu(error);
     $("#task-pager").hidden = true;
   }
 }
@@ -3096,6 +3409,8 @@ function initPlan() {
 // ─── Ciktilar ─────────────────────────────────────────────────────────────
 async function loadArtifacts() {
   const list = $("#artifact-list");
+  // Beklerken eski projenin verisi ekranda kalmaz.
+  list.innerHTML = busyState();
   try {
     const data = await api(
       "/api/artifacts" + (state.showOrphans ? "?orphans=1" : ""));
@@ -3218,7 +3533,7 @@ async function loadArtifacts() {
       openArtifact(visible[0].name);
     }
   } catch (error) {
-    list.innerHTML = emptyState(t("app.failed"), error.message);
+    list.innerHTML = hataDurumu(error);
   }
 }
 
@@ -3886,6 +4201,8 @@ async function loadDelivery() {
   const issues = $("#delivery-issues");
   const list = $("#delivery-list");
 
+  // Beklerken eski projenin verisi ekranda kalmaz.
+  list.innerHTML = busyState();
   try {
     const data = await api("/api/package");
     panel.dataset.ready = data.ready ? "1" : "0";

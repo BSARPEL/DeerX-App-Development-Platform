@@ -20,6 +20,15 @@
       <span class="brand-name">DeerX</span>
     </div>
 
+    <!-- Proje secici ust barda: proje degistirmek bir GEZINME degil,
+         BAGLAM degistirme islemi. Sol alt kosedeki ad salt okunurdu ve
+         hangi projede oldugunuzu ancak oraya bakinca goruyordunuz. -->
+    <div class="project-switch" id="project-switch" hidden>
+      <span class="project-switch-sep" aria-hidden="true">/</span>
+      <select id="project-select" data-i18n-label="projects.switchLabel"
+              aria-label="Proje"></select>
+    </div>
+
     <div class="topbar-right">
       <div class="stat-inline" data-i18n-title="app.costTitle" title="Toplam model maliyeti">
         <span class="stat-inline-label" data-i18n="app.cost">Maliyet</span>
@@ -55,6 +64,11 @@
 
   <!-- ── Sol ray ──────────────────────────────────────────────── -->
   <nav class="rail" data-i18n-label="nav.sections" aria-label="Bölümler">
+    <!-- Kapsam etiketleri: "bu ayari degistirirsem kimi etkiler?"
+         sorusu on bir maddenin ayni duzlemde durmasiyla cevapsiz
+         kaliyordu. Ray BOLUNMUYOR -- on bir maddelik bir ray taranabilir,
+         iki menu + dokuz madde taranamaz. -->
+    <p class="rail-scope-label" data-i18n="nav.scopeProject">Bu proje</p>
     <button class="rail-item is-active" data-view="overview" type="button" data-i18n-label="nav.overview" aria-label="Genel bakış">
       <span class="rail-icon">▤</span><span class="rail-text" data-i18n="nav.overview">Genel bakış</span>
     </button>
@@ -90,9 +104,11 @@
     <button class="rail-item" data-view="env" type="button" data-i18n-label="nav.env" aria-label="Ortam">
       <span class="rail-icon">⬢</span><span class="rail-text" data-i18n="nav.env">Ortam</span>
     </button>
+    <p class="rail-scope-label" data-i18n="nav.scopePlatform">Platform</p>
     <button class="rail-item" data-view="projects" type="button" data-i18n-label="nav.projects" aria-label="Projeler">
       <span class="rail-icon">▤</span><span class="rail-text" data-i18n="nav.projects">Projeler</span>
     </button>
+    <p class="rail-scope-label" data-i18n="nav.scopeAccount">Hesabım ve yönetim</p>
     <button class="rail-item" data-view="settings" type="button" data-i18n-label="nav.settings" aria-label="Ayarlar">
       <span class="rail-icon">⚙</span><span class="rail-text" data-i18n="nav.settings">Ayarlar</span>
     </button>
@@ -100,7 +116,7 @@
     <div class="rail-foot">
       <div class="rail-setting">
         <label for="approval-mode" data-i18n="nav.approvalMode">Onay modu</label>
-        <select id="approval-mode">
+        <select id="approval-mode" data-needs-role="developer">
           <option value="ask" data-i18n="nav.approvalAsk">Sor</option>
           <option value="auto" data-i18n="nav.approvalAuto">Otomatik</option>
           <option value="dry-run" data-i18n="nav.approvalDry">Kuru koşu</option>
@@ -121,6 +137,13 @@
 
   <!-- ── İçerik ───────────────────────────────────────────────── -->
   <main class="content" id="content">
+    <!-- Ekran HANGI PROJEDE oldugunu her zaman tekrarlar. Bugun bunu
+         yapan tek yer faz rayinin ustundeki kucuk satirdi. -->
+    <p class="content-scope" id="content-scope" hidden></p>
+
+    <!-- Erisim engeli. Gorunumlerin YANINDA durur, ICINDE degil: bir
+         gorunumun ic HTML'ini ezmek kimliklerini kalici olarak silerdi. -->
+    <div class="access-block" id="access-block" hidden></div>
 
     <!-- Genel bakış -->
     <section class="view is-active" id="view-overview">
@@ -199,7 +222,7 @@
           </header>
           <div class="panel-body">
             <label class="dropzone" id="dropzone">
-              <input type="file" id="file-input" multiple
+              <input type="file" id="file-input" multiple data-needs-role="developer"
                      accept=".md,.txt,.pdf,.docx,.html,.htm,.rst,.json,.yaml,.yml,.toml">
               <span class="dropzone-title" data-i18n="develop.dropTitle"></span>
               <span class="dropzone-hint" data-i18n="develop.dropHint"></span>
@@ -260,8 +283,8 @@
             </label>
             <div class="run-footer">
               <div class="run-actions">
-                <button class="btn btn-primary" id="btn-run" type="button" data-i18n="develop.start">Başlat</button>
-                <button class="btn btn-danger" id="btn-stop" type="button" disabled data-i18n="develop.stop">Durdur</button>
+                <button class="btn btn-primary" id="btn-run" type="button" data-needs-role="developer" data-i18n="develop.start">Başlat</button>
+                <button class="btn btn-danger" id="btn-stop" type="button" disabled data-needs-role="developer" data-i18n="develop.stop">Durdur</button>
               </div>
               <p class="note" id="run-note"></p>
             </div>
@@ -349,7 +372,7 @@
       <section class="panel">
         <header class="panel-head"><h2 data-i18n="kb.indexing">İndeksleme</h2></header>
         <div class="panel-body">
-          <form class="inline-form" id="ingest-form">
+          <form class="inline-form" id="ingest-form" data-needs-role="developer">
             <input type="text" id="ingest-path" data-i18n-placeholder="kb.pathPlaceholder">
             <label class="check"><input type="checkbox" id="ingest-force"><span data-i18n="kb.force">Zorla</span></label>
             <button class="btn" type="submit" data-i18n="kb.indexDir">Dizini indeksle</button>
@@ -384,10 +407,10 @@
       <div class="plan-bar">
         <div class="plan-tabs" id="plan-tabs"></div>
         <div class="plan-bar-actions">
-          <button class="btn btn-ghost btn-sm" id="btn-new-plan" type="button" data-i18n="plan.newPlan">+ Yeni plan</button>
-          <button class="btn btn-ghost btn-sm" id="btn-rename-plan" type="button" data-i18n="app.rename">Adlandır</button>
-          <button class="btn btn-ghost btn-sm" id="btn-delete-plan" type="button" data-i18n="app.delete">Sil</button>
-          <button class="btn btn-primary btn-sm" id="btn-run-plan" type="button" data-i18n="plan.startPlan">▶ Başlat</button>
+          <button class="btn btn-ghost btn-sm" id="btn-new-plan" type="button" data-needs-role="developer" data-i18n="plan.newPlan">+ Yeni plan</button>
+          <button class="btn btn-ghost btn-sm" id="btn-rename-plan" type="button" data-needs-role="developer" data-i18n="app.rename">Adlandır</button>
+          <button class="btn btn-ghost btn-sm" id="btn-delete-plan" type="button" data-needs-role="developer" data-i18n="app.delete">Sil</button>
+          <button class="btn btn-primary btn-sm" id="btn-run-plan" type="button" data-needs-role="developer" data-i18n="plan.startPlan">▶ Başlat</button>
         </div>
       </div>
       <p class="plan-note" id="plan-auto-note" data-i18n="plan.autoNote" hidden></p>
@@ -432,7 +455,7 @@
           <div id="delivery-issues"></div>
         </div>
         <div class="delivery-actions">
-          <button class="btn btn-primary" id="btn-package" type="button" data-i18n="delivery.package">Paketle</button>
+          <button class="btn btn-primary" id="btn-package" type="button" data-needs-role="developer" data-i18n="delivery.package">Paketle</button>
           <label class="check" id="package-force-label">
             <input type="checkbox" id="package-force">
             <span data-i18n="delivery.force">Engellere rağmen</span>
@@ -484,7 +507,7 @@
           <h1 data-i18n="env.title">Ortam</h1>
           <p class="view-sub" id="env-scope">—</p>
         </div>
-        <button class="btn btn-danger" id="env-rebuild" type="button"
+        <button class="btn btn-danger" id="env-rebuild" type="button" data-needs-role="owner"
                 data-i18n="env.rebuild">Ortamı yeniden kur</button>
       </div>
       <div id="env-body"></div>
@@ -536,56 +559,26 @@
           <p class="view-sub"><span data-i18n="settings.lead"></span>
              <code>deerx.toml</code> <span data-i18n="settings.tomlNote"></span></p>
         </div>
-        <button class="btn btn-primary" id="btn-save-settings" type="button"
-                data-i18n="app.save">Kaydet</button>
       </div>
 
       <!-- Genel durum gelmediyse form boş kalır ve "hiçbir şey ayarlı değil" gibi okunur. -->
       <p class="note" id="settings-unavailable" data-tone="err" hidden></p>
 
+      <!-- Kapsam bir SEKME farkidir. Alanlarin hangi sekmeye dustugunu
+           sunucu soyler (`field_scopes`); burada elle tutulan bir liste
+           olsaydi alan tablosundan sessizce ayrilirdi. -->
+      <div class="tabs" id="settings-scopes" role="tablist">
+        <button class="tab is-active" type="button" role="tab" data-settings-scope="proje"
+                data-i18n="settings.scopeProject">Bu proje</button>
+        <button class="tab" type="button" role="tab" data-settings-scope="hesap"
+                data-i18n="settings.scopeAccount">Hesabım</button>
+        <button class="tab" type="button" role="tab" data-settings-scope="platform"
+                data-i18n="settings.scopePlatform">Platform</button>
+      </div>
+
+      <section class="settings-scope" data-scope="proje">
       <h2 class="settings-group" data-i18n="settings.groupModel">Model</h2>
       <div class="panel-row">
-        <section class="panel">
-          <header class="panel-head">
-            <h2 data-i18n="settings.provider">Model sağlayıcısı</h2>
-            <span class="panel-hint" id="llm-state"></span>
-          </header>
-          <div class="panel-body">
-            <label class="field">
-              <span data-i18n="settings.presetLabel">Sağlayıcı</span>
-              <select id="set-preset"></select>
-            </label>
-            <p class="note" id="preset-note"></p>
-            <label class="field" hidden>
-              <span data-i18n="settings.providerLabel">Protokol</span>
-              <select id="set-provider">
-                <option value="openai" data-i18n="settings.providerOpenai">OpenAI-uyumlu</option>
-                <option value="anthropic" data-i18n="settings.providerAnthropic">Anthropic</option>
-              </select>
-            </label>
-            <label class="field" id="field-base-url">
-              <span><span data-i18n="settings.endpoint">Model ucu</span>
-                    <em data-i18n="settings.endpointHint">(Docker ise HOST portu)</em></span>
-              <input type="text" id="set-base-url" placeholder="http://127.0.0.1:8008/v1">
-            </label>
-            <label class="field" id="field-openai-key">
-              <span data-i18n="settings.openaiKey">OpenAI / vLLM anahtarı</span>
-              <input type="password" id="set-openai-key" autocomplete="off"
-                     data-i18n-placeholder="settings.keyPlaceholder">
-            </label>
-            <label class="field" id="field-anthropic-key">
-              <span data-i18n="settings.anthropicKey">Anthropic anahtarı</span>
-              <input type="password" id="set-anthropic-key" autocomplete="off"
-                     data-i18n-placeholder="settings.keyPlaceholder">
-            </label>
-            <div class="run-actions">
-              <button class="btn" id="btn-test-llm" type="button" data-i18n="settings.testLlm">Bağlantıyı test et</button>
-              <button class="btn" id="btn-list-models" type="button" data-i18n="settings.fetchModels">Modelleri getir</button>
-            </div>
-            <p class="note" id="llm-note"></p>
-          </div>
-        </section>
-
         <section class="panel">
           <header class="panel-head">
             <h2 data-i18n="settings.models">Modeller</h2>
@@ -699,6 +692,120 @@
               </label>
             </div>
             <p class="note" id="settings-run-note"></p>
+          </div>
+        </section>
+      </div>
+
+      <div class="settings-save">
+        <button class="btn btn-primary" id="btn-save-proje" type="button" data-needs-role="developer"
+                data-i18n="settings.saveProject">Kaydet</button>
+      </div>
+      </section>
+
+      <section class="settings-scope" data-scope="hesap" hidden>
+      <div class="panel-row">
+        <section class="panel">
+          <header class="panel-head">
+            <h2 data-i18n="settings.general">Genel</h2>
+            <span class="panel-hint" data-i18n="settings.accountOnlyMe"></span>
+          </header>
+          <div class="panel-body">
+            <label class="field">
+              <span data-i18n="app.language">Dil</span>
+              <select id="set-language">
+                <option value="tr">Türkçe</option>
+                <option value="en">English</option>
+              </select>
+            </label>
+          </div>
+        </section>
+      </div>
+      <div class="panel-row">
+        <section class="panel" id="account-panel" hidden>
+        <header class="panel-head">
+          <h2 data-i18n="account.title">Hesabım</h2>
+          <span class="panel-hint" id="account-who"></span>
+        </header>
+        <div class="panel-body">
+          <div class="field-row">
+            <label class="field">
+              <span data-i18n="account.currentPassword">Mevcut parola</span>
+              <input type="password" id="pw-current" autocomplete="current-password">
+            </label>
+            <label class="field">
+              <span data-i18n="account.newPassword">Yeni parola</span>
+              <input type="password" id="pw-new" autocomplete="new-password">
+            </label>
+          </div>
+          <div class="run-actions">
+            <button class="btn btn-primary" id="btn-change-password" type="button"
+                    data-i18n="account.changePassword">Parolayı değiştir</button>
+            <button class="btn" id="btn-logout" type="button"
+                    data-i18n="account.logout">Çıkış yap</button>
+          </div>
+          <p class="note" id="account-note" data-i18n="account.note"></p>
+
+          <!-- Acik oturumlar: calinmis bir cerezi fark etmenin en
+               dogrudan yolu, ve kullanicidan saklanmasi icin sebep yok. -->
+          <div class="account-sessions">
+            <h3 class="account-sessions-title"
+                data-i18n="account.sessions">Açık oturumlar</h3>
+            <div id="session-list"></div>
+          </div>
+        </div>
+        </section>
+      </div>
+
+      <div class="settings-save">
+        <button class="btn btn-primary" id="btn-save-hesap" type="button"
+                data-i18n="settings.saveAccount">Kaydet</button>
+      </div>
+      </section>
+
+      <section class="settings-scope" data-scope="platform" hidden>
+      <!-- Saglayici, uc ve anahtarlar PLATFORM kapsaminda: konak
+           makinenin parasini harciyorlar ve butun projeleri etkiliyorlar.
+           "Model" basligi altinda proje sekmesinde duruyorlardi. -->
+      <h2 class="settings-group" data-i18n="settings.groupProvider">Model sağlayıcısı</h2>
+      <div class="panel-row">
+        <section class="panel">
+          <header class="panel-head">
+            <h2 data-i18n="settings.provider">Model sağlayıcısı</h2>
+            <span class="panel-hint" id="llm-state"></span>
+          </header>
+          <div class="panel-body">
+            <label class="field">
+              <span data-i18n="settings.presetLabel">Sağlayıcı</span>
+              <select id="set-preset"></select>
+            </label>
+            <p class="note" id="preset-note"></p>
+            <label class="field" hidden>
+              <span data-i18n="settings.providerLabel">Protokol</span>
+              <select id="set-provider">
+                <option value="openai" data-i18n="settings.providerOpenai">OpenAI-uyumlu</option>
+                <option value="anthropic" data-i18n="settings.providerAnthropic">Anthropic</option>
+              </select>
+            </label>
+            <label class="field" id="field-base-url">
+              <span><span data-i18n="settings.endpoint">Model ucu</span>
+                    <em data-i18n="settings.endpointHint">(Docker ise HOST portu)</em></span>
+              <input type="text" id="set-base-url" placeholder="http://127.0.0.1:8008/v1">
+            </label>
+            <label class="field" id="field-openai-key">
+              <span data-i18n="settings.openaiKey">OpenAI / vLLM anahtarı</span>
+              <input type="password" id="set-openai-key" autocomplete="off"
+                     data-i18n-placeholder="settings.keyPlaceholder">
+            </label>
+            <label class="field" id="field-anthropic-key">
+              <span data-i18n="settings.anthropicKey">Anthropic anahtarı</span>
+              <input type="password" id="set-anthropic-key" autocomplete="off"
+                     data-i18n-placeholder="settings.keyPlaceholder">
+            </label>
+            <div class="run-actions">
+              <button class="btn" id="btn-test-llm" type="button" data-i18n="settings.testLlm">Bağlantıyı test et</button>
+              <button class="btn" id="btn-list-models" type="button" data-i18n="settings.fetchModels">Modelleri getir</button>
+            </div>
+            <p class="note" id="llm-note"></p>
           </div>
         </section>
       </div>
@@ -849,24 +956,15 @@
         <section class="panel">
           <header class="panel-head"><h2 data-i18n="settings.general">Genel</h2></header>
           <div class="panel-body">
-            <div class="field-row">
-              <label class="field">
-                <span data-i18n="app.language">Dil</span>
-                <select id="set-language">
-                  <option value="tr">Türkçe</option>
-                  <option value="en">English</option>
-                </select>
-              </label>
-              <label class="field">
-                <span data-i18n="settings.logLevel">Günlük düzeyi</span>
-                <select id="set-log-level">
-                  <option value="DEBUG">DEBUG</option>
-                  <option value="INFO">INFO</option>
-                  <option value="WARNING">WARNING</option>
-                  <option value="ERROR">ERROR</option>
-                </select>
-              </label>
-            </div>
+            <label class="field">
+              <span data-i18n="settings.logLevel">Günlük düzeyi</span>
+              <select id="set-log-level" data-needs-role="admin">
+                <option value="DEBUG">DEBUG</option>
+                <option value="INFO">INFO</option>
+                <option value="WARNING">WARNING</option>
+                <option value="ERROR">ERROR</option>
+              </select>
+            </label>
             <div id="env-table"></div>
           </div>
         </section>
@@ -896,42 +994,7 @@
           <p class="note" id="users-note"></p>
         </div>
         </section>
-
-        <section class="panel" id="account-panel" hidden>
-        <header class="panel-head">
-          <h2 data-i18n="account.title">Hesabım</h2>
-          <span class="panel-hint" id="account-who"></span>
-        </header>
-        <div class="panel-body">
-          <div class="field-row">
-            <label class="field">
-              <span data-i18n="account.currentPassword">Mevcut parola</span>
-              <input type="password" id="pw-current" autocomplete="current-password">
-            </label>
-            <label class="field">
-              <span data-i18n="account.newPassword">Yeni parola</span>
-              <input type="password" id="pw-new" autocomplete="new-password">
-            </label>
-          </div>
-          <div class="run-actions">
-            <button class="btn btn-primary" id="btn-change-password" type="button"
-                    data-i18n="account.changePassword">Parolayı değiştir</button>
-            <button class="btn" id="btn-logout" type="button"
-                    data-i18n="account.logout">Çıkış yap</button>
-          </div>
-          <p class="note" id="account-note" data-i18n="account.note"></p>
-
-          <!-- Acik oturumlar: calinmis bir cerezi fark etmenin en
-               dogrudan yolu, ve kullanicidan saklanmasi icin sebep yok. -->
-          <div class="account-sessions">
-            <h3 class="account-sessions-title"
-                data-i18n="account.sessions">Açık oturumlar</h3>
-            <div id="session-list"></div>
-          </div>
-        </div>
-        </section>
       </div>
-
       <!-- Denetim günlüğü: satır zaman + kişi + işlem + ayrıntı taşıdığı için tam genişlikte. Yalnızca yöneticiye görünür. -->
       <section class="panel" id="audit-panel" hidden>
         <header class="panel-head">
@@ -962,6 +1025,11 @@
           <div id="audit-table"></div>
           <p class="note" id="audit-note"></p>
         </div>
+      </section>
+      <div class="settings-save">
+        <button class="btn btn-primary" id="btn-save-platform" type="button" data-needs-role="admin"
+                data-i18n="settings.savePlatform">Kaydet</button>
+      </div>
       </section>
     </section>
 
@@ -1041,7 +1109,7 @@
         <p class="drawer-sub" id="chat-scope">—</p>
       </div>
       <div class="drawer-actions">
-        <button class="btn btn-ghost btn-sm" id="chat-clear" type="button"
+        <button class="btn btn-ghost btn-sm" id="chat-clear" type="button" data-needs-role="owner"
                 data-i18n="chat.clear">Geçmişi sil</button>
         <button class="icon-btn" id="chat-close" type="button"
                 data-i18n-label="chat.close" aria-label="Kapat">✕</button>
@@ -1052,7 +1120,7 @@
     <form class="chat-bar" id="chat-form">
       <textarea id="chat-input" rows="2" data-i18n-placeholder="chat.placeholder"
                 autocomplete="off"></textarea>
-      <button class="btn btn-primary" id="chat-send" type="submit"
+      <button class="btn btn-primary" id="chat-send" type="submit" data-needs-role="developer"
               data-i18n="chat.send">Gönder</button>
     </form>
   </aside>

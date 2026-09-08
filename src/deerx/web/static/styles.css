@@ -1275,6 +1275,28 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
   font-family: var(--font);
 }
 .empty strong { display: block; margin-bottom: 5px; color: var(--text-2); font-weight: 600; }
+/* Yetki yetmiyorsa dugme DURUR ama calismaz. Silmek "boyle bir sey yok"
+   yalani olurdu ve kullanici onu aramaya devam ederdi.
+   `[hidden]{display:none!important}` kuralindan SONRA gelir; sablonla
+   uretilen dugmelere nitelik yazilamadigi icin kokten de kapatilir. */
+body[data-role="viewer"] [data-needs-role="developer"],
+body[data-role="viewer"] [data-needs-role="owner"],
+body[data-role="developer"] [data-needs-role="owner"] {
+  pointer-events: none;
+  opacity: .5;
+}
+.btn[data-denied] { cursor: not-allowed; }
+
+.empty-action { display: inline-flex; margin-top: 12px; }
+.empty[data-busy] { display: grid; justify-items: center; gap: 8px; }
+.empty[data-busy] strong { margin-bottom: 0; }
+
+/* Engel ekranda tek basina durur: arkasindaki gorunum gizlenir ama
+   DOM'da kalir, boylece yetki geri geldiginde yeniden kurulmasi
+   gerekmez. */
+.access-block { padding: 48px 20px; }
+body[data-blocked] .view.is-active { display: none; }
+
 .empty code {
   display: inline-block;
   margin-top: 8px;
@@ -2829,6 +2851,11 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
    "böyle bir ayar yok" demek olurdu; oysa var ve yöneticisi
    değiştirebilir. Etiket de soluklaşır — yalnızca kutuyu söndürmek,
    alanın hâlâ doldurulabilir olduğu izlenimini bırakıyordu. */
+/* Kapsam sekmeleri. `.tabs`/`.tab` zaten var; yalnizca bolumun kendisi
+   ve her sekmenin kendi Kaydet'i yeni. */
+.settings-scope { display: block; }
+.settings-save { display: flex; justify-content: flex-end; padding: 16px 0 0; }
+
 .field[data-locked] > span,
 .check[data-locked] { opacity: .55; }
 
@@ -2985,3 +3012,49 @@ tr[data-inactive="1"] .doc-row-source { opacity: .6; }
 /* Icinde bulunulan oturum one cikar: yanlislikla kendini disari atmak
    kolay olmamali. */
 .session.is-current .session-id { color: var(--accent); font-weight: 600; }
+
+/* ─── Üst bardaki proje seçici ─────────────────────────────────────────── */
+/* Proje değiştirmek bir GEZİNME değil, BAĞLAM değiştirme işlemi: kullanıcı
+   ekranda kalır, yalnızca veri değişir. Sol alt köşedeki ad salt okunurdu
+   ve hangi projede olduğunuzu ancak oraya bakınca görüyordunuz. */
+
+.project-switch { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+/* Marka ile proje arasındaki ayraç: adres çubuğundaki gibi bir kırılma
+   noktası, iki adın tek bir ad gibi okunmasını engeller. */
+.project-switch-sep { color: var(--text-3); font-size: 14px; }
+
+.project-switch select {
+  width: auto;
+  max-width: 240px;
+  padding: 4px 8px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+}
+.project-switch select:hover { border-color: var(--control-border); background: var(--surface-2); }
+
+/* ─── Kapsam görünürlüğü ───────────────────────────────────────────────── */
+/* Üç kelime üç yerde aynı: rayda öbek etiketi, içerikte şerit, Ayarlar'da
+   sekme. Aynı soruyu üç farklı kelimeyle cevaplamak, cevabı öğrenilecek
+   bir şey hâline getirirdi. */
+
+.rail-scope-label {
+  margin: 12px 0 4px;
+  padding: 0 12px;
+  font-size: 11px; font-weight: 600; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: var(--track-caps);
+}
+.rail-scope-label:first-child { margin-top: 0; }
+
+.content-scope {
+  margin-bottom: 12px;
+  font-size: 12px; color: var(--text-2);
+}
+
+/* Dar ekranda ray yatay bir şerit olur ve orada öbek başlığı anlamsızdır;
+   soru `#content-scope` tarafından zaten cevaplanıyor. */
+@media (max-width: 820px) {
+  .rail-scope-label { display: none; }
+}

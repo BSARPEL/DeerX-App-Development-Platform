@@ -3361,3 +3361,275 @@ class TestChatDrawer:
         assert '$("#chat-close").addEventListener("click", closeChat)' in js
         assert '$("#chat-veil").addEventListener("click", closeChat)' in js
         assert '"Escape"' in js and "closeChat()" in js
+
+
+class TestControlsDeclareTheRoleTheServerEnforces:
+    """`data-needs-role` sunucudaki `_require_role` ile AYNI seyi soylemeli.
+
+    Bu testin varlik sebebi: sunucu iki oturumdur `project.role` yolluyordu
+    ve 4000 satirlik app.js'te yalnizca TEK bir yerde okunuyordu. Izleyici
+    rolundeki biri "Baslat"a basiyor, 403 geliyor ve gri bir toast cikiyor.
+
+    Nitelik yazmayi unutulan bir dugmeyi hicbir test yakalamiyordu; elle
+    tutulan bir liste de gunu gelince sunucudan sapardi. O yuzden liste yok:
+    iki taraf da kaynaktan okunur.
+    """
+
+    # Sunucu yolu ve istemci yolu ayni sekle indirgenir: `{plan_id}` ve
+    # `${encodeURIComponent(plan.id)}` ayni yerdir.
+    @staticmethod
+    def _sadelestir(yol: str) -> str:
+        yol = re.sub(r"\$\{[^}]*\}", "*", yol)
+        yol = re.sub(r"\{[^}]*\}", "*", yol)
+        return yol.split("?")[0].rstrip("/")
+
+    @staticmethod
+    def _sunucu_rolleri() -> dict[tuple[str, str], str]:
+        """(METOT, yol) -> gereken proje rolu."""
+        from deerx.web.app import __file__ as app_dosyasi
+
+        kaynak = Path(app_dosyasi).read_text(encoding="utf-8")
+
+        # Once fonksiyon adi -> rol. Govde BUTUN olarak taranir: sohbet
+        # yolunda korumanin metoda gore ayrisan ucu uc satira bolunmus ve
+        # satir satir tarayan bir okuyucu onu HIC gormemisti.
+        roller: dict[str, dict[str, str]] = {}
+        parcalar = re.split(r"\n    async def (\w+)\(request", kaynak)
+        for ad, govde in zip(parcalar[1::2], parcalar[2::2]):
+            govde = govde.split("\n    async def ")[0]
+            m = re.search(
+                r'_require_role\(\s*request,\s*"(\w+)"\s+if request\.method == "(\w+)"'
+                r'\s+else\s+"(\w+)"',
+                govde,
+                re.S,
+            )
+            if m:
+                roller[ad] = {m.group(2): m.group(1), "*": m.group(3)}
+                continue
+            m = re.search(r'_require_role\(\s*request,\s*"(\w+)"\s*\)', govde, re.S)
+            if m:
+                roller[ad] = {"*": m.group(1)}
+
+        tablo: dict[tuple[str, str], str] = {}
+        for m in re.finditer(
+            r'Route\(\s*"([^"]+)",\s*(\w+),\s*methods=\[([^\]]+)\]', kaynak, re.S
+        ):
+            yol, fn, metotlar = m.group(1), m.group(2), m.group(3)
+            if fn not in roller:
+                continue
+            for metot in re.findall(r'"(\w+)"', metotlar):
+                rol = roller[fn].get(metot) or roller[fn].get("*")
+                if rol:
+                    tablo[(metot, TestControlsDeclareTheRoleTheServerEnforces
+                           ._sadelestir(yol))] = rol
+        return tablo
+
+    @staticmethod
+    def _iscilik(js: str) -> dict[str, str]:
+        """`$("#kimlik").addEventListener(...)` govdesi -> kaynak metni."""
+        govdeler: dict[str, str] = {}
+        for m in re.finditer(
+            r'\$\("#([\w-]+)"\)\.addEventListener\("(?:click|submit|change)"', js
+        ):
+            kimlik = m.group(1)
+            # PARANTEZ sayilir, kume parantezi degil: `("change", () =>
+            # loadProjects())` gibi govdesiz bir isci hic `{` icermiyor ve
+            # kume sayan bir tarayici dosyanin SONUNA kadar yutuyordu --
+            # sonra o iscinin ustune butun uygulamanin yazma cagrilari
+            # yikiliyordu.
+            i = (m.start() + js[m.start():m.end()].index("addEventListener")
+                 + len("addEventListener"))
+            derinlik = 0
+            tirnak = ""
+            bas = i
+            while i < len(js):
+                k = js[i]
+                if tirnak:
+                    if k == "\\":
+                        i += 2
+                        continue
+                    if k == tirnak:
+                        tirnak = ""
+                elif k in "\"'`":
+                    tirnak = k
+                elif k == "(":
+                    derinlik += 1
+                elif k == ")":
+                    derinlik -= 1
+                    if derinlik == 0:
+                        break
+                i += 1
+            govdeler[kimlik] = js[bas:i]
+        return govdeler
+
+    def test_every_write_control_declares_the_role_the_server_requires(self):
+        from deerx.web.app import STATIC_DIR
+
+        js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+        html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        sunucu = self._sunucu_rolleri()
+        assert sunucu, "sunucuda hic rol korumali yol bulunamadi"
+
+        eksik: list[str] = []
+        yanlis: list[str] = []
+        for kimlik, govde in self._iscilik(js).items():
+            gerekenler = set()
+            # `post("/api/...")` -> POST
+            for m in re.finditer(r'post\(\s*[`"]([^`"]+)[`"]', govde):
+                gerekenler.add(("POST", self._sadelestir(m.group(1))))
+            # `api("/api/...", { method: "DELETE" })` -> o metot
+            for m in re.finditer(
+                r'api\(\s*[`"]([^`"]+)[`"][^;]*?method:\s*"(\w+)"', govde, re.S
+            ):
+                gerekenler.add((m.group(2), self._sadelestir(m.group(1))))
+
+            for anahtar in gerekenler:
+                rol = sunucu.get(anahtar)
+                if rol is None or rol == "viewer":
+                    # `viewer` korumasi "her uye yapabilir" demektir:
+                    # kapatilacak bir sey yok, isaret de gurultu olurdu.
+                    continue
+                m = re.search(
+                    r'id="' + re.escape(kimlik) + r'"[^>]*data-needs-role="(\w+)"', html
+                ) or re.search(
+                    r'data-needs-role="(\w+)"[^>]*id="' + re.escape(kimlik) + r'"', html
+                )
+                if m is None:
+                    eksik.append(f"#{kimlik} -> {anahtar[0]} {anahtar[1]} ({rol})")
+                elif m.group(1) != rol:
+                    yanlis.append(
+                        f"#{kimlik}: arayuz '{m.group(1)}' diyor, sunucu '{rol}'"
+                    )
+
+        assert not eksik, "data-needs-role yazilmamis yazma dugmeleri: " + "; ".join(eksik)
+        assert not yanlis, "sunucudan sapan rol beyani: " + "; ".join(yanlis)
+
+    def test_permissions_only_close_never_open(self):
+        """`syncRunState` dugmeleri kosu durumuna gore aciyor ve yetki
+        ondan SONRA kosuyor. `disabled = !izin` yazilsaydi suren bir
+        kosunun ortasinda "Baslat" geri acilirdi."""
+        from deerx.web.app import STATIC_DIR
+
+        js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+        govde = js.split("function applyPermissions(", 1)[1].split("\n}", 1)[0]
+        assert "if (!izin) {" in govde, "yetki kosulu kaybolmus"
+        assert "disabled = true" in govde, "hicbir sey kapatilmiyor"
+        # Yetki ACAMAZ: asagidaki bicimlerin her biri kapatilmis bir
+        # dugmeyi geri acar.
+        assert "disabled = !izin" not in govde
+        assert "disabled = izin" not in govde
+        assert "disabled = false" not in govde
+
+    def test_permissions_run_after_the_run_state(self):
+        """Sira hayati: once kosu durumu, sonra yetki."""
+        from deerx.web.app import STATIC_DIR
+
+        js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+        assert "  syncRunState(data.run);\n  applyPermissions();\n" in js
+
+
+class TestEverySettingLandsInOneScopeTab:
+    """Ayarlar UC kapsam sekmesine bolundu; hicbir alan aralarda kalmamali.
+
+    Bugune kadar tek "Kaydet" 38 alani BIRDEN gonderiyordu: dilini
+    degistiren alt kullanicinin govdesinde `sandbox_image` de gidiyor,
+    sunucu ilk platform alaninda 403 donuyor ve kisi HICBIR ayarini
+    kaydedemiyordu. Sekmeye dusen alan kumesi ile sunucudaki
+    `SettingField.scope` ayni sey olmali -- yoksa bir ayar yanlis
+    "Kaydet"in govdesine girer ve istegin tamamini dusurur.
+    """
+
+    @staticmethod
+    def _kapsamlar() -> dict[str, str]:
+        """`#set-*` kimligi -> icinde durdugu sekmenin kapsami."""
+        from html.parser import HTMLParser
+
+        from deerx.web.app import STATIC_DIR
+
+        class Gezgin(HTMLParser):
+            def __init__(self) -> None:
+                super().__init__()
+                self.yigin: list[str | None] = []
+                self.bulunan: dict[str, str] = {}
+
+            def handle_starttag(self, etiket, nitelikler):
+                n = dict(nitelikler)
+                kapsam = n.get("data-scope") if "settings-scope" in (
+                    n.get("class") or ""
+                ) else None
+                if etiket not in ("br", "img", "input", "meta", "link", "hr"):
+                    self.yigin.append(kapsam)
+                elif kapsam:  # pragma: no cover - kapsam bos etikette olmaz
+                    raise AssertionError(etiket)
+                acik = [k for k in self.yigin if k]
+                kimlik = n.get("id") or ""
+                if kimlik and acik:
+                    self.bulunan[kimlik] = acik[-1]
+
+            def handle_endtag(self, etiket):
+                if self.yigin:
+                    self.yigin.pop()
+
+        g = Gezgin()
+        g.feed((STATIC_DIR / "index.html").read_text(encoding="utf-8"))
+        return g.bulunan
+
+    def test_every_input_sits_in_the_tab_its_scope_names(self):
+        from deerx.web.app import SETTING_FIELDS, STATIC_DIR
+
+        js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+        # SETTING_INPUTS / SECRET_INPUTS: ("#set-x", "alan_adi", ...)
+        ciftler = re.findall(r'"#(set-[\w-]+)",\s*"(\w+)"', js)
+        assert len(ciftler) >= 30, f"alan listesi okunamadi ({len(ciftler)})"
+
+        yerler = self._kapsamlar()
+        sapan: list[str] = []
+        kayip: list[str] = []
+        for kimlik, ad in ciftler:
+            spec = SETTING_FIELDS.get(ad)
+            if spec is None:
+                continue
+            yer = yerler.get(kimlik)
+            if yer is None:
+                kayip.append(f"#{kimlik} ({ad})")
+            elif yer != spec.scope:
+                sapan.append(f"#{kimlik}: '{yer}' sekmesinde, kapsami '{spec.scope}'")
+
+        assert not kayip, "hicbir kapsam sekmesinde durmayan alan: " + ", ".join(kayip)
+        assert not sapan, "yanlis sekmedeki alan: " + "; ".join(sapan)
+
+    def test_each_tab_has_its_own_save_button(self):
+        """Uc sekme, uc Kaydet. Tek dugme kalirsa bolumleme kagit
+        uzerinde kalir: govde yine her seyi tasir."""
+        from deerx.web.app import STATIC_DIR
+
+        html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        yerler = self._kapsamlar()
+        for kapsam in ("proje", "hesap", "platform"):
+            assert f'data-scope="{kapsam}"' in html, f"{kapsam} sekmesi yok"
+            assert yerler.get(f"btn-save-{kapsam}") == kapsam, (
+                f"#btn-save-{kapsam} kendi sekmesinin icinde degil"
+            )
+        assert "btn-save-settings" not in html, "eski tek Kaydet duruyor"
+
+    def test_the_collector_asks_the_server_for_the_scope(self):
+        """Kapsam JS'e kopyalanmis olsaydi, alan tablosuna eklenen yeni
+        bir ayar hicbir sekmede gorunmeden gelirdi."""
+        from deerx.web.app import STATIC_DIR
+
+        js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+        assert "field_scopes" in js
+        assert "if (fieldScope(name) !== scope) continue;" in js
+        assert "if (node.disabled) continue;" in js, "kilitli alan yine gonderiliyor"
+
+    def test_the_overview_carries_both_field_lists(self, client):
+        s = client.get("/api/overview").json()["settings"]
+        from deerx.web.app import SETTING_FIELDS
+
+        assert set(s["platform_fields"]) == {
+            a for a, f in SETTING_FIELDS.items() if f.scope == "platform"
+        }
+        assert set(s["project_fields"]) == {
+            a for a, f in SETTING_FIELDS.items() if f.scope == "proje"
+        }
+        assert s["field_scopes"]["language"] == "hesap"
