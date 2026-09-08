@@ -87,6 +87,9 @@
       <span class="rail-icon">≋</span><span class="rail-text" data-i18n="nav.stream">Canlı akış</span>
       <span class="rail-live" id="rail-live" hidden></span>
     </button>
+    <button class="rail-item" data-view="projects" type="button" data-i18n-label="nav.projects" aria-label="Projeler">
+      <span class="rail-icon">▤</span><span class="rail-text" data-i18n="nav.projects">Projeler</span>
+    </button>
     <button class="rail-item" data-view="settings" type="button" data-i18n-label="nav.settings" aria-label="Ayarlar">
       <span class="rail-icon">⚙</span><span class="rail-text" data-i18n="nav.settings">Ayarlar</span>
     </button>
@@ -469,6 +472,41 @@
       </div>
       <div class="feed feed-full" id="feed"><p class="empty" data-i18n="stream.connecting"></p></div>
       <nav class="pager" id="stream-pager" data-i18n-label="pager.aria" aria-label="Sayfalama" hidden></nav>
+    </section>
+
+    <!-- Projeler -->
+    <section class="view" id="view-projects">
+      <div class="view-head">
+        <h1 data-i18n="projects.title">Projeler</h1>
+        <p class="view-sub" data-i18n="projects.sub">Her proje kendi dizini,
+          kendi belgeleri ve kendi planıdır.</p>
+      </div>
+
+      <section class="panel">
+        <header class="panel-head">
+          <h2 data-i18n="projects.register">Proje kaydet</h2>
+          <span class="panel-hint" data-i18n="projects.registerHint">Var olan bir
+            dizini projeye dönüştürür; dizine dokunmaz.</span>
+        </header>
+        <div class="panel-body">
+          <form class="inline-form" id="project-form">
+            <input type="text" id="project-path"
+                   data-i18n-placeholder="projects.pathPlaceholder">
+            <input type="text" id="project-name"
+                   data-i18n-placeholder="projects.namePlaceholder">
+            <button class="btn btn-primary" type="submit"
+                    data-i18n="projects.add">Kaydet</button>
+          </form>
+          <p class="note" id="project-note"></p>
+        </div>
+      </section>
+
+      <div id="project-list"></div>
+
+      <label class="check">
+        <input type="checkbox" id="project-show-archived">
+        <span data-i18n="projects.showArchived">Arşivlenenleri de göster</span>
+      </label>
     </section>
 
     <!-- Ayarlar -->

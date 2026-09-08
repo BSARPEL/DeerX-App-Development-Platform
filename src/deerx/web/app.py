@@ -46,6 +46,7 @@ from .auth import (
     User,
     migrate_from_project,
 )
+from .projects import Project, ProjectError, ProjectStore, role_at_least
 from .runner import (
     RunBusy,
     RunManager,
@@ -119,6 +120,12 @@ async def _body(request: Request) -> dict[str, Any]:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
         raise DeerXError(t("api.bad_json")) from None
+    except UnicodeDecodeError:
+        # OLCULDU: latin-1 kodlanmis bir govde (ornegin yanlis
+        # ayarlanmis bir istemci "modülü" gonderdiginde) 500 veriyordu.
+        # Bozuk bir istek sunucunun hatasi degil; 400 dogru cevap ve
+        # gorunen sey bir yigin izi degil, bir cumle olmali.
+        raise DeerXError(t("api.bad_encoding")) from None
     if not isinstance(parsed, dict):
         raise DeerXError(t("api.body_not_object"))
     return parsed
@@ -201,6 +208,32 @@ class AppState:
         migrate_from_project(settings.db_path, self.auth)
         self.auth.purge_expired()
 
+        # Proje kaydi hesaplarla ayni dosyada: "kim hangi projede ne
+        # yapabilir" sorusu ikisini birden okumadan cevaplanamaz.
+        self.projects = ProjectStore(settings.platform_db_path)
+        self.project = self._sunulan_projeyi_kaydet()
+
+    def _sunulan_projeyi_kaydet(self) -> Project:
+        """`serve --workspace X` ile acilan dizini proje olarak kaydeder.
+
+        Var olan HER kullanici bu projeye uye yazilir: hesap rolu `admin`
+        olanlar `owner`, otekiler `developer`. Boylece bugun calisan
+        hicbir yetki DARALMIYOR -- daralma yalnizca platform kapsamli
+        ayarlarda, ve o zaten ayri bir asamada kapatildi.
+        """
+        varolan = self.projects.by_path(self.settings.workspace)
+        if varolan is not None:
+            return varolan
+
+        uyeler = [
+            (u.id, "owner" if u.is_admin else "developer")
+            for u in self.auth.list_users()
+        ]
+        sahip = next((uid for uid, rol in uyeler if rol == "owner"), None)
+        return self.projects.create(
+            self.settings.workspace, owner_id=sahip, members=uyeler
+        )
+
     def close(self) -> None:
         # Once kosuyu durdur ve bitmesini bekle. Veritabani, arka plandaki
         # is parcacigi hala yazarken kapatilirsa SQLite serbest birakilmis
@@ -216,6 +249,7 @@ class AppState:
                 log.warning(t("api.run_not_stopping", seconds=SHUTDOWN_GRACE))
                 return
         self.auth.close()
+        self.projects.close()
         self.orchestrator.close()
 
 
@@ -448,6 +482,11 @@ def build_app(settings: Settings) -> Starlette:
         return _json(
             {
                 "workspace": str(settings.workspace),
+                # Aktif proje ve istegi yapanin ORADAKI rolu. Arayuz
+                # yapamayacagi eylemi kilitli cizsin diye rol de gidiyor:
+                # bir izleyiciye "Baslat" dugmesini gosterip sonra 403
+                # dondurmek, dugmeyi hic gostermemekten kotudur.
+                "project": {**state.project.to_dict(), "role": _project_role(request)},
                 "goal": orch.state.get_meta("goal", ""),
                 "brief": orch.state.get_meta("brief", ""),
                 "phases": phases,
@@ -762,6 +801,9 @@ def build_app(settings: Settings) -> Starlette:
         return _json({"plans": project.list_plans(), "active": active})
 
     async def create_plan(request: Request) -> Response:
+        denied = _require_role(request, "developer")
+        if denied is not None:
+            return denied
         try:
             body = await _body(request)
         except DeerXError as exc:
@@ -776,6 +818,9 @@ def build_app(settings: Settings) -> Starlette:
         return _json({"ok": True, "plan": plan})
 
     async def update_plan(request: Request) -> Response:
+        denied = _require_role(request, "developer")
+        if denied is not None:
+            return denied
         try:
             body = await _body(request)
         except DeerXError as exc:
@@ -799,6 +844,9 @@ def build_app(settings: Settings) -> Starlette:
         return _json({"ok": True, "plan": updated, "active": project.active_plan_id()})
 
     async def delete_plan(request: Request) -> Response:
+        denied = _require_role(request, "developer")
+        if denied is not None:
+            return denied
         project = state.orchestrator.state
         plan_id = request.path_params["plan_id"]
         if project.get_plan(plan_id) is None:
@@ -912,6 +960,13 @@ def build_app(settings: Settings) -> Starlette:
         except AuthError as exc:
             return _error(str(exc), 403)
 
+        # Ilk yonetici, o ana kadar kaydedilmis projelerin sahibi olur.
+        # Sunucu hesap acilmadan once basladiysa proje UYESIZ kaydedilir;
+        # yonetici platform rolu sayesinde yine erisir ama uyelik satiri
+        # olmadan uye listesi bos gorunur ve rolunu kimseye devredemez.
+        for proje in state.projects.all_projects(include_archived=True):
+            state.projects.set_member(proje.id, user.id, "owner")
+
         token = state.auth.open_session(user, request.headers.get("user-agent", ""))
         log.info("Kurulum tamamlandi; yonetici: %s", user.username)
         _audit(request, "setup", actor=user, detail=user.username)
@@ -976,6 +1031,53 @@ def build_app(settings: Settings) -> Starlette:
     # ---------------------------------------------------------------- #
     # Kullanici yonetimi (yalnizca yonetici)
     # ---------------------------------------------------------------- #
+    def _sahipsizi_sahiplen(proje: Project, user: User) -> str:
+        """SAHIPSIZ PROJEYI ACAN YONETICI SAHIPLENIR; rolunu doner.
+
+        Proje, sunucu acilirken kaydediliyor. Hesaplar sonradan
+        olusturulduysa -- web kurulumundan ya da `deerx user add --admin`
+        ile -- kimse uye yazilmamis olur. Yonetici platform rolu
+        sayesinde zaten erisir, ama uyelik satiri olmadan uye listesi BOS
+        gorunur ve rolunu kimseye devredemez: bir projeyi baskasina
+        acmanin yolu uye eklemek, ve eklemek icin once orada olmak
+        gerekiyor.
+
+        Islem idempotent ve yalnizca gercekten sahipsiz projede calisir.
+        """
+        rol = state.projects.role_of(proje.id, user.id)
+        if rol:
+            return rol
+        if any(m["role"] == "owner" for m in state.projects.members(proje.id)):
+            return ""
+        state.projects.set_member(proje.id, user.id, "owner")
+        return "owner"
+
+    def _project_role(request: Request) -> str:
+        """Istegi yapanin AKTIF projedeki rolu.
+
+        Kimlik dogrulama hic kurulmamissa yerel kurulum tek kisiliktir
+        ve o kisi sahiptir. Platform yoneticisi uyeligi olmasa da
+        sahiptir: yoksa sahibi ayrilmis bir proje kimsenin ulasamadigi
+        bir dizine donusurdu.
+        """
+        if not state.auth.is_configured:
+            return "owner"
+        user = getattr(request.state, "user", None)
+        if user is None:
+            return ""
+        if user.is_admin:
+            return _sahipsizi_sahiplen(state.project, user) or "owner"
+        return state.projects.role_of(state.project.id, user.id)
+
+    def _require_role(request: Request, needed: str) -> Response | None:
+        """Proje islemleri icin en az `needed` rolu ister."""
+        rol = _project_role(request)
+        if not rol:
+            return _error(t("project.not_member"), 403)
+        if not role_at_least(rol, needed):
+            return _error(t("project.needs_role", role=needed), 403)
+        return None
+
     def _is_admin(request: Request) -> bool:
         """Kimlik dogrulama hic kurulmamissa yerel kurulum tek kisiliktir
         ve o kisi her seyi yapabilir; kurulmussa rol karar verir."""
@@ -989,6 +1091,177 @@ def build_app(settings: Settings) -> Starlette:
         if user is None or not user.is_admin:
             return _error(t("api.admin_only"), 403)
         return None
+
+    # ---------------------------------------------------------------- #
+    # Projeler
+    # ---------------------------------------------------------------- #
+    def _proje_veya_hata(request: Request) -> tuple[Project | None, Response | None]:
+        try:
+            pid = int(request.path_params["project_id"])
+        except (KeyError, TypeError, ValueError):
+            return None, _error(t("project.unknown", id="?"), 404)
+        proje = state.projects.get(pid)
+        if proje is None:
+            return None, _error(t("project.unknown", id=pid), 404)
+        return proje, None
+
+    def _proje_yonetebilir(request: Request, proje: Project) -> bool:
+        """Adi, arsivi ve uyeleri kim degistirebilir.
+
+        Proje SAHIBI ya da platform yoneticisi. Gelistirici projede
+        calisir ama kimin girecegine karar vermez.
+        """
+        if not state.auth.is_configured:
+            return True
+        user = getattr(request.state, "user", None)
+        if user is None:
+            return False
+        if user.is_admin:
+            _sahipsizi_sahiplen(proje, user)
+            return True
+        return state.projects.role_of(proje.id, user.id) == "owner"
+
+    async def projects_list(request: Request) -> Response:
+        user = getattr(request.state, "user", None)
+        arsiv = request.query_params.get("archived") == "1"
+        if not state.auth.is_configured:
+            projeler = state.projects.all_projects(include_archived=arsiv)
+            projeler = [
+                Project(
+                    id=x.id, slug=x.slug, name=x.name, path=x.path,
+                    owner_id=x.owner_id, created_at=x.created_at,
+                    archived=x.archived, role="owner",
+                )
+                for x in projeler
+            ]
+        else:
+            projeler = state.projects.for_user(
+                user.id, is_admin=user.is_admin, include_archived=arsiv
+            )
+        return _json({
+            "projects": [x.to_dict() for x in projeler],
+            "active": state.project.to_dict(),
+        })
+
+    async def projects_create(request: Request) -> Response:
+        try:
+            body = await _body(request)
+        except DeerXError as exc:
+            return _error(str(exc))
+
+        ham = str(body.get("path", "")).strip()
+        if not ham:
+            return _error(t("api.path_required"))
+        try:
+            # Proje dizini calisma alaninin ICINDE olmak zorunda DEGIL --
+            # projeler kardestir, ic ice degil. Ama yine de mutlak bir
+            # yola cozulur ki kayit belirsiz kalmasin.
+            yol = Path(ham).expanduser().resolve()
+        except OSError as exc:
+            return _error(str(exc))
+
+        user = getattr(request.state, "user", None)
+        try:
+            proje = state.projects.create(
+                yol, name=str(body.get("name", "")).strip(),
+                owner_id=user.id if user else None,
+            )
+        except ProjectError as exc:
+            return _error(str(exc))
+
+        _audit(request, "project.create", detail=proje.name)
+        return _json({"ok": True, "project": proje.to_dict()})
+
+    async def projects_update(request: Request) -> Response:
+        proje, hata = _proje_veya_hata(request)
+        if hata is not None:
+            return hata
+        assert proje is not None
+        if not _proje_yonetebilir(request, proje):
+            return _error(t("project.needs_role", role="owner"), 403)
+        try:
+            body = await _body(request)
+        except DeerXError as exc:
+            return _error(str(exc))
+
+        try:
+            if "name" in body:
+                proje = state.projects.rename(proje.id, str(body["name"]))
+                _audit(request, "project.rename", detail=proje.name)
+            if "archived" in body:
+                proje = state.projects.set_archived(proje.id, bool(body["archived"]))
+                _audit(
+                    request,
+                    "project.archive" if proje.archived else "project.unarchive",
+                    detail=proje.name,
+                )
+        except ProjectError as exc:
+            return _error(str(exc))
+        return _json({"ok": True, "project": proje.to_dict()})
+
+    async def project_members(request: Request) -> Response:
+        proje, hata = _proje_veya_hata(request)
+        if hata is not None:
+            return hata
+        assert proje is not None
+        if not _proje_yonetebilir(request, proje):
+            return _error(t("project.needs_role", role="owner"), 403)
+
+        kisiler = {u.id: u for u in state.auth.list_users()}
+        satirlar = []
+        for m in state.projects.members(proje.id):
+            kisi = kisiler.get(m["user_id"])
+            satirlar.append({
+                "user_id": m["user_id"],
+                "username": kisi.username if kisi else "",
+                "display_name": kisi.display_name if kisi else "",
+                "role": m["role"],
+            })
+        return _json({"members": satirlar})
+
+    async def project_member_set(request: Request) -> Response:
+        proje, hata = _proje_veya_hata(request)
+        if hata is not None:
+            return hata
+        assert proje is not None
+        if not _proje_yonetebilir(request, proje):
+            return _error(t("project.needs_role", role="owner"), 403)
+        try:
+            body = await _body(request)
+        except DeerXError as exc:
+            return _error(str(exc))
+
+        try:
+            uid = int(body.get("user_id", 0))
+        except (TypeError, ValueError):
+            return _error(t("api.user_required"))
+        if state.auth.get_user(uid) is None:
+            return _error(t("api.unknown_user"), 404)
+
+        try:
+            state.projects.set_member(proje.id, uid, str(body.get("role", "developer")))
+        except ProjectError as exc:
+            return _error(str(exc))
+        _audit(request, "project.member", detail=f"{proje.name}: {uid}")
+        return _json({"ok": True})
+
+    async def project_member_delete(request: Request) -> Response:
+        proje, hata = _proje_veya_hata(request)
+        if hata is not None:
+            return hata
+        assert proje is not None
+        if not _proje_yonetebilir(request, proje):
+            return _error(t("project.needs_role", role="owner"), 403)
+        try:
+            uid = int(request.path_params["user_id"])
+        except (KeyError, TypeError, ValueError):
+            return _error(t("api.user_required"))
+        try:
+            state.projects.remove_member(proje.id, uid)
+        except ProjectError as exc:
+            return _error(str(exc))
+        _audit(request, "project.member_remove", detail=f"{proje.name}: {uid}")
+        return _json({"ok": True})
 
     async def users_list(request: Request) -> Response:
         denied = _require_admin(request)
@@ -1136,6 +1409,9 @@ def build_app(settings: Settings) -> Starlette:
         return _json({"ok": True})
 
     async def update_task(request: Request) -> Response:
+        denied = _require_role(request, "developer")
+        if denied is not None:
+            return denied
         key = request.path_params["key"].upper()
         try:
             body = await _body(request)
@@ -1202,6 +1478,9 @@ def build_app(settings: Settings) -> Starlette:
         return _json({"query": query, "hits": hits})
 
     async def ingest(request: Request) -> Response:
+        denied = _require_role(request, "developer")
+        if denied is not None:
+            return denied
         try:
             body = await _body(request)
         except DeerXError as exc:
@@ -1234,6 +1513,9 @@ def build_app(settings: Settings) -> Starlette:
         return _json(outcome, status=200 if outcome["ok"] else 400)
 
     async def forget_document(request: Request) -> Response:
+        denied = _require_role(request, "developer")
+        if denied is not None:
+            return denied
         try:
             body = await _body(request)
         except DeerXError as exc:
@@ -1284,6 +1566,9 @@ def build_app(settings: Settings) -> Starlette:
         Multipart yerine bu yol secildi: `python-multipart` bagimliligi eklemeden
         tarayicidan `fetch(url, {body: file})` ile dogrudan gonderilebiliyor.
         """
+        denied = _require_role(request, "developer")
+        if denied is not None:
+            return denied
         if state.runner.is_running:
             return _error(t("api.upload_locked"), 409)
 
@@ -1389,6 +1674,9 @@ def build_app(settings: Settings) -> Starlette:
         )
 
     async def package_build(request: Request) -> Response:
+        denied = _require_role(request, "developer")
+        if denied is not None:
+            return denied
         try:
             body = await _body(request)
         except DeerXError as exc:
@@ -1796,6 +2084,9 @@ def build_app(settings: Settings) -> Starlette:
         Govde bos gelebilir; o zaman ilk sorunlu adim secilir. `phase`
         verilirse oradan baslanir, basarili bir adim olsa bile.
         """
+        denied = _require_role(request, "developer")
+        if denied is not None:
+            return denied
         raw_id = request.path_params["run_id"]
         project = state.orchestrator.state
         run_id = _resolve_id(raw_id, project.get_run, project.get_run_by_seq)
@@ -1847,6 +2138,9 @@ def build_app(settings: Settings) -> Starlette:
         return _json({"ok": True, "run": info.to_dict(), "from": str(baslangic)})
 
     async def run_start(request: Request) -> Response:
+        denied = _require_role(request, "developer")
+        if denied is not None:
+            return denied
         try:
             body = await _body(request)
         except DeerXError as exc:
@@ -1949,6 +2243,9 @@ def build_app(settings: Settings) -> Starlette:
         return _json({"ok": True, "run": info.to_dict()})
 
     async def run_stop(request: Request) -> Response:
+        denied = _require_role(request, "developer")
+        if denied is not None:
+            return denied
         stopped = state.runner.stop()
         # Durdurulacak bir sey yoksa satir da yok: bos bir "durdur" istegi
         # gunlugu doldurur ve hicbir sey anlatmaz.
@@ -1963,6 +2260,9 @@ def build_app(settings: Settings) -> Starlette:
         return _json({"items": state.runner.pending_approvals()})
 
     async def resolve_approval(request: Request) -> Response:
+        denied = _require_role(request, "developer")
+        if denied is not None:
+            return denied
         try:
             body = await _body(request)
         except DeerXError as exc:
@@ -2042,6 +2342,14 @@ def build_app(settings: Settings) -> Starlette:
         Route("/api/auth/login", auth_login, methods=["POST"]),
         Route("/api/auth/logout", auth_logout, methods=["POST"]),
         Route("/api/auth/password", auth_password, methods=["POST"]),
+        Route("/api/projects", projects_list),
+        Route("/api/projects", projects_create, methods=["POST"]),
+        Route("/api/projects/{project_id}", projects_update, methods=["POST"]),
+        Route("/api/projects/{project_id}/members", project_members),
+        Route("/api/projects/{project_id}/members", project_member_set,
+              methods=["POST"]),
+        Route("/api/projects/{project_id}/members/{user_id}",
+              project_member_delete, methods=["DELETE"]),
         Route("/api/users", users_list),
         Route("/api/users", users_create, methods=["POST"]),
         Route("/api/users/{user_id}", users_update, methods=["POST"]),

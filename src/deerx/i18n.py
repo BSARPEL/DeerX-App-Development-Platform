@@ -1599,6 +1599,10 @@ CATALOG: dict[str, dict[str, str]] = {
 
     # -- Web: istek ve ayarlar -------------------------------------------- #
     "api.bad_json": {"tr": "Gecersiz JSON govdesi.", "en": "Invalid JSON body."},
+    "api.bad_encoding": {
+        "tr": "Istek govdesi UTF-8 degil.",
+        "en": "The request body is not UTF-8.",
+    },
     "api.body_not_object": {
         "tr": "Istek govdesi bir nesne olmali.",
         "en": "The request body must be an object.",
@@ -2206,6 +2210,46 @@ CATALOG: dict[str, dict[str, str]] = {
     "api.doc_activated": {
         "tr": "yeniden etkinlestirildi: {source}",
         "en": "reactivated: {source}",
+    },
+    "api.path_required": {
+        "tr": "Bir dizin yolu verin.",
+        "en": "Give a directory path.",
+    },
+    "api.user_required": {
+        "tr": "Bir kullanici secin.",
+        "en": "Choose a user.",
+    },
+    "project.path_taken": {
+        "tr": "Bu dizin zaten bir proje: {path}",
+        "en": "This directory is already a project: {path}",
+    },
+    "project.name_required": {
+        "tr": "Projeye bir ad verin.",
+        "en": "Give the project a name.",
+    },
+    "project.unknown": {
+        "tr": "Proje bulunamadi: {id}",
+        "en": "Project not found: {id}",
+    },
+    "project.bad_role": {
+        "tr": "Bilinmeyen proje rolu: {role}",
+        "en": "Unknown project role: {role}",
+    },
+    "project.last_owner": {
+        "tr": "Son sahip cikarilamaz; once baska birini sahip yapin.",
+        "en": "The last owner cannot be removed; make someone else an owner first.",
+    },
+    "project.created": {
+        "tr": "proje kaydedildi: {name} ({path})",
+        "en": "project registered: {name} ({path})",
+    },
+    "project.not_member": {
+        "tr": "Bu projeye erisiminiz yok.",
+        "en": "You do not have access to this project.",
+    },
+    "project.needs_role": {
+        "tr": "Bu islem icin en az '{role}' rolu gerekiyor.",
+        "en": "This action needs at least the '{role}' role.",
     },
     "auth.migrated": {
         "tr": "{n} hesap platform veritabanina tasindi; acik oturumlar korundu.",

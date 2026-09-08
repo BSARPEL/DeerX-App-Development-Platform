@@ -319,6 +319,42 @@ the browser with its preview, and the run thread blocks until you answer.
 That blocking is real, not cosmetic: a test verifies the run thread is actually
 held and released by the answer.
 
+## Projects
+
+A **project is a registered directory**. Its identity is a row in the platform
+database; its data stays in its own file, `<project>/.deerx/deerx.db`. The path
+is a property of the row, not the project itself.
+
+The alternative — one central database with a `project_id` on every table — was
+rejected for three measured reasons. It would force the `UNIQUE` constraints on
+`requirements.key`, `tasks.key`, `artifacts.name`, `documents.source` and
+`phase_state(phase)` into composites, which in SQLite means recreating five
+tables and copying data: the repository's first migration that moves data and
+corrupts a project if interrupted. The test fixtures assume one `ProjectState`
+and one `KnowledgeBase`, and under the directory model that signature never
+changes. And the agent's environment is *already* a directory — the sandbox
+mounts it, services run in it, file tools are confined to it — so merging the
+data would leave two different isolation axes.
+
+Authorization has **two layers**, and mixing them is the mistake to avoid:
+
+| Layer | Roles | Governs |
+|---|---|---|
+| Account | `admin`, `user` | Platform matters: credentials, isolation, who may create accounts |
+| Project | `owner`, `developer`, `viewer` | Work inside one project |
+
+A platform administrator reaches every project — otherwise a project whose owner
+left would become a directory nobody can open. A project owner cannot touch
+platform settings. A `viewer` reads; a `developer` runs; only an `owner` hands
+out membership.
+
+Registering a project does not create or touch the directory: the record is a
+label placed on something that already exists. The same directory cannot be
+registered twice — two rows pointing at one directory would mean two projects
+sharing a database, each seeing the other's tasks. Archiving hides a project
+without deleting it; deleting one would delete the history of everything done
+in it.
+
 ## Users and authentication
 
 Authentication is active **as soon as one user exists**. A local install with no

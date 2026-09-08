@@ -123,6 +123,20 @@ class TestKnowledge:
         )
         assert response.status_code == 400
 
+    def test_a_non_utf8_body_is_a_bad_request_not_a_crash(self, client):
+        """OLCULDU: latin-1 kodlanmis bir govde 500 veriyordu.
+
+        Bozuk bir istek sunucunun hatasi degil. Kullanicinin gordugu sey
+        bir yigin izi degil, bir cumle olmali -- ve 500, izleme
+        araclarinda gercek arizalarla ayni kovaya duser.
+        """
+        cevap = client.post(
+            "/api/search",
+            content='{"query": "modül"}'.encode("latin-1"),
+            headers={"Content-Type": "application/json"},
+        )
+        assert cevap.status_code == 400
+
     def test_deactivating_is_the_default_and_is_reversible(self, client):
         """Varsayilan islem PASIFLESTIRME, silme degil.
 

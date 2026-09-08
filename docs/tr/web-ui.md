@@ -316,6 +316,40 @@ Dört kural:
 Bu bloke etme gerçek, göstermelik değil: bir test koşu iş parçacığının
 gerçekten tutulduğunu ve cevapla serbest bırakıldığını doğruluyor.
 
+## Projeler
+
+Bir **proje, kayıtlı bir dizindir**. Kimliği platform veritabanında bir satır,
+verisi kendi dosyasında: `<proje>/.deerx/deerx.db`. Yol, projenin kendisi değil,
+satırın bir özelliğidir.
+
+Alternatif — her şeyi tek merkezi veritabanında toplayıp bütün tablolara
+`project_id` eklemek — üç ölçülmüş nedenle reddedildi. `requirements.key`,
+`tasks.key`, `artifacts.name`, `documents.source` ve `phase_state(phase)`
+üzerindeki `UNIQUE` kısıtlarını bileşiğe çıkarmak gerekirdi; SQLite'ta bu, beş
+tabloyu yeniden yaratıp veri kopyalamak demek: deponun ilk kez **veri taşıyan**,
+yarıda kesilirse projeyi bozan göçü. Test fikstürleri tek `ProjectState` ve tek
+`KnowledgeBase` varsayıyor ve dizin modelinde o imza hiç değişmiyor. Ajanın
+ortamı da **zaten** bir dizin — kabin onu bağlıyor, servisler orada koşuyor,
+dosya araçları oraya hapsolmuş — yani veriyi birleştirmek iki ayrı izolasyon
+ekseni bırakırdı.
+
+Yetki **iki katmanlıdır** ve karıştırılmamalı:
+
+| Katman | Roller | Neyi yönetir |
+|---|---|---|
+| Hesap | `admin`, `user` | Platform işleri: kimlik bilgileri, yalıtım, kim hesap açabilir |
+| Proje | `owner`, `developer`, `viewer` | Tek bir projedeki işler |
+
+Platform yöneticisi her projeye erişir — yoksa sahibi ayrılmış bir proje
+kimsenin açamadığı bir dizine dönüşürdü. Proje sahibi platform ayarlarına
+dokunamaz. `viewer` okur, `developer` koşturur, üyeliği yalnızca `owner` verir.
+
+Proje kaydetmek dizini oluşturmaz ve içine dokunmaz: kayıt, var olan bir şeyin
+üzerine konan bir etikettir. Aynı dizin ikinci kez kaydedilemez — iki satır tek
+bir dizini gösterirse iki proje aynı veritabanını paylaşır ve biri ötekinin
+görevlerini görür. Arşivlemek silmeden gizler; silmek, o projede yapılmış her
+şeyin geçmişini de silmek olurdu.
+
 ## Kullanıcılar ve kimlik doğrulama
 
 Kimlik doğrulama **bir kullanıcı var olduğu anda** devreye girer. Kullanıcısız

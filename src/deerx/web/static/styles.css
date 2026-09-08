@@ -2901,3 +2901,32 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 .doc-row-actions { display: flex; gap: 8px; justify-content: flex-end; }
 tr[data-inactive="1"] .doc-row-title,
 tr[data-inactive="1"] .doc-row-source { opacity: .6; }
+
+/* ─── Projeler ─────────────────────────────────────────────────────────── */
+/* Uygulamanın en üst düzey nesnesi bir proje ama arayüzde hiçbir yerde
+   nesne değildi: sol alt köşede yalnızca klasör adı yazıyordu ve o da
+   salt okunurdu. */
+
+.project-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.project-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+.project-path {
+  font-family: var(--mono); font-size: 12px; color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+
+/* Arşivlenen proje listede GÖRÜNÜR ama geri çekilir: silinmediğini
+   göstermek, arşivlemeyi geri alınabilir kılan şeyin yarısı. */
+.project-card[data-archived="1"] { opacity: .65; }
+
+.project-members { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+.project-members-title {
+  margin-bottom: 8px;
+  font-size: 11px; font-weight: 600; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: var(--track-caps);
+}
+
+.member-list { display: flex; flex-direction: column; gap: 8px; list-style: none; }
+.member { display: flex; align-items: center; gap: 12px; }
+.member-name { flex: 1; min-width: 0; font-size: 13px; }
+.member select { width: auto; min-width: 140px; }

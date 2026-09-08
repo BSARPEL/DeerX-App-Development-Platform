@@ -211,7 +211,7 @@ async function changeLanguage(lang) {
 
 // ─── Yonlendirme ──────────────────────────────────────────────────────────
 const VIEWS = ["overview", "develop", "workflow", "knowledge", "analysis",
-               "plan", "artifacts", "stream", "settings"];
+               "plan", "artifacts", "stream", "projects", "settings"];
 
 function showView(name) {
   if (!VIEWS.includes(name)) name = "overview";
@@ -227,6 +227,7 @@ function showView(name) {
   if (name === "plan")      { loadPlans(); loadTasks(); }
   if (name === "artifacts") { loadArtifacts(); loadDelivery(); }
   if (name === "stream")    renderFeed();
+  if (name === "projects")  loadProjects();
   // Form `state.overview.settings`ten dolar, ama bu sekme genel durumu HIC
   // yuklemiyordu. Yoklama henuz gelmediyse `renderSettings` sessizce cikip
   // formu bos birakiyor ve bir daha denemiyordu -- yorumunun soyledigi gibi
@@ -934,6 +935,135 @@ function initDocPicker() {
     state.docPickFilter = event.target.value.trim();
     renderUploadedDocs(state.docItems || []);
   });
+}
+
+// ─── Projeler ─────────────────────────────────────────────────────────────
+// Uygulamanin en ust duzey nesnesi bir proje ama arayuzde hicbir yerde
+// nesne degildi: sol alt kosede yalnizca klasor adi yaziyordu.
+
+function renderProjects(data) {
+  const hedef = $("#project-list");
+  const aktif = data.active || {};
+  if (!data.projects.length) {
+    hedef.innerHTML = emptyState(t("projects.none"), t("projects.noneHint"));
+    return;
+  }
+
+  hedef.innerHTML = data.projects.map((p) => `
+    <section class="panel project-card" data-archived="${p.archived ? 1 : 0}">
+      <header class="panel-head">
+        <div class="project-head">
+          <h2>${esc(p.name)}</h2>
+          <span class="badge" data-v="${esc(p.role)}">${esc(tv("projectRole", p.role))}</span>
+          ${p.id === aktif.id ? `<span class="badge" data-v="ready">${esc(t("projects.active"))}</span>` : ""}
+          ${p.archived ? `<span class="badge">${esc(t("projects.archived"))}</span>` : ""}
+        </div>
+        <div class="project-actions">
+          ${p.role === "owner" ? `
+            <button class="btn btn-ghost btn-sm" data-rename="${p.id}"
+                    data-name="${esc(p.name)}">${esc(t("app.rename"))}</button>
+            <button class="btn btn-ghost btn-sm" data-archive="${p.id}"
+                    data-next="${p.archived ? 0 : 1}">${
+              esc(t(p.archived ? "projects.unarchive" : "projects.archive"))
+            }</button>` : ""}
+        </div>
+      </header>
+      <div class="panel-body">
+        <p class="project-path">${esc(p.path)}</p>
+        ${p.role === "owner" ? `<div class="project-members" id="members-${p.id}"></div>` : ""}
+      </div>
+    </section>`).join("");
+
+  $$("[data-rename]", hedef).forEach((b) => b.addEventListener("click", async () => {
+    const ad = prompt(t("projects.renamePrompt"), b.dataset.name);
+    if (!ad) return;
+    try {
+      await post(`/api/projects/${b.dataset.rename}`, { name: ad });
+      loadProjects();
+      loadOverview();
+    } catch (error) { toast(error.message, "err"); }
+  }));
+
+  $$("[data-archive]", hedef).forEach((b) => b.addEventListener("click", async () => {
+    try {
+      await post(`/api/projects/${b.dataset.archive}`, {
+        archived: b.dataset.next === "1",
+      });
+      loadProjects();
+    } catch (error) { toast(error.message, "err"); }
+  }));
+
+  data.projects.filter((p) => p.role === "owner").forEach(loadMembers);
+}
+
+async function loadMembers(project) {
+  const hedef = $(`#members-${project.id}`);
+  if (!hedef) return;
+  try {
+    const data = await api(`/api/projects/${project.id}/members`);
+    hedef.innerHTML = `
+      <h3 class="project-members-title">${esc(t("projects.members"))}</h3>
+      <ul class="member-list">${data.members.map((m) => `
+        <li class="member">
+          <span class="member-name">${esc(m.display_name || m.username)}</span>
+          <select data-member="${m.user_id}" data-project="${project.id}">
+            ${["viewer", "developer", "owner"].map((r) => `
+              <option value="${r}" ${r === m.role ? "selected" : ""}>${esc(tv("projectRole", r))}</option>`).join("")}
+          </select>
+          <button class="btn btn-ghost btn-sm" data-drop="${m.user_id}"
+                  data-project="${project.id}">${esc(t("app.delete"))}</button>
+        </li>`).join("")}</ul>`;
+
+    $$("[data-member]", hedef).forEach((sec) => sec.addEventListener("change", async () => {
+      try {
+        await post(`/api/projects/${sec.dataset.project}/members`, {
+          user_id: Number(sec.dataset.member), role: sec.value,
+        });
+        toast(t("projects.roleChanged"), "ok");
+      } catch (error) { toast(error.message, "err"); loadProjects(); }
+    }));
+
+    $$("[data-drop]", hedef).forEach((b) => b.addEventListener("click", async () => {
+      try {
+        await api(`/api/projects/${b.dataset.project}/members/${b.dataset.drop}`,
+                  { method: "DELETE" });
+        loadProjects();
+      } catch (error) { toast(error.message, "err"); }
+    }));
+  } catch (error) {
+    hedef.innerHTML = emptyState(t("app.failed"), error.message);
+  }
+}
+
+async function loadProjects() {
+  const arsiv = $("#project-show-archived").checked ? "?archived=1" : "";
+  try {
+    renderProjects(await api(`/api/projects${arsiv}`));
+  } catch (error) {
+    $("#project-list").innerHTML = emptyState(t("app.failed"), error.message);
+  }
+}
+
+function initProjects() {
+  $("#project-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const not = $("#project-note");
+    not.dataset.tone = "";
+    try {
+      await post("/api/projects", {
+        path: $("#project-path").value.trim(),
+        name: $("#project-name").value.trim(),
+      });
+      $("#project-path").value = "";
+      $("#project-name").value = "";
+      not.textContent = "";
+      loadProjects();
+    } catch (error) {
+      not.dataset.tone = "err";
+      not.textContent = error.message;
+    }
+  });
+  $("#project-show-archived").addEventListener("change", loadProjects);
 }
 
 function initKnowledge() {
@@ -3376,6 +3506,7 @@ async function init() {
 function boot() {
   initRouting();
   initRunControls();
+  initProjects();
   initDocPicker();
   initKnowledge();
   initAnalysis();
