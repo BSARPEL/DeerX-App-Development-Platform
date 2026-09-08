@@ -277,6 +277,12 @@ class Settings(BaseSettings):
     # Yayinlanan port araligi. Docker portlari konteyner kurulurken ayirir,
     # sonradan eklenemez; bu yuzden aralik onceden acilir ve ajanin
     # servisleri buradan secmesi istenir.
+    # Ayni anda kac gorev kosabilir. VARSAYILAN 1: paralellik acikca
+    # acilan bir ayar. Bagimsiz gorevler paralel kostugunda kosu suresi
+    # belirgin duser, ama paylasilan kaynaklarda (tarayici, servis adlari,
+    # kabin) yarisa girme riski dogar; o riskler seriye alinarak
+    # kapatildi ama gercek modele karsi henuz olculmedi.
+    max_parallel_tasks: int = 1
     sandbox_port_base: int = 8100
     sandbox_port_count: int = 10
     # Kacak bir ajan konagi yormasin. Sinirsiz birakilirsa bir fork bombasi
@@ -469,6 +475,62 @@ def _read_toml(path: Path) -> dict[str, Any]:
             return tomllib.load(fh)
     except tomllib.TOMLDecodeError as exc:  # pragma: no cover - kullanici hatasi
         raise ConfigError(t("setup.toml_unreadable", path=path, error=exc)) from exc
+
+
+def _toml_deger(deger: Any) -> str:
+    """Tek bir degeri TOML sozdizimine cevirir.
+
+    `tomllib` YALNIZCA OKUR; standart kutuphanede yazici yok. Ayarlarin
+    kalici olmasi icin ya bir bagimlilik eklenecekti ya da kucuk bir
+    yazici. Burada tutulan sey duz bir skaler tablosu -- dize, sayi,
+    mantiksal ve dize listesi -- ve bu kume icin yazici birkac satir.
+    Bir bagimlilik, tasidigi yuk kadar is yapmali.
+    """
+    if isinstance(deger, bool):
+        return "true" if deger else "false"
+    if isinstance(deger, (int, float)):
+        return repr(deger)
+    if isinstance(deger, (list, tuple)):
+        return "[" + ", ".join(_toml_deger(x) for x in deger) + "]"
+    # TOML temel dizesi: ters bolu ve tirnak kacilir, satir sonu kacilir.
+    # Windows yollari ters boluyle geliyor ve kacilmazsa dosya bir daha
+    # ayristirilamaz.
+    kacik = (
+        str(deger)
+        .replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+    )
+    return '"' + kacik + '"'
+
+
+def dump_toml(tablo: dict[str, Any], *, baslik: str = "deerx") -> str:
+    """Duz bir sozlugu tek tabloluk bir TOML metnine cevirir."""
+    satirlar = ["[" + baslik + "]"]
+    for ad in sorted(tablo):
+        satirlar.append(f"{ad} = {_toml_deger(tablo[ad])}")
+    return "\n".join(satirlar) + "\n"
+
+
+def save_settings(
+    path: Path, degerler: dict[str, Any], *, baslik: str = "deerx"
+) -> None:
+    """Ayarlari dosyaya yazar; DOSYADAKI OTEKI ANAHTARLARI KORUR.
+
+    Elle yazilmis bir `deerx.toml`u ustune yazmak, kullanicinin arayuzde
+    hic dokunmadigi bir ayari sessizce silmek olurdu. Once okunur, sonra
+    yalnizca verilen anahtarlar guncellenir.
+
+    Yazma ATOMIK: once gecici dosyaya, sonra yerine tasinir. Yarida
+    kesilen bir yazma, ayristirilamayan bir yapilandirma dosyasi birakir
+    ve sunucu bir daha acilmazdi.
+    """
+    mevcut = _read_toml(path).get(baslik, {})
+    birlesik = {**mevcut, **degerler}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    gecici = path.with_name(path.name + ".yeni")
+    gecici.write_text(dump_toml(birlesik, baslik=baslik), encoding="utf-8", newline="\n")
+    gecici.replace(path)
 
 
 def migrate_legacy_workspace(workspace: Path) -> bool:

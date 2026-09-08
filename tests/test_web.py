@@ -176,6 +176,66 @@ class TestKnowledge:
         ).status_code == 400
 
 
+class TestSettingsSurviveARestart:
+    """OLCULDU: depoda toml YAZAN tek satir yoktu.
+
+    `tomllib` salt okur. Ayarlar ekranindan yapilan her degisiklik
+    yalnizca bellekte kaliyordu ve sunucu yeniden basladiginda sessizce
+    eski degerine donuyordu -- kullanici modeli degistirip birakiyor,
+    ertesi gun eski modelle kosuyordu.
+    """
+
+    def test_a_project_setting_is_written_to_the_workspace(self, client, settings):
+        assert client.post(
+            "/api/settings", json={"model_lead": "yeni-model"}
+        ).status_code == 200
+
+        dosya = settings.workspace / "deerx.toml"
+        assert dosya.is_file(), "ayar dosyaya yazilmadi"
+        assert "yeni-model" in dosya.read_text(encoding="utf-8")
+
+        # Ve yeniden okundugunda geri gelmeli.
+        from deerx.config import load_settings
+
+        assert load_settings(workspace=settings.workspace).model_lead == "yeni-model"
+
+    def test_a_hand_written_key_is_not_clobbered(self, client, settings):
+        """Kullanicinin arayuzde hic dokunmadigi bir ayari sessizce
+        silmek, kaydetmenin en kotu yan etkisi olurdu."""
+        dosya = settings.workspace / "deerx.toml"
+        dosya.write_text(
+            "[deerx]\nmax_iterations = 77\nmodel_lead = \"eski\"\n",
+            encoding="utf-8",
+        )
+        client.post("/api/settings", json={"model_lead": "yeni"})
+
+        from deerx.config import load_settings
+
+        okunan = load_settings(workspace=settings.workspace)
+        assert okunan.model_lead == "yeni"
+        assert okunan.max_iterations == 77, "dokunulmayan anahtar silindi"
+
+    def test_secrets_are_never_written_to_disk(self, client, settings):
+        """Arayuzden girilen bir anahtari kendiliginden diske yazmak,
+        kullanicinin bilmedigi bir yerde bir kopya birakmak olurdu."""
+        client.post(
+            "/api/settings",
+            json={"model_lead": "m", "anthropic_api_key": "sk-cok-gizli-anahtar"},
+        )
+        dosya = settings.workspace / "deerx.toml"
+        assert "sk-cok-gizli-anahtar" not in dosya.read_text(encoding="utf-8")
+
+    def test_windows_paths_survive_the_round_trip(self, settings):
+        """Ters bolu kacilmazsa dosya bir daha ayristirilamaz ve sunucu
+        acilmaz."""
+        import tomllib
+
+        from deerx.config import dump_toml
+
+        metin = dump_toml({"yol": r"C:\Users\sarpel\Desktop"})
+        assert tomllib.loads(metin)["deerx"]["yol"] == r"C:\Users\sarpel\Desktop"
+
+
 class TestConcurrentReadsDuringARun:
     """Kosu sururken panoyu yenilemek istegi kirmamali.
 

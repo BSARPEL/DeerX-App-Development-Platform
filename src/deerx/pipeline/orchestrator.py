@@ -10,6 +10,7 @@ from __future__ import annotations
 import fnmatch
 import uuid
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -936,6 +937,53 @@ class Orchestrator:
         )
         return alt.run(task, context=context)
 
+    def _bir_gorev(self, task: Task) -> tuple[float, bool]:
+        """Tek bir gorevi kosturur; (maliyet, tamamlandi mi) doner.
+
+        Kendi TURETILMIS baglamini alir: paralel kosan kardesler
+        birbirinin onaylarini ve dusen adres sayacini paylasmamali.
+        """
+        role = self._role_for_task(task)
+        # Durum GONDERIMDEN ONCE yazildi (bkz. cagiran); burada yeniden
+        # yazmak, paralel dalgada yarisa girecek ikinci bir yazma olurdu.
+        console.rule(f"[agent]{task.key} · {role} · {task.title}[/agent]")
+        self.events.emit(
+            "agent", role, f"{task.key} ustlenildi ({task.lane} seridi)", task=task.key
+        )
+
+        # Her gorev icin taze ajan: baglam temiz kalir, maliyet ongorulebilir olur.
+        agent = build_agent(
+            role,
+            settings=self.settings,
+            client=self.client,
+            registry=self.registry,
+            context=self.ctx.child(),
+            events=self.events,
+            stream=self.stream,
+            should_stop=self.should_stop,
+        )
+        result = agent.run(
+            self._task_prompt(task), context=self._phase_context(Phase.IMPLEMENT)
+        )
+
+        # Ajan `update_task` cagirmayi unuttuysa sonucu biz yaziyoruz.
+        current = self.state.get_task(task.key)
+        if current is not None and current.status == Status.RUNNING:
+            self.state.update_task(
+                task.key,
+                status=Status.DONE if result.ok else Status.FAILED,
+                result=result.text[:4000],
+            )
+            current = self.state.get_task(task.key)
+
+        if current is not None and current.status == Status.DONE:
+            return result.cost, True
+        self.events.emit(
+            "warn", "implement",
+            f"{task.key} tamamlanamadi ({current.status if current else '?'})",
+        )
+        return result.cost, False
+
     def _run_agent_phase(self, phase: Phase) -> PhaseResult:
         role = PHASE_ROLE[phase]
         agent = build_agent(
@@ -1092,52 +1140,53 @@ class Orchestrator:
                         status=Status.DONE,
                         summary=f"{task.key} zaten tamamlanmis.",
                     )
+                gorevler = [task]
             else:
                 ready = self.state.ready_tasks(plan_id=plan_id)
                 if not ready:
                     break
-                task = ready[0]
+                # `ready_tasks()` hazir gorevlerin TAMAMINI zaten
+                # donuyordu; kod ilkini alip gerisini atiyordu. Tavan bir
+                # ayar ve VARSAYILANI 1 -- yani bu satir davranisi
+                # degistirmez, yalnizca acilabilir kilar.
+                tavan = max(1, int(self.settings.max_parallel_tasks))
+                gorevler = ready[:tavan]
 
-            role = self._role_for_task(task)
-            self.state.update_task(task.key, status=Status.RUNNING)
-            console.rule(f"[agent]{task.key} · {role} · {task.title}[/agent]")
-            self.events.emit(
-                "agent", role, f"{task.key} ustlenildi ({task.lane} seridi)", task=task.key
-            )
+            # HEPSI GONDERIMDEN ONCE isaretlenir. Tek tek isaretlemek,
+            # ikinci is parcaciginin `ready_tasks()`i yeniden okuyup ayni
+            # gorevi ustlenmesine kapi acardi.
+            for gorev in gorevler:
+                self.state.update_task(gorev.key, status=Status.RUNNING)
 
-            # Her gorev icin taze ajan: baglam temiz kalir, maliyet ongorulebilir olur.
-            agent = build_agent(
-                role,
-                settings=self.settings,
-                client=self.client,
-                registry=self.registry,
-                context=self.ctx,
-                events=self.events,
-                stream=self.stream,
-                should_stop=self.should_stop,
-            )
-            result = agent.run(self._task_prompt(task), context=self._phase_context(Phase.IMPLEMENT))
-            total_cost += result.cost
-
-            # Ajan `update_task` cagirmayi unuttuysa sonucu biz yaziyoruz.
-            current = self.state.get_task(task.key)
-            if current is not None and current.status == Status.RUNNING:
-                self.state.update_task(
-                    task.key,
-                    status=Status.DONE if result.ok else Status.FAILED,
-                    result=result.text[:4000],
-                )
-                current = self.state.get_task(task.key)
-
-            if current is not None and current.status == Status.DONE:
-                completed.append(task.key)
+            if len(gorevler) == 1:
+                sonuclar = [(gorevler[0], *self._bir_gorev(gorevler[0]))]
             else:
-                failed.append(task.key)
                 self.events.emit(
-                    "warn",
-                    "implement",
-                    f"{task.key} tamamlanamadi ({current.status if current else '?'})",
+                    "phase", "implement",
+                    t("run.parallel", n=len(gorevler)),
                 )
+                with ThreadPoolExecutor(max_workers=len(gorevler)) as havuz:
+                    isler = {
+                        havuz.submit(self._bir_gorev, g): g for g in gorevler
+                    }
+                    sonuclar = []
+                    for is_ in as_completed(isler):
+                        gorev = isler[is_]
+                        try:
+                            sonuclar.append((gorev, *is_.result()))
+                        except Exception as exc:  # noqa: BLE001
+                            # Bir gorevin dusmesi otekileri goturmemeli:
+                            # dalga ne kadarini bitirdiyse o kadari kalir.
+                            self.events.emit(
+                                "error", "implement",
+                                f"{gorev.key}: {type(exc).__name__}: {exc}",
+                            )
+                            self.state.update_task(gorev.key, status=Status.FAILED)
+                            sonuclar.append((gorev, 0.0, False))
+
+            for gorev, maliyet, oldu in sonuclar:
+                total_cost += maliyet
+                (completed if oldu else failed).append(gorev.key)
 
             if task_key:
                 break

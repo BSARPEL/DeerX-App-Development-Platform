@@ -33,7 +33,15 @@ from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from ..config import DEFAULT_PORT, Settings, browse_host, load_settings
+from ..config import (
+    CONFIG_FILENAME,
+    DEFAULT_PORT,
+    Settings,
+    browse_host,
+    load_settings,
+    platform_home,
+    save_settings,
+)
 from ..errors import ConfigError, DeerXError
 from ..i18n import set_language, t
 from ..logging import EventLog, get_logger
@@ -682,6 +690,8 @@ def build_app(settings: Settings) -> Starlette:
         if set(changed) & SANDBOX_FIELDS:
             state.orchestrator.reset_sandbox()
 
+        _kalici_yaz(temiz)
+
         if changed:
             # Olay akisina Python sozlugunun `repr`i dusuyordu:
             # "updated: {'language': 'en'}". Akis kullaniciya gosterilen bir
@@ -1194,6 +1204,47 @@ def build_app(settings: Settings) -> Starlette:
         if not role_at_least(rol, needed):
             return _error(t("project.needs_role", role=needed), 403)
         return None
+
+    def _kalici_yaz(temiz: list[tuple[str, Any, SettingField]]) -> None:
+        """Ayari dosyaya yazar ki sunucu yeniden baslayinca kaybolmasin.
+
+        OLCULDU: depoda toml YAZAN tek satir yoktu (`tomllib` salt okur).
+        Ayarlar ekranindan yapilan her degisiklik yalnizca bellekte
+        kaliyordu ve sunucu yeniden basladiginda sessizce eski degerine
+        donuyordu -- kullanici modeli degistirip birakiyor, ertesi gun
+        eski modelle kosuyordu.
+
+        Kapsam dosyayi belirler: proje ayarlari `<proje>/deerx.toml`a,
+        platform ayarlari `<DEERX_HOME>/platform.toml`a.
+
+        SIRLAR YAZILMAZ. API anahtarlari `.env` ile ya da elle
+        `deerx.toml` ile veriliyor; arayuzden girilen bir anahtari
+        kendiliginden diske yazmak, kullanicinin bilmedigi bir yerde bir
+        kopya birakmak olurdu. Arayuz zaten "bu oturum icin gecerli"
+        diyor -- sirlar icin bu dogru kaliyor.
+        """
+        proje_alanlari: dict[str, Any] = {}
+        platform_alanlari: dict[str, Any] = {}
+        for ad, deger, spec in temiz:
+            if spec.secret:
+                continue
+            hedef = platform_alanlari if spec.scope == "platform" else proje_alanlari
+            hedef[ad] = deger
+
+        try:
+            if proje_alanlari:
+                save_settings(
+                    state.settings.workspace / CONFIG_FILENAME, proje_alanlari
+                )
+            if platform_alanlari:
+                save_settings(
+                    platform_home() / "platform.toml", platform_alanlari
+                )
+        except OSError as exc:  # pragma: no cover - disk hatasi
+            # Yazma dustuyse ayar YINE DE bu oturumda gecerli; kullaniciya
+            # "kaydedilemedi" demek ama degisikligi geri almak, iki kotu
+            # secenegin daha kotusu olurdu.
+            log.warning(t("api.settings_not_saved", error=exc))
 
     def _is_admin(request: Request) -> bool:
         """Kimlik dogrulama hic kurulmamissa yerel kurulum tek kisiliktir

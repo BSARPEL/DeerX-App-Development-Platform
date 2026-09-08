@@ -2211,6 +2211,10 @@ CATALOG: dict[str, dict[str, str]] = {
         "tr": "yeniden etkinlestirildi: {source}",
         "en": "reactivated: {source}",
     },
+    "api.settings_not_saved": {
+        "tr": "Ayar bu oturumda gecerli ama dosyaya yazilamadi: {error}",
+        "en": "The setting applies to this session but could not be saved: {error}",
+    },
     "api.outside_workspace": {
         "tr": "Yol calisma alaninin disinda: {path}",
         "en": "The path is outside the workspace: {path}",
@@ -2318,6 +2322,10 @@ CATALOG: dict[str, dict[str, str]] = {
     "kb.skipped_inactive": {
         "tr": "pasiflestirilmis; yeniden indekslenmedi",
         "en": "deactivated; not re-indexed",
+    },
+    "run.parallel": {
+        "tr": "{n} gorev ayni anda ilerliyor",
+        "en": "{n} tasks advancing at once",
     },
     "run.doc_scope": {
         "tr": "belge kapsami: {n} secili belge",

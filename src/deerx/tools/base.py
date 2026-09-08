@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -44,6 +45,23 @@ class ToolResult:
     @classmethod
     def error(cls, message: str) -> ToolResult:
         return cls(content=f"{t('tool.error_prefix')}: {message}", is_error=True)
+
+
+# Paylasilan bir kaynaga dokunan ve bu yuzden ayni anda YALNIZCA BIR
+# ajan tarafindan calistirilabilen araclar.
+#
+# Tarayici: Playwright'in senkron nesneleri onlari olusturan is
+# parcacigina bagli; ikinci bir is parcacigindan dokunmak tanimsiz
+# davranis. Servisler: ad alani ve port secimi paylasilan durum. Kabin:
+# ilk komut konteyneri kuruyor ve iki is parcacigi ayni anda kurmaya
+# calisirsa Docker ikisini de reddeder.
+SERIAL_TOOLS = frozenset({
+    "browse_page", "browser_snapshot", "browser_click", "browser_type",
+    "browser_back", "browser_screenshot", "preview_open", "find_images",
+    "download_image", "web_search", "fetch_url",
+    "start_service", "stop_service", "service_log",
+    "run_command",
+})
 
 
 @dataclass
@@ -88,6 +106,10 @@ class ToolContext:
     # derinlik, tek bir istegin butun butceyi harcayacagi ve nerede
     # durdugunu kimsenin goremeyecegi bir agac uretir.
     depth: int = 0
+    # Paylasilan kaynaklara erisimi seriye alan kilit. Alt ajanlar ve
+    # paralel gorevler AYNI kilidi paylasir -- `child()` bunu sifirlamaz,
+    # cunku amaci tam olarak kardesler arasinda siraya sokmak.
+    serial_lock: Any = field(default_factory=threading.RLock)
     # Kosuya ait konteyner; `run_command` ilk yalitilmis komutta kurar.
     # Alan BURADA tanimli olmali: `shell.py` ve orkestrator ona disaridan
     # yaziyordu ve bu yalnizca bu veri sinifinda `slots` KAPALI oldugu icin
@@ -134,6 +156,8 @@ class ToolContext:
             approval_hook=self.approval_hook,
             spawn=self.spawn,
             depth=self.depth + 1,
+            # Kilit PAYLASILIR: kardesleri siraya sokmasi gerekiyor.
+            serial_lock=self.serial_lock,
             _sandbox=self._sandbox,
         )
 
@@ -307,8 +331,16 @@ class ToolRegistry:
             return ToolResult.error(
                 t("tool.unknown", name=name, names=", ".join(self.names()))
             )
+        # Paylasilan kaynaga dokunan araclar SERIYE alinir. Kilit cagri
+        # BOYUNCA tutulmali: `ctx.browser`i almak yetmez, sayfayla
+        # calisan kod da korunmali.
+        kilit = ctx.serial_lock if name in SERIAL_TOOLS else None
         try:
-            outcome = tool.run(ctx, **arguments)
+            if kilit is not None:
+                with kilit:
+                    outcome = tool.run(ctx, **arguments)
+            else:
+                outcome = tool.run(ctx, **arguments)
         except ApprovalDenied as exc:
             return ToolResult.error(str(exc))
         except (ToolError, WorkspaceError) as exc:
