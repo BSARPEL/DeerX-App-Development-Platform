@@ -190,6 +190,10 @@ CREATE TABLE IF NOT EXISTS runs (
     -- metin dil degistirdiginizde oldugu gibi kalir; arayuz once bunlara
     -- bakar, yoksa `title`a duser.
     title_key   TEXT NOT NULL DEFAULT '',
+    -- Kosuyu KIM baslatti. Bos mesru: `deerx run` ile terminalden
+    -- baslatilan kosunun ve kimlik dogrulamasi kurulmamis kurulumun
+    -- sahibi yoktur.
+    started_by  TEXT NOT NULL DEFAULT '',
     title_args  TEXT NOT NULL DEFAULT '{}',
     goal        TEXT NOT NULL DEFAULT '',
     brief       TEXT NOT NULL DEFAULT '',
@@ -317,6 +321,8 @@ class ProjectState:
             # yanlisti: calisan bir kosu yetim sanilip kapatiliyordu.
             ("runs", "pid",
              "ALTER TABLE runs ADD COLUMN pid INTEGER NOT NULL DEFAULT 0"),
+            ("runs", "started_by",
+             "ALTER TABLE runs ADD COLUMN started_by TEXT NOT NULL DEFAULT ''"),
             ("tasks", "pid",
              "ALTER TABLE tasks ADD COLUMN pid INTEGER NOT NULL DEFAULT 0"),
         ):
@@ -1283,6 +1289,7 @@ class ProjectState:
         phases: list[str] | None = None, title: str = "", workflow_id: str = "",
         title_key: str = "", title_args: dict[str, Any] | None = None,
         task_key: str = "", plan_id: str = "", doc_scope: list[str] | None = None,
+        started_by: str = "",
     ) -> int:
         """Yeni bir kosu acar ve sirali numarasini doner.
 
@@ -1314,8 +1321,9 @@ class ProjectState:
         self._conn.execute(
             "INSERT INTO runs "
             "(id, seq, workflow_id, title, title_key, title_args, goal, brief, "
-            " phases, task_key, plan_id, doc_scope, status, started_at, pid) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?) "
+            " phases, task_key, plan_id, doc_scope, started_by, status, "
+            " started_at, pid) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET title=excluded.title, goal=excluded.goal, "
             "brief=excluded.brief, phases=excluded.phases, "
             "title_key=COALESCE(NULLIF(excluded.title_key, ''), runs.title_key), "
@@ -1325,6 +1333,11 @@ class ProjectState:
             "plan_id=COALESCE(NULLIF(excluded.plan_id, ''), runs.plan_id), "
             "doc_scope=COALESCE(NULLIF(excluded.doc_scope, '[]'), runs.doc_scope), "
             "workflow_id=COALESCE(NULLIF(excluded.workflow_id, ''), runs.workflow_id), "
+            # Sahip de catismada BOSSA korunur: kaydi acan web katmani
+            # kim oldugunu biliyor, ayni kimlikle donen boru hatti
+            # bilmiyor. Ustune bos yazilsaydi kosunun sahibi tam da
+            # gosterilecegi anda silinirdi.
+            "started_by=COALESCE(NULLIF(excluded.started_by, ''), runs.started_by), "
             # Kosuyu yeniden ustlenen surec sahipligi de devralir; aksi
             # halde eski ve olu bir kimlik kaydin uzerinde kalirdi.
             "pid=excluded.pid",
@@ -1334,6 +1347,7 @@ class ProjectState:
                 json.dumps(phases or [], ensure_ascii=False),
                 task_key or "", plan_id or "",
                 json.dumps(list(doc_scope or []), ensure_ascii=False),
+                started_by or "",
                 time.time(), os.getpid(),
             ),
         )
@@ -1406,6 +1420,10 @@ class ProjectState:
             "task_key": row["task_key"],
             "plan_id": row["plan_id"],
             "doc_scope": json.loads(row["doc_scope"] or "[]"),
+            # Kosuyu KIM baslatti. Bos mesru: terminalden baslatilan
+            # kosunun ve kimlik dogrulamasi kurulmamis kurulumun sahibi
+            # yoktur, ve "bilinmiyor" ile "ben" ayni sey degil.
+            "started_by": row["started_by"] or "",
             "status": row["status"],
             "error": row["error"],
             # Kosuyu YURUTEN surec. Arayuz "kayitta calisiyor ama yasayan

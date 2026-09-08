@@ -298,6 +298,7 @@ class RunManager:
                 title_key=title_key, title_args=info.title_args,
                 task_key=task_key or "", plan_id=plan_id or "",
                 doc_scope=list(doc_scope or []),
+                started_by=started_by,
             )
             self._current = info
 

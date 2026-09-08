@@ -621,3 +621,62 @@ def _olu_pid() -> int:
         if not process_alive(aday):
             return aday
     raise AssertionError("olu bir pid bulunamadi")
+
+
+class TestKosununSahibiKaydedilir:
+    """Bir kosunun kimin oldugu ONCE veritabaninda yazar.
+
+    Arayuz kimin calistirdigini gosteremiyordu cunku sunucu bilmiyordu:
+    ust bar "3 faz calisiyor" diyor ve "Durdur" baskasinin kirk
+    dakikalik kosusunu uyarisiz kesiyordu.
+    """
+
+    def test_the_owner_is_stored_and_returned(self, tmp_path):
+        durum = ProjectState(tmp_path / "d.db")
+        durum.start_run("k1", goal="h", phases=["analyze"], started_by="ayse")
+        assert durum.get_run("k1")["started_by"] == "ayse"
+        assert durum.list_runs()[0]["started_by"] == "ayse"
+        durum.close()
+
+    def test_an_empty_owner_is_legitimate(self, tmp_path):
+        """`deerx run` ile terminalden baslatilan kosunun ve kimlik
+        dogrulamasi kurulmamis kurulumun sahibi YOKTUR. "Bilinmiyor" ile
+        "ben" ayni sey degil."""
+        durum = ProjectState(tmp_path / "d.db")
+        durum.start_run("k1", goal="h", phases=["analyze"])
+        assert durum.get_run("k1")["started_by"] == ""
+        durum.close()
+
+    def test_a_second_open_does_not_erase_the_owner(self, tmp_path):
+        """Kaydi ilk acan web katmani kimin oldugunu biliyor; ayni
+        kimlikle donen boru hatti bilmiyor. Ustune bos yazilsaydi sahip
+        tam da gosterilecegi anda silinirdi."""
+        durum = ProjectState(tmp_path / "d.db")
+        durum.start_run("k1", goal="h", phases=["analyze"], started_by="ayse")
+        durum.start_run("k1", goal="h", phases=["analyze", "plan"])
+        assert durum.get_run("k1")["started_by"] == "ayse"
+        durum.close()
+
+    def test_an_old_database_gains_the_column(self, tmp_path):
+        """Sutun eklenmeden onceki bir veritabani acilabilmeli: gecis
+        kosmazsa sunucu ilk sorguda `no such column` ile duserdi."""
+        import sqlite3
+
+        yol = tmp_path / "eski.db"
+        # Once bugunun semasi kurulur, sonra sutun DUSURULEREK dune
+        # donulur: elle yazilan bir "eski" sema ile gercek eski sema
+        # birbirinden sessizce ayrilirdi.
+        kur = ProjectState(yol)
+        kur.start_run("k0", goal="h", phases=["analyze"], started_by="ayse")
+        kur.close()
+        with sqlite3.connect(yol) as conn:
+            conn.execute("ALTER TABLE runs DROP COLUMN started_by")
+        sqlite3.connect(yol).close()
+
+        durum = ProjectState(yol)
+        sutunlar = {
+            r[1] for r in durum._conn.execute("PRAGMA table_info(runs)").fetchall()
+        }
+        assert "started_by" in sutunlar
+        assert durum.get_run("k0")["started_by"] == ""
+        durum.close()

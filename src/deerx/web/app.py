@@ -1387,6 +1387,25 @@ def build_app(settings: Settings) -> Starlette:
             return None, _error(t("project.unknown", id=pid), 404)
         return proje, None
 
+    def _proje_uyesi(request: Request, proje: Project) -> bool:
+        """Projeyi kim OKUYABILIR: uyesi ya da platform yoneticisi.
+
+        Sahipsiz projeyi acan yonetici burada da sahiplenir; bu cagri
+        eskiden `_proje_yonetebilir` icinde gizliydi ve uye listesini
+        okumak onu tetikliyordu. Yer degistirdi, davranis degismedi:
+        yoneticinin uyelik satiri olmadan liste BOS gorunur ve rolunu
+        kimseye devredemez.
+        """
+        if not state.auth.is_configured:
+            return True
+        user = getattr(request.state, "user", None)
+        if user is None:
+            return False
+        if user.is_admin:
+            _sahipsizi_sahiplen(proje, user)
+            return True
+        return bool(state.projects.role_of(proje.id, user.id))
+
     def _proje_yonetebilir(request: Request, proje: Project) -> bool:
         """Adi, arsivi ve uyeleri kim degistirebilir.
 
@@ -1583,8 +1602,15 @@ def build_app(settings: Settings) -> Starlette:
         if hata is not None:
             return hata
         assert proje is not None
-        if not _proje_yonetebilir(request, proje):
-            return _error(t("project.needs_role", role="owner"), 403)
+        # OKUMAK uyelik ister, yonetmek sahiplik. Kapali oldugu surece
+        # "kosuyu ayse baslatti" satirindaki ayse'nin kim oldugunu
+        # okuyabilecegi hicbir yer yoktu; uyelik bir sir degil.
+        #
+        # UYELIK YINE DE SORULUR: `_proje_veya_hata` yalnizca projenin
+        # var olup olmadigina bakiyor. Bu satir olmadan uye OLMAYAN biri
+        # de listeyi okurdu -- kapiyi genisletmek onu acmak degil.
+        if not _proje_uyesi(request, proje):
+            return _error(t("project.needs_role", role="viewer"), 403)
 
         kisiler = {u.id: u for u in state.auth.list_users()}
         satirlar = []

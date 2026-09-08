@@ -251,12 +251,18 @@ class TestRolHttpUzerinde:
         assert sunucu.post("/api/ingest", json={"path": "docs"}).status_code == 403
         assert sunucu.post("/api/plans", json={"name": "yeni"}).status_code == 403
 
-    def test_a_viewer_cannot_hand_out_membership(self, sunucu):
-        """Uyelik SAHIBIN isidir; gelistirici bile veremez."""
+    def test_a_viewer_reads_the_member_list_but_cannot_change_it(self, sunucu):
+        """Uyelik bir SIR degil: ayni projeye yazma yetkisi olan
+        insanlarin listesi, o insanlarin birbirinden gizlenmesi gereken
+        bir sey degil. Kapali oldugu surece "kosuyu ayse baslatti"
+        satirindaki ayse'nin kim oldugunu okuyabilecegi hicbir yer
+        yoktu. Uyelik VERMEK yine sahibin isi."""
         proje = self._izleyici_ac(sunucu)
-        assert sunucu.get(
-            f"/api/projects/{proje['id']}/members"
-        ).status_code == 403
+        cevap = sunucu.get(f"/api/projects/{proje['id']}/members")
+        assert cevap.status_code == 200, cevap.text
+        assert {u["username"] for u in cevap.json()["members"]} == {
+            "yonetici", "izleyen"
+        }
         assert sunucu.post(
             f"/api/projects/{proje['id']}/members",
             json={"user_id": 1, "role": "owner"},
@@ -702,3 +708,41 @@ class TestHesapAyariKisiye_Ozeldir:
         dosyalar = sorted((platform_home() / "users").glob("*.toml"))
         assert len(dosyalar) == 1, f"beklenen tek hesap dosyasi, bulunan {dosyalar}"
         assert "language" in dosyalar[0].read_text(encoding="utf-8")
+
+
+class TestUyeListesiUyeninHakki:
+    """Liste uyeye acik, uye olmayana kapali."""
+
+    @pytest.fixture
+    def sunucu(self, settings):
+        from starlette.testclient import TestClient
+
+        from deerx.web.app import build_app
+
+        with TestClient(build_app(settings)) as client:
+            auth = client.app.state.deerx.auth
+            auth.create_first_admin(
+                auth.issue_setup_token(), "yonetici", "cok-uzun-parola-1"
+            )
+            yield client
+
+    def test_a_non_member_still_gets_nothing(self, sunucu, tmp_path):
+        """Kapiyi genisletmek onu ACMAK degil: uye olmayan biri hala
+        projenin kimlerden olustugunu ogrenemez."""
+        assert sunucu.post(
+            "/api/auth/login",
+            json={"username": "yonetici", "password": "cok-uzun-parola-1"},
+        ).status_code == 200
+        proje = sunucu.get("/api/projects").json()["active"]
+        sunucu.post(
+            "/api/users", json={"username": "yabanci", "password": "ucuncu-uzun-parola"}
+        )
+        sunucu.post("/api/auth/logout")
+        sunucu.post(
+            "/api/auth/login",
+            json={"username": "yabanci", "password": "ucuncu-uzun-parola"},
+        )
+        assert sunucu.get(
+            f"/api/projects/{proje['id']}/members",
+            headers={"X-DeerX-Project": proje["slug"]},
+        ).status_code == 403
