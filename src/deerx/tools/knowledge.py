@@ -44,7 +44,16 @@ class SearchKnowledge(Tool):
         kinds: list[str] | None = None,
     ) -> ToolResult:
         kb = ctx.require_kb()
-        hits = kb.search(query, k=max(1, min(k, 25)), kinds=kinds)
+        # Kapsam varsa arama onunla daraltilir; yoksa korpusun tamami.
+        # Kapsam semada YOK: modele acilan bir parametre olsaydi model
+        # kendi kapsamini secebilirdi ve kullanicinin secimi bir oneriye
+        # donerdi.
+        hits = kb.search(
+            query,
+            k=max(1, min(k, 25)),
+            kinds=kinds,
+            sources=list(ctx.doc_scope) or None,
+        )
         if not hits:
             stats = kb.stats()
             if stats["chunks"] == 0:

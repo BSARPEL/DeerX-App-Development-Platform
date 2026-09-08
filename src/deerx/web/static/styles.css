@@ -2841,3 +2841,63 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
   color: var(--text-3);
   cursor: not-allowed;
 }
+
+/* ─── Belge seçimi (Geliştirme) ────────────────────────────────────────── */
+/* Koşunun hangi belgeleri okuyacağını kullanıcı belirler. Önceden burası
+   salt okunur bir rozet dizisiydi: "modele şu an ne verilmiş durumda"
+   diyordu ama seçim imkânı yoktu ve koşu her zaman korpusun tamamını
+   görüyordu. */
+
+.doc-pick-bar {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.doc-pick-filter { flex: 1; min-width: 0; }
+
+.doc-pick-count {
+  flex-shrink: 0;
+  font-size: 12px; color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.doc-picks {
+  display: flex; flex-direction: column;
+  list-style: none;
+  /* Uzun bir kütüphane paneli şişirmesin: liste kendi içinde kayar ve
+     altındaki "Başlat" düğmesi katlamanın altına inmez. */
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.doc-pick {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.doc-pick:last-child { border-bottom: none; }
+
+.doc-pick .check { flex: 1; min-width: 0; }
+
+.doc-pick-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text);
+}
+
+/* Pasifleştirilmiş belge listede GÖRÜNÜR ama seçilemez: gizlemek
+   "böyle bir belge yok" demek olurdu, oysa var ve geri alınabilir. */
+.doc-pick[data-inactive="1"] { opacity: .5; }
+.doc-pick[data-inactive="1"] .doc-pick-name { text-decoration: line-through; }
+
+/* Belge tablosu: kaynak yolu ikincil, işlemler sağda tek satır. */
+.doc-row-title { font-weight: 500; }
+.doc-row-source {
+  margin-top: 2px;
+  font-family: var(--mono); font-size: 11px; color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+.doc-row-actions { display: flex; gap: 8px; justify-content: flex-end; }
+tr[data-inactive="1"] .doc-row-title,
+tr[data-inactive="1"] .doc-row-source { opacity: .6; }

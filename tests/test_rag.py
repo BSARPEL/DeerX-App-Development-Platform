@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pathlib
+
 import numpy as np
 import pytest
 
@@ -151,6 +153,91 @@ class TestKnowledgeBase:
         hits = kb.search("cevrimdisi calisma", k=3)
         assert hits
         assert any("Cevrimdisi" in h.heading_path for h in hits)
+
+    def test_a_scoped_search_cannot_see_the_rest_of_the_corpus(self, kb, workspace):
+        """Kosu basina belge kapsaminin dayandigi sozlesme.
+
+        Kullanici bir kosuda korpusun tamamini degil, sectigi
+        sartnameleri okutmak isteyebilir. Kapsam ISE YARAMAZSA bunu
+        fark etmek imkansizdir: arama yine sonuc doner, yalnizca yanlis
+        belgelerden doner.
+        """
+        ikinci = workspace / "docs" / "baska.md"
+        ikinci.write_text(
+            "# Muhasebe modulu\n\nFatura kesme ve e-arsiv entegrasyonu.\n",
+            encoding="utf-8",
+        )
+        kb.ingest_path(workspace / "docs")
+
+        hepsi = {h.source for h in kb.search("fatura e-arsiv", k=5)}
+        assert str(ikinci) in hepsi, "kapsamsiz arama ikinci belgeyi bulmali"
+
+        dar = kb.search("fatura e-arsiv", k=5, sources=[str(ikinci)])
+        assert dar, "kapsam icindeki belge bulunamadi"
+        assert {h.source for h in dar} == {str(ikinci)}
+
+        # Kapsam disinda birakilan belge, tam ona ait bir sorguda bile
+        # gorunmemeli.
+        disarida = kb.search("KVKK", k=5, sources=[str(ikinci)])
+        assert all(h.source == str(ikinci) for h in disarida)
+
+    def test_an_empty_scope_means_no_document_not_every_document(self, kb, workspace):
+        """Bos liste ile `None` ayri seyler.
+
+        Caginin "hicbir belge secmedim" demesi ile "kapsam kullanmiyorum"
+        demesi ayni sey degil; ikisini karistirmak, kapsami bos gonderen
+        bir arayuz hatasini sessizce "tum korpus"a cevirir.
+        """
+        kb.ingest_path(workspace / "docs")
+        assert kb.search("KVKK", k=3) != []
+        assert kb.search("KVKK", k=3, sources=[]) == []
+
+    def test_deactivating_a_document_keeps_its_chunks(self, kb, workspace):
+        """Pasiflestirmek silmek DEGILDIR: geri almak yeniden
+        indeksleme gerektirmemeli."""
+        kb.ingest_path(workspace / "docs")
+        kaynak = kb.store.list_documents()[0]["source"]
+        onceki = kb.store.stats()["chunks"]
+
+        assert kb.store.set_active(kaynak, False) is True
+        assert kb.store.stats()["chunks"] == onceki
+        assert kb.store.active_doc_ids() == []
+
+        assert kb.store.set_active(kaynak, True) is True
+        assert len(kb.store.active_doc_ids()) == 1
+
+    def test_a_deactivated_document_does_not_come_back_on_reingest(self, kb, workspace):
+        """OLCULDU: `forget` yalnizca dizinden siliyordu, dosya diskte
+        kaliyordu ve bir sonraki `ingest` onu SESSIZCE geri getiriyordu.
+
+        Kullanicinin "artik buna bakma" karari, bir sonraki kosuda hicbir
+        uyari olmadan iptal oluyordu -- ve geri geldigini fark etmenin
+        tek yolu arama sonuclarinda gormekti.
+        """
+        kb.ingest_path(workspace / "docs")
+        kaynak = kb.store.list_documents()[0]["source"]
+
+        assert kb.deactivate(kaynak) is True
+        yeniden = kb.ingest_path(workspace / "docs")
+        assert all(r.skipped for r in yeniden), "pasif belge yeniden indekslendi"
+        assert kb.store.active_doc_ids() == []
+
+        # `force` bile karari ezmemeli: "degismemis olsa da yeniden
+        # indeksle" demek, "kullanicinin kararini yok say" demek degil.
+        zorla = kb.ingest_path(workspace / "docs", force=True)
+        assert all(r.skipped for r in zorla)
+
+    def test_permanent_delete_can_take_the_file_with_it(self, kb, workspace):
+        """Dosya diskte kaldigi surece geri gelmesi DOGRU davranistir;
+        "tamamen git" demek isteyen kullanicinin dosyayi da silebilmesi
+        gerekir."""
+        kb.ingest_path(workspace / "docs")
+        kaynak = kb.store.list_documents()[0]["source"]
+        assert pathlib.Path(kaynak).is_file()
+
+        kb.forget(kaynak, remove_file=True)
+        assert not pathlib.Path(kaynak).is_file()
+        assert kb.store.list_documents() == []
 
     def test_lexical_finds_rare_token(self, kb, workspace):
         kb.ingest_path(workspace / "docs")

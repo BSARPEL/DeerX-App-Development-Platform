@@ -31,6 +31,10 @@ class IngestResult:
     kind: str
     chunks: int
     skipped: bool = False
+    # Neden atlandi. Bos ise "degismemis" demektir -- en sik durum ve
+    # ayrica yazmaya degmez; pasiflestirme gibi KARAR sonucu atlamalar
+    # kullaniciya soylenmeli, yoksa belge sessizce yok sayilmis gorunur.
+    reason: str = ""
     error: str | None = None
 
     @property
@@ -78,7 +82,16 @@ class KnowledgeBase:
     # ------------------------------------------------------------------ #
     # Indeksleme
     # ------------------------------------------------------------------ #
-    def _index(self, doc: LoadedDoc, *, force: bool) -> IngestResult:
+    def _index(self, doc: LoadedDoc, *, force: bool,
+               uploaded_by: str = "") -> IngestResult:
+        # Pasiflestirilmis belge `force` ile bile geri gelmez: `force`
+        # "degismemis olsa da yeniden indeksle" demektir, "kullanicinin
+        # kararini yok say" demek degil.
+        if self.store.is_inactive(doc.source):
+            return IngestResult(
+                doc.source, doc.title, doc.kind, 0, skipped=True,
+                reason=t("kb.skipped_inactive"),
+            )
         if not force and self.store.document_hash(doc.source) == doc.sha256:
             return IngestResult(doc.source, doc.title, doc.kind, 0, skipped=True)
 
@@ -93,12 +106,13 @@ class KnowledgeBase:
             return IngestResult(doc.source, doc.title, doc.kind, 0, error="parca uretilemedi")
 
         vectors = self.embedder.embed_documents([c.contextualized() for c in chunks])
-        count = self.store.upsert_document(doc, chunks, vectors)
+        count = self.store.upsert_document(doc, chunks, vectors, uploaded_by)
         if self.events is not None:
             self.events.emit("tool", "rag", f"indekslendi: {doc.title} ({count} parca)")
         return IngestResult(doc.source, doc.title, doc.kind, count)
 
-    def ingest_file(self, path: Path, *, force: bool = False) -> IngestResult:
+    def ingest_file(self, path: Path, *, force: bool = False,
+                    uploaded_by: str = "") -> IngestResult:
         """Tek dosya indeksler.
 
         Hicbir dosya hatasi disari sizmaz: bir dizin taranirken bozuk tek bir
@@ -114,7 +128,7 @@ class KnowledgeBase:
             return IngestResult(
                 str(path), path.name, "doc", 0, error=f"{type(exc).__name__}: {exc}"
             )
-        return self._index(doc, force=force)
+        return self._index(doc, force=force, uploaded_by=uploaded_by)
 
     def ingest_path(self, path: Path, *, force: bool = False) -> list[IngestResult]:
         """Dosya veya dizin indeksler. Dizinlerde include/exclude glob'lari uygulanir."""
@@ -151,8 +165,30 @@ class KnowledgeBase:
             return IngestResult(source, title or source, "web", 0, error=str(exc))
         return self._index(doc, force=True)
 
-    def forget(self, source: str) -> int:
-        return self.store.delete_document(source)
+    def deactivate(self, source: str, *, active: bool = False) -> bool:
+        """Belgeyi aramadan ve yeniden indekslemeden cikarir.
+
+        Silmekten farki geri donusu olmasi: parcalar ve vektorler durur,
+        geri almak yeniden indeksleme gerektirmez. Bir sartnamenin eski
+        surumunu "artik buna bakma" diye isaretlemek, silmekten daha sik
+        istenen seydir.
+        """
+        return self.store.set_active(source, active)
+
+    def forget(self, source: str, *, remove_file: bool = False) -> int:
+        """Belgeyi dizinden siler; istenirse dosyayi da.
+
+        Dosya birakildiginda bir sonraki `ingest` onu YENIDEN indeksler --
+        diskte duran bir dosyayi gormemek icin bir sebep yok. Kullanici
+        "bir daha kullanma" demek istiyorsa `deactivate` dogru arac;
+        "tamamen git" demek istiyorsa dosya da gitmeli.
+        """
+        removed = self.store.delete_document(source)
+        if remove_file:
+            yol = Path(source)
+            if yol.is_file():
+                yol.unlink()
+        return removed
 
     # ------------------------------------------------------------------ #
     # Arama
@@ -164,20 +200,30 @@ class KnowledgeBase:
         k: int | None = None,
         kinds: Iterable[str] | None = None,
         diversify: bool = True,
+        sources: Iterable[str] | None = None,
     ) -> list[ChunkRecord]:
-        """Hibrit arama: anlamsal + sozcuksel siralamalari RRF ile birlestirir."""
+        """Hibrit arama: anlamsal + sozcuksel siralamalari RRF ile birlestirir.
+
+        `sources` verilirse arama yalnizca o belgeleri gorur. Kosu basina
+        belge kapsami bunun uzerine kuruluyor: kullanici bir kosuda
+        korpusun tamamini degil, sectigi sartnameleri okutmak isteyebilir.
+        Bos bir liste "hicbir belge" demektir; `None` "kapsam yok".
+        """
         rag = self.settings.rag
         k = k or rag.top_k
         if not query.strip():
             return []
 
         kind_list = list(kinds) if kinds else None
+        # Yol -> kimlik cevrimi BURADA yapilir, iki arama yolunda iki kez
+        # degil: cevrim bir sorgu ve ikisi de ayni kumeyi kullaniyor.
+        doc_ids = None if sources is None else self.store.doc_ids_for(sources)
         # Fuzyon ve MMR icin adaydan daha genis bir havuz cekilir.
         pool = max(k * 4, 24)
 
         query_vector = self.embedder.embed_query(query)
-        semantic = self.store.search_semantic(query_vector, pool, kind_list)
-        lexical = self.store.search_lexical(query, pool, kind_list)
+        semantic = self.store.search_semantic(query_vector, pool, kind_list, doc_ids)
+        lexical = self.store.search_lexical(query, pool, kind_list, doc_ids)
 
         if not semantic and not lexical:
             return []
@@ -224,9 +270,10 @@ class KnowledgeBase:
         kinds: Iterable[str] | None = None,
         max_chars: int = 12_000,
         header: str | None = None,
+        sources: Iterable[str] | None = None,
     ) -> str:
         """Arama sonuclarini prompt'a gomulebilir tek bir metne cevirir."""
-        hits = self.search(query, k=k, kinds=kinds)
+        hits = self.search(query, k=k, kinds=kinds, sources=sources)
         if not hits:
             return ""
         parts: list[str] = []

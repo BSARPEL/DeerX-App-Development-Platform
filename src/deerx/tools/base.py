@@ -65,6 +65,13 @@ class ToolContext:
     # kullanici #3'u konusurken modelin #7'yi degistirmesine kapi acar.
     # Bos dize "is akisi baglami yok" demektir ve o araclar reddeder.
     workflow_id: str = ""
+    # Bu kosunun okuyabilecegi belgeler. `workflow_id` ile ayni gerekce:
+    # kapsam CAGIRANDAN gelir, arac argumanindan degil. Modele "hangi
+    # belgelere bakayim?" diye sormak, kullanicinin bilerek disarida
+    # biraktigi eski bir sartnameyi modelin geri getirmesine kapi acar --
+    # ve bunun icin kotu niyet gerekmez, bir liste uydurmasi yeter.
+    # Bos demet "kapsam yok = tum korpus" demektir.
+    doc_scope: tuple[str, ...] = ()
     # Onay isteme kancasi; None ise `approval_mode` uzerinden karar verilir.
     approval_hook: Callable[[str, str], bool] | None = None
     # Kosu suresince onaylanan tehlikeli islem imzalari (tekrar sormamak icin).

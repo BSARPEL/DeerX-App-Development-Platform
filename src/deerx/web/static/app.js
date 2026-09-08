@@ -76,6 +76,11 @@ const state = {
   reconnectDelay: 1000,
   approvals: [],
   approvalMode: "ask",
+  // Kosunun okuyacagi belgeler. `null` "hepsi" demektir; bir kume
+  // verildiginde kosu yalnizca onlari gorur. Ikisini ayirmak sart:
+  // bos bir kume "hicbir belge" demek ve o mesru bir secim.
+  docScope: null,
+  docPickFilter: "",
   activeArtifact: null,
   pollTimer: null,
   // Sorular teker teker sorulur; kuyrukta nerede oldugumuz ve yazilmis
@@ -699,12 +704,16 @@ function initRunControls() {
     note.dataset.tone = "";
     note.textContent = t("develop.starting");
     try {
-      await post("/api/run", {
+      // Kapsam yalnizca kullanici DARALTTIYSA gonderilir: `null`
+      // "hepsi" demek ve bos bir liste gondermek "hicbiri" demek olurdu.
+      const govde = {
         phases,
         goal: $("#run-goal").value.trim(),
         brief: $("#run-brief").value.trim(),
         force: $("#run-force").checked,
-      });
+      };
+      if (state.docScope !== null) govde.doc_scope = [...state.docScope];
+      await post("/api/run", govde);
       toast(t("develop.started", { n: phases.length }), "ok");
       loadOverview();
     } catch (error) {
@@ -740,14 +749,61 @@ function initRunControls() {
 function renderUploadedDocs(documents) {
   const target = $("#uploaded-docs");
   if (!target) return;
-  target.innerHTML = documents.length
-    ? `<ul class="doc-chips">${documents.map((doc) => `
-        <li title="${esc(doc.source)}">
+
+  // Pasiflestirilmis belge secilemez: kullanici onu zaten "buna bakma"
+  // diye isaretlemis. Listede GORUNUR ama kapalidir -- gizlemek "boyle
+  // bir belge yok" demek olurdu.
+  const secilebilir = documents.filter((doc) => doc.is_active !== 0);
+  $("#doc-pick-bar").hidden = secilebilir.length === 0;
+
+  if (!documents.length) {
+    target.innerHTML = `<p class="empty">${esc(t("develop.noDocs"))}</p>`;
+    $("#doc-pick-count").textContent = "";
+    return;
+  }
+
+  const suzgec = state.docPickFilter.toLowerCase();
+  const gorunen = documents.filter((doc) =>
+    !suzgec || doc.title.toLowerCase().includes(suzgec)
+             || doc.source.toLowerCase().includes(suzgec));
+
+  const secili = (doc) =>
+    doc.is_active !== 0 && (state.docScope === null || state.docScope.has(doc.source));
+
+  target.innerHTML = gorunen.length
+    ? `<ul class="doc-picks">${gorunen.map((doc) => `
+        <li class="doc-pick" data-inactive="${doc.is_active === 0 ? 1 : 0}"
+            title="${esc(doc.source)}">
+          <label class="check">
+            <input type="checkbox" data-pick="${esc(doc.source)}"
+                   ${secili(doc) ? "checked" : ""}
+                   ${doc.is_active === 0 ? "disabled" : ""}>
+            <span class="doc-pick-name">${esc(doc.title)}</span>
+          </label>
           <span class="badge">${esc(tv("kind", doc.kind))}</span>
-          <span class="doc-chip-name">${esc(doc.title)}</span>
           <span class="doc-chip-meta">${esc(t(doc.n_chunks === 1 ? "stat.chunkOne" : "stat.chunks", { n: doc.n_chunks }))}</span>
         </li>`).join("")}</ul>`
-    : `<p class="empty">${esc(t("develop.noDocs"))}</p>`;
+    : `<p class="empty">${esc(t("develop.pickNoMatch"))}</p>`;
+
+  const secilenSayisi = secilebilir.filter(secili).length;
+  $("#doc-pick-count").textContent = t("develop.pickCount", {
+    n: secilenSayisi, total: secilebilir.length,
+  });
+  $("#doc-pick-all").checked = secilenSayisi === secilebilir.length;
+  $("#doc-pick-all").indeterminate =
+    secilenSayisi > 0 && secilenSayisi < secilebilir.length;
+
+  $$("[data-pick]", target).forEach((box) => {
+    box.addEventListener("change", () => {
+      // Ilk dokunusta `null` (= hepsi) somut bir kumeye donusur.
+      if (state.docScope === null) {
+        state.docScope = new Set(secilebilir.map((doc) => doc.source));
+      }
+      if (box.checked) state.docScope.add(box.dataset.pick);
+      else state.docScope.delete(box.dataset.pick);
+      renderUploadedDocs(state.docItems || documents);
+    });
+  });
 }
 
 async function loadDocuments() {
@@ -780,22 +836,61 @@ function renderDocPage() {
 
   target.innerHTML = `
     <div class="table-wrap"><table>
-      <thead><tr><th>${esc(t("kb.document"))}</th><th>${esc(t("kb.type"))}</th><th style="text-align:right">${esc(t("kb.chunks"))}</th><th></th></tr></thead>
+      <thead><tr>
+        <th>${esc(t("kb.document"))}</th>
+        <th>${esc(t("kb.type"))}</th>
+        <th>${esc(t("kb.uploadedBy"))}</th>
+        <th style="text-align:right">${esc(t("kb.chunks"))}</th>
+        <th></th>
+      </tr></thead>
       <tbody>${slice.items.map((doc) => `
-        <tr>
-          <td><div>${esc(doc.title)}</div>
-              <div style="font-size:11px;color:var(--text-3);overflow-wrap:anywhere">${esc(doc.source)}</div></td>
+        <tr data-inactive="${doc.is_active === 0 ? 1 : 0}">
+          <td><div class="doc-row-title">${esc(doc.title)}${
+            doc.is_active === 0
+              ? ` <span class="badge">${esc(t("kb.inactive"))}</span>`
+              : ""
+          }</div>
+              <div class="doc-row-source">${esc(doc.source)}</div></td>
           <td><span class="badge">${esc(doc.kind)}</span></td>
+          <td>${esc(doc.uploaded_by || "—")}</td>
           <td class="num">${doc.n_chunks}</td>
-          <td><button class="btn btn-ghost btn-sm" data-forget="${esc(doc.source)}" type="button">${esc(t("kb.remove"))}</button></td>
+          <td class="doc-row-actions">
+            <button class="btn btn-ghost btn-sm" type="button"
+                    data-toggle-doc="${esc(doc.source)}"
+                    data-next="${doc.is_active === 0 ? "activate" : "deactivate"}">${
+              esc(t(doc.is_active === 0 ? "kb.activate" : "kb.deactivate"))
+            }</button>
+            <button class="btn btn-ghost btn-sm" type="button"
+                    data-delete-doc="${esc(doc.source)}"
+                    data-title="${esc(doc.title)}">${esc(t("kb.deleteFile"))}</button>
+          </td>
         </tr>`).join("")}
       </tbody>
     </table></div>`;
 
-  $$("[data-forget]", target).forEach((button) => {
+  // Pasiflestirme geri alinabilir; silme degil. Ikisi ayri dugme ve
+  // yalnizca ikincisi onay istiyor -- her seye onay sormak, onayin
+  // kendisini anlamsizlastirir.
+  $$("[data-toggle-doc]", target).forEach((button) => {
     button.addEventListener("click", async () => {
       try {
-        const result = await post("/api/forget", { source: button.dataset.forget });
+        await post("/api/forget", {
+          source: button.dataset.toggleDoc, mode: button.dataset.next,
+        });
+        toast(t(button.dataset.next === "activate" ? "kb.activated" : "kb.deactivated"), "ok");
+        loadDocuments();
+        loadOverview();
+      } catch (error) { toast(error.message, "err"); }
+    });
+  });
+
+  $$("[data-delete-doc]", target).forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (!confirm(t("kb.deleteConfirm", { title: button.dataset.title }))) return;
+      try {
+        const result = await post("/api/forget", {
+          source: button.dataset.deleteDoc, mode: "delete",
+        });
         toast(t("kb.removed", { n: result.removed_chunks }), "ok");
         loadDocuments();
         loadOverview();
@@ -818,6 +913,26 @@ function renderDocPage() {
       state.docPage = 1;
       renderDocPage();
     },
+  });
+}
+
+function initDocPicker() {
+  $("#doc-pick-all").addEventListener("change", (event) => {
+    const secilebilir = (state.docItems || []).filter((d) => d.is_active !== 0);
+    state.docScope = event.target.checked
+      ? null
+      : new Set();
+    renderUploadedDocs(state.docItems || []);
+    // Hicbir belge secili degilse bu MESRU bir secim: ajanlar belge
+    // okumaz. Engellemek yerine soylenir.
+    if (!event.target.checked && secilebilir.length) {
+      toast(t("develop.pickNone"), "warn");
+    }
+  });
+
+  $("#doc-pick-filter").addEventListener("input", (event) => {
+    state.docPickFilter = event.target.value.trim();
+    renderUploadedDocs(state.docItems || []);
   });
 }
 
@@ -3261,6 +3376,7 @@ async function init() {
 function boot() {
   initRouting();
   initRunControls();
+  initDocPicker();
   initKnowledge();
   initAnalysis();
   initPlan();

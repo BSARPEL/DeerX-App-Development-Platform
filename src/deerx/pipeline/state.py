@@ -198,6 +198,10 @@ CREATE TABLE IF NOT EXISTS runs (
     -- hazir olan BUTUN gorevleri kosardi.
     task_key    TEXT NOT NULL DEFAULT '',
     plan_id     TEXT NOT NULL DEFAULT '',
+    -- Kosunun okuyabildigi belgeler (kaynak yollari, JSON dizi). Bos dizi
+    -- "kapsam yok = tum korpus" demektir; gecmis kosularin anlami boylece
+    -- degismiyor.
+    doc_scope   TEXT NOT NULL DEFAULT '[]',
     status      TEXT NOT NULL DEFAULT 'running',
     error       TEXT NOT NULL DEFAULT '',
     cost_usd    REAL NOT NULL DEFAULT 0,
@@ -297,6 +301,8 @@ class ProjectState:
              "ALTER TABLE runs ADD COLUMN title_args TEXT NOT NULL DEFAULT '{}'"),
             ("runs", "task_key",
              "ALTER TABLE runs ADD COLUMN task_key TEXT NOT NULL DEFAULT ''"),
+            ("runs", "doc_scope",
+             "ALTER TABLE runs ADD COLUMN doc_scope TEXT NOT NULL DEFAULT '[]'"),
             ("runs", "plan_id",
              "ALTER TABLE runs ADD COLUMN plan_id TEXT NOT NULL DEFAULT ''"),
             # Kosuyu/gorevi YURUTEN surecin kimligi. Yetim toplama bunsuz
@@ -1174,7 +1180,7 @@ class ProjectState:
         self, run_id: str, *, goal: str = "", brief: str = "",
         phases: list[str] | None = None, title: str = "", workflow_id: str = "",
         title_key: str = "", title_args: dict[str, Any] | None = None,
-        task_key: str = "", plan_id: str = "",
+        task_key: str = "", plan_id: str = "", doc_scope: list[str] | None = None,
     ) -> int:
         """Yeni bir kosu acar ve sirali numarasini doner.
 
@@ -1206,8 +1212,8 @@ class ProjectState:
         self._conn.execute(
             "INSERT INTO runs "
             "(id, seq, workflow_id, title, title_key, title_args, goal, brief, "
-            " phases, task_key, plan_id, status, started_at, pid) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?) "
+            " phases, task_key, plan_id, doc_scope, status, started_at, pid) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET title=excluded.title, goal=excluded.goal, "
             "brief=excluded.brief, phases=excluded.phases, "
             "title_key=COALESCE(NULLIF(excluded.title_key, ''), runs.title_key), "
@@ -1215,6 +1221,7 @@ class ProjectState:
             "                ELSE excluded.title_args END, "
             "task_key=COALESCE(NULLIF(excluded.task_key, ''), runs.task_key), "
             "plan_id=COALESCE(NULLIF(excluded.plan_id, ''), runs.plan_id), "
+            "doc_scope=COALESCE(NULLIF(excluded.doc_scope, '[]'), runs.doc_scope), "
             "workflow_id=COALESCE(NULLIF(excluded.workflow_id, ''), runs.workflow_id), "
             # Kosuyu yeniden ustlenen surec sahipligi de devralir; aksi
             # halde eski ve olu bir kimlik kaydin uzerinde kalirdi.
@@ -1223,7 +1230,9 @@ class ProjectState:
                 run_id, seq, workflow_id, title, title_key,
                 json.dumps(title_args or {}, ensure_ascii=False), goal, brief,
                 json.dumps(phases or [], ensure_ascii=False),
-                task_key or "", plan_id or "", time.time(), os.getpid(),
+                task_key or "", plan_id or "",
+                json.dumps(list(doc_scope or []), ensure_ascii=False),
+                time.time(), os.getpid(),
             ),
         )
         self._conn.commit()
@@ -1294,6 +1303,7 @@ class ProjectState:
             "phases": json.loads(row["phases"]),
             "task_key": row["task_key"],
             "plan_id": row["plan_id"],
+            "doc_scope": json.loads(row["doc_scope"] or "[]"),
             "status": row["status"],
             "error": row["error"],
             # Kosuyu YURUTEN surec. Arayuz "kayitta calisiyor ama yasayan

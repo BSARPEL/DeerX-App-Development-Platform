@@ -254,6 +254,7 @@ class RunManager:
         title: str = "",
         title_key: str = "",
         title_args: dict[str, Any] | None = None,
+        doc_scope: list[str] | None = None,
     ) -> RunInfo:
         """Fazlari arka planda baslatir."""
         with self._lock:
@@ -280,12 +281,14 @@ class RunManager:
                 phases=info.phases, title=title,
                 title_key=title_key, title_args=info.title_args,
                 task_key=task_key or "", plan_id=plan_id or "",
+                doc_scope=list(doc_scope or []),
             )
             self._current = info
 
         self._thread = threading.Thread(
             target=self._run,
-            args=(info, phases, goal, brief, sources or [], force, task_key, plan_id, title),
+            args=(info, phases, goal, brief, sources or [], force, task_key,
+                  plan_id, title, list(doc_scope or [])),
             name=f"deerx-run-{info.id}",
             daemon=True,
         )
@@ -303,6 +306,7 @@ class RunManager:
         task_key: str | None,
         plan_id: str | None = None,
         title: str = "",
+        doc_scope: list[str] | None = None,
     ) -> None:
         try:
             # Kimlik burada uretilir ve orkestratore verilir: kalici kosu
@@ -311,7 +315,7 @@ class RunManager:
             report = self.orchestrator.run(
                 phases, goal=goal, brief=brief, sources=sources,
                 force=force, task_key=task_key, run_id=info.id, plan_id=plan_id,
-                title=title,
+                title=title, doc_scope=doc_scope,
             )
             info.seq = report.seq
             info.cost = report.total_cost

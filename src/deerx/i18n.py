@@ -2171,6 +2171,30 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "{count} unfinished runs were closed",
     },
     "run.stopped": {"tr": "kosu durduruldu", "en": "run stopped"},
+    "api.unknown_forget_mode": {
+        "tr": "Bilinmeyen islem: {mode}",
+        "en": "Unknown operation: {mode}",
+    },
+    "api.unknown_document": {
+        "tr": "Belge bulunamadi: {source}",
+        "en": "Document not found: {source}",
+    },
+    "api.doc_deactivated": {
+        "tr": "pasiflestirildi: {source}",
+        "en": "deactivated: {source}",
+    },
+    "api.doc_activated": {
+        "tr": "yeniden etkinlestirildi: {source}",
+        "en": "reactivated: {source}",
+    },
+    "kb.skipped_inactive": {
+        "tr": "pasiflestirilmis; yeniden indekslenmedi",
+        "en": "deactivated; not re-indexed",
+    },
+    "run.doc_scope": {
+        "tr": "belge kapsami: {n} secili belge",
+        "en": "document scope: {n} selected documents",
+    },
     "run.finished": {
         "tr": "kosu bitti: {status} · ${cost} · {seconds}s",
         "en": "run finished: {status} · ${cost} · {seconds}s",

@@ -199,6 +199,20 @@
               <span class="dropzone-hint" data-i18n="develop.dropHint"></span>
             </label>
             <div class="upload-status" id="upload-status"></div>
+
+            <!-- Yuklenmis belgeler bir SECIM listesi: kosunun hangi
+                 belgeleri okuyacagini kullanici belirler. Onceden salt
+                 okunur bir rozet dizisiydi ve kosu her zaman korpusun
+                 tamamini goruyordu. -->
+            <div class="doc-pick-bar" id="doc-pick-bar" hidden>
+              <label class="check">
+                <input type="checkbox" id="doc-pick-all" checked>
+                <span data-i18n="develop.pickAll">Tümü</span>
+              </label>
+              <input type="search" id="doc-pick-filter" class="doc-pick-filter"
+                     data-i18n-placeholder="develop.pickFilter">
+              <span class="doc-pick-count" id="doc-pick-count"></span>
+            </div>
             <div id="uploaded-docs"></div>
           </div>
         </section>

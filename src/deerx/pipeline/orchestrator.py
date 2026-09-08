@@ -358,6 +358,7 @@ class Orchestrator:
         run_id: str | None = None,
         plan_id: str | None = None,
         title: str = "",
+        doc_scope: list[str] | None = None,
     ) -> RunReport:
         """Verilen fazlari sirayla yurutur.
 
@@ -388,7 +389,16 @@ class Orchestrator:
             workflow_id=workflow["id"],
             task_key=task_key or "",
             plan_id=plan_id or "",
+            doc_scope=list(doc_scope or []),
         )
+        # Kapsam ARAC BAGLAMINA yazilir, prompt'a degil: bir prompt
+        # satiri "yalnizca su belgelere bak" der ve model ona uymayabilir;
+        # baglamdaki kapsam aramanin kendisini daraltir.
+        self.ctx.doc_scope = tuple(doc_scope or [])
+        if doc_scope:
+            self.events.emit(
+                "phase", "run", t("run.doc_scope", n=len(doc_scope)), run_id=run_id
+            )
         self.events.current_run = run_id
         self._run_id = run_id
         self.events.emit(

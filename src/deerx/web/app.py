@@ -1233,12 +1233,41 @@ def build_app(settings: Settings) -> Starlette:
         source = str(body.get("source", "")).strip()
         if not source:
             return _error(t("api.source_required"))
-        removed = state.orchestrator.kb.forget(source)
+
+        # Uc ayri niyet, uc ayri islem. Onceden tek bir "kaldir" vardi ve
+        # o yalnizca dizinden siliyordu: dosya diskte kaldigi icin bir
+        # sonraki `ingest` belgeyi SESSIZCE geri getiriyordu.
+        mode = str(body.get("mode", "deactivate")).strip().lower()
+        if mode not in ("deactivate", "activate", "delete"):
+            return _error(t("api.unknown_forget_mode", mode=mode))
+
+        kb = state.orchestrator.kb
+        if mode == "delete":
+            removed = kb.forget(source, remove_file=True)
+            state.runner.emit(
+                "tool", "rag", t("api.removed_chunks", source=source, count=removed)
+            )
+            _audit(request, "knowledge.delete", detail=source)
+            return _json({"ok": True, "mode": mode, "removed_chunks": removed})
+
+        aktif = mode == "activate"
+        if not kb.deactivate(source, active=aktif):
+            return _error(t("api.unknown_document", source=source), 404)
         state.runner.emit(
-            "tool", "rag", t("api.removed_chunks", source=source, count=removed)
+            "tool", "rag",
+            t("api.doc_activated" if aktif else "api.doc_deactivated", source=source),
         )
-        _audit(request, "knowledge.forget", detail=source)
-        return _json({"ok": True, "removed_chunks": removed})
+        _audit(request, "knowledge.activate" if aktif else "knowledge.deactivate",
+               detail=source)
+        return _json({"ok": True, "mode": mode, "removed_chunks": 0})
+
+    def _uploader(request: Request) -> str:
+        """Yukleyenin kullanici adi. Kimlik dogrulama kapaliysa bos kalir --
+        ve BOS BIRAKILIR, tahmin edilmez: kim yukledigi bilinmiyorsa
+        arayuz onu "-" gosterir; uydurulmus bir ad denetim gunlugunu
+        degersiz kilardi."""
+        user = getattr(request.state, "user", None)
+        return getattr(user, "username", "") or ""
 
     async def upload(request: Request) -> Response:
         """Sartname dosyasini `docs/` altina yazar ve indeksler.
@@ -1291,7 +1320,9 @@ def build_app(settings: Settings) -> Starlette:
         )
 
         def run_ingest() -> dict[str, Any]:
-            result = state.orchestrator.kb.ingest_file(target, force=True)
+            result = state.orchestrator.kb.ingest_file(
+                target, force=True, uploaded_by=_uploader(request)
+            )
             if not result.ok:
                 # Okunamayan dosyayi calisma alaninda birakma. Ama var olan bir
                 # dosyanin ustune yazdiysak eskisini geri koy: bozuk bir yukleme
@@ -1300,7 +1331,9 @@ def build_app(settings: Settings) -> Starlette:
                     target.unlink(missing_ok=True)
                 else:
                     target.write_bytes(backup)
-                    state.orchestrator.kb.ingest_file(target, force=True)
+                    state.orchestrator.kb.ingest_file(
+                        target, force=True, uploaded_by=_uploader(request)
+                    )
             return {
                 "ok": result.ok,
                 "name": name,
@@ -1831,6 +1864,11 @@ def build_app(settings: Settings) -> Starlette:
         if needs_llm and not settings.llm_ready:
             return _error(f"Model cagrisi yapilamaz: {settings.llm_hint}.", 400)
 
+        # `sources` INDEKSLENECEK yollar; `doc_scope` kosunun OKUYABILECEGI
+        # belgeler. Ikisi ayri sey ve ayni istekte birlikte gelebilir:
+        # "sunu indeksle, sonra yalnizca sunlari oku".
+        doc_scope = [str(x).strip() for x in (body.get("doc_scope") or []) if str(x).strip()]
+
         sources: list[Path] = []
         for entry in body.get("sources") or []:
             candidate = Path(str(entry))
@@ -1887,6 +1925,7 @@ def build_app(settings: Settings) -> Starlette:
                 title_args=title_args,
                 brief=body.get("brief"),
                 sources=sources,
+                doc_scope=doc_scope,
                 force=bool(body.get("force", False)),
                 task_key=task_key,
                 plan_id=plan_id,

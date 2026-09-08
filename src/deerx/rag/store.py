@@ -25,6 +25,11 @@ from .loaders import LoadedDoc
 
 log = get_logger("rag.store")
 
+# (vektorler, chunk_id'ler, kind'lar, doc_id'ler). Dorduncu eleman belge
+# daraltmasi icin zorunlu: skorlar parca duzeyinde uretiliyor ve parcanin
+# hangi belgeye ait oldugu yalnizca burada bilinebilir.
+_Onbellek = tuple["np.ndarray", "np.ndarray", list[str], "np.ndarray"]
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents (
     id          INTEGER PRIMARY KEY,
@@ -34,7 +39,10 @@ CREATE TABLE IF NOT EXISTS documents (
     sha256      TEXT NOT NULL,
     n_chunks    INTEGER NOT NULL DEFAULT 0,
     meta        TEXT NOT NULL DEFAULT '{}',
-    indexed_at  REAL NOT NULL
+    indexed_at  REAL NOT NULL,
+    uploaded_by TEXT NOT NULL DEFAULT '',
+    uploaded_at REAL NOT NULL DEFAULT 0,
+    is_active   INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS chunks (
@@ -108,7 +116,7 @@ class VectorStore:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._fts_enabled = True
-        self._cache: tuple[np.ndarray, np.ndarray, list[str]] | None = None
+        self._cache: _Onbellek | None = None
         self._cache_rows = -1
         self._ensure_schema()
 
@@ -122,7 +130,28 @@ class VectorStore:
         except sqlite3.OperationalError as exc:  # pragma: no cover - eski sqlite
             self._fts_enabled = False
             log.warning(t("setup.no_fts", error=exc))
+        self._migrate()
         self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Var olan bir veritabanini yeni sutunlarla yukseltir.
+
+        `CREATE TABLE IF NOT EXISTS` var olan bir tabloyu DEGISTIRMEZ:
+        gocmen olmadan yeni sutunlar yalnizca bos bir veritabaninda
+        olusur ve mevcut her kurulum "no such column" ile coker.
+        `ProjectState._migrate` ile ayni desen.
+        """
+        mevcut = {
+            row["name"]
+            for row in self._conn.execute("PRAGMA table_info(documents)")
+        }
+        for ad, tanim in (
+            ("uploaded_by", "TEXT NOT NULL DEFAULT ''"),
+            ("uploaded_at", "REAL NOT NULL DEFAULT 0"),
+            ("is_active", "INTEGER NOT NULL DEFAULT 1"),
+        ):
+            if ad not in mevcut:
+                self._conn.execute(f"ALTER TABLE documents ADD COLUMN {ad} {tanim}")
 
     def close(self) -> None:
         self._conn.close()
@@ -164,15 +193,29 @@ class VectorStore:
         doc: LoadedDoc,
         chunks: list[Chunk],
         vectors: np.ndarray,
+        uploaded_by: str = "",
     ) -> int:
         """Dokumani (varsa eskisini silerek) yazar ve parca sayisini doner."""
         if len(chunks) != len(vectors):
             raise ValueError("Parca sayisi ile vektor sayisi uyusmuyor.")
 
+        # Yeniden indeksleme kaydi SILIP yeniden yaziyor: yukleyen ve
+        # yuklenme zamani onceden okunmazsa her yeniden indekslemede
+        # kaybolurdu -- ve bir belgenin kim tarafindan getirildigi, tam
+        # da o belge degistiginde onemli hale gelir.
+        onceki = self._conn.execute(
+            "SELECT uploaded_by, uploaded_at FROM documents WHERE source = ?",
+            (doc.source,),
+        ).fetchone()
+        kim = uploaded_by or (onceki["uploaded_by"] if onceki else "")
+        ne_zaman = (onceki["uploaded_at"] if onceki and onceki["uploaded_at"] else 0.0)
+
         self.delete_document(doc.source)
         cur = self._conn.execute(
-            "INSERT INTO documents (source, title, kind, sha256, n_chunks, meta, indexed_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO documents "
+            "(source, title, kind, sha256, n_chunks, meta, indexed_at, "
+            " uploaded_by, uploaded_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 doc.source,
                 doc.title,
@@ -181,6 +224,8 @@ class VectorStore:
                 len(chunks),
                 json.dumps(doc.meta, ensure_ascii=False, default=str),
                 time.time(),
+                kim,
+                ne_zaman or (time.time() if kim else 0.0),
             ),
         )
         doc_id = int(cur.lastrowid or 0)
@@ -219,8 +264,12 @@ class VectorStore:
     # ------------------------------------------------------------------ #
     # Okuma
     # ------------------------------------------------------------------ #
-    def _vector_cache(self) -> tuple[np.ndarray, np.ndarray, list[str]]:
-        """(vektorler, chunk_id'ler, kind'lar) uclusunu bellege alir.
+    def _vector_cache(self) -> _Onbellek:
+        """(vektorler, chunk_id'ler, kind'lar, doc_id'ler) dortlusu.
+
+        `doc_ids` olmadan anlamsal tarafta belge daraltmasi yapilamaz:
+        skorlar parca duzeyinde uretiliyor ve parcanin hangi belgeye ait
+        oldugu yalnizca burada bilinebilir.
 
         Onbellek yalnizca bu ornegin yazmalarinda gecersiz kilinir; ayni
         veritabanini paylasan BASKA bir surec (or. CLI kosarken acik duran web
@@ -234,7 +283,7 @@ class VectorStore:
             return self._cache
         self._cache = None
         rows = self._conn.execute(
-            "SELECT e.chunk_id, e.vector, c.kind FROM embeddings e "
+            "SELECT e.chunk_id, e.vector, c.kind, c.doc_id FROM embeddings e "
             "JOIN chunks c ON c.id = e.chunk_id ORDER BY e.chunk_id"
         ).fetchall()
         if not rows:
@@ -242,13 +291,15 @@ class VectorStore:
                 np.zeros((0, self.dim), dtype=np.float32),
                 np.zeros(0, dtype=np.int64),
                 [],
+                np.zeros(0, dtype=np.int64),
             )
             self._cache_rows = 0
             return self._cache
         matrix = np.vstack([np.frombuffer(r["vector"], dtype=np.float32) for r in rows])
         ids = np.array([r["chunk_id"] for r in rows], dtype=np.int64)
         kinds = [r["kind"] for r in rows]
-        self._cache = (matrix, ids, kinds)
+        docs = np.array([r["doc_id"] for r in rows], dtype=np.int64)
+        self._cache = (matrix, ids, kinds, docs)
         self._cache_rows = len(rows)
         return self._cache
 
@@ -257,8 +308,9 @@ class VectorStore:
         query_vector: np.ndarray,
         k: int,
         kinds: Iterable[str] | None = None,
+        doc_ids: Iterable[int] | None = None,
     ) -> list[tuple[int, float]]:
-        matrix, ids, row_kinds = self._vector_cache()
+        matrix, ids, row_kinds, row_docs = self._vector_cache()
         if matrix.shape[0] == 0:
             return []
         if matrix.shape[1] != query_vector.shape[0]:
@@ -276,6 +328,11 @@ class VectorStore:
             wanted = set(kinds)
             mask = np.array([kind in wanted for kind in row_kinds], dtype=bool)
             scores = np.where(mask, scores, -np.inf)
+        if doc_ids is not None:
+            izin = np.asarray(sorted(set(doc_ids)), dtype=np.int64)
+            # Bos kapsam "hicbir belge" demektir, "kapsam yok" degil:
+            # caginin bos liste vermesi ile hic vermemesi ayri seyler.
+            scores = np.where(np.isin(row_docs, izin), scores, -np.inf)
 
         top = np.argpartition(-scores, min(k, len(scores) - 1))[:k]
         top = top[np.argsort(-scores[top])]
@@ -295,9 +352,10 @@ class VectorStore:
         query: str,
         k: int,
         kinds: Iterable[str] | None = None,
+        doc_ids: Iterable[int] | None = None,
     ) -> list[tuple[int, float]]:
         if not self._fts_enabled:
-            return self._search_like(query, k, kinds)
+            return self._search_like(query, k, kinds, doc_ids)
 
         match = self._fts_query(query)
         if not match:
@@ -312,6 +370,10 @@ class VectorStore:
             wanted = list(kinds)
             sql += f" AND c.kind IN ({','.join('?' * len(wanted))})"
             params.extend(wanted)
+        if doc_ids is not None:
+            izin = sorted(set(doc_ids))
+            sql += f" AND c.doc_id IN ({','.join('?' * len(izin)) or 'NULL'})"
+            params.extend(izin)
         sql += " ORDER BY rank LIMIT ?"
         params.append(k)
 
@@ -319,12 +381,16 @@ class VectorStore:
             rows = self._conn.execute(sql, params).fetchall()
         except sqlite3.OperationalError as exc:  # pragma: no cover
             log.debug("FTS sorgusu basarisiz (%s); LIKE'a dusuluyor.", exc)
-            return self._search_like(query, k, kinds)
+            return self._search_like(query, k, kinds, doc_ids)
         # bm25 dusuk = daha iyi; isareti cevirerek "yuksek = iyi" yapariz.
         return [(int(r["chunk_id"]), -float(r["rank"])) for r in rows]
 
     def _search_like(
-        self, query: str, k: int, kinds: Iterable[str] | None
+        self,
+        query: str,
+        k: int,
+        kinds: Iterable[str] | None,
+        doc_ids: Iterable[int] | None = None,
     ) -> list[tuple[int, float]]:
         tokens = _TOKEN_RE.findall(query.lower())[:6]
         if not tokens:
@@ -336,6 +402,10 @@ class VectorStore:
             wanted = list(kinds)
             sql += f" AND kind IN ({','.join('?' * len(wanted))})"
             params.extend(wanted)
+        if doc_ids is not None:
+            izin = sorted(set(doc_ids))
+            sql += f" AND doc_id IN ({','.join('?' * len(izin)) or 'NULL'})"
+            params.extend(izin)
         sql += " LIMIT ?"
         params.append(k)
         rows = self._conn.execute(sql, params).fetchall()
@@ -371,7 +441,7 @@ class VectorStore:
         """MMR cesitlendirmesi icin belirli parcalarin vektorlerini doner."""
         if not chunk_ids:
             return np.zeros((0, self.dim), dtype=np.float32)
-        matrix, ids, _ = self._vector_cache()
+        matrix, ids, _, _ = self._vector_cache()
         index = {int(cid): i for i, cid in enumerate(ids)}
         rows = [matrix[index[cid]] for cid in chunk_ids if cid in index]
         if not rows:
@@ -388,9 +458,60 @@ class VectorStore:
 
     def list_documents(self) -> list[dict[str, Any]]:
         rows = self._conn.execute(
-            "SELECT source, title, kind, n_chunks, indexed_at FROM documents ORDER BY title"
+            "SELECT id, source, title, kind, n_chunks, indexed_at, "
+            "uploaded_by, uploaded_at, is_active FROM documents "
+            "ORDER BY indexed_at DESC"
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [dict(row) for row in rows]
+
+    def doc_ids_for(self, sources: Iterable[str]) -> list[int]:
+        """Kaynak yollarini belge kimliklerine cevirir.
+
+        Bilinmeyen bir kaynak SESSIZCE atlanir: kapsam bir suzgectir,
+        bir iddia degil -- silinmis bir belgeye atif yuzunden kosunun
+        dusmesi, kapsamin hic olmamasindan kotudur.
+        """
+        istenen = [str(x) for x in sources]
+        if not istenen:
+            return []
+        isaret = ",".join("?" * len(istenen))
+        rows = self._conn.execute(
+            f"SELECT id FROM documents WHERE source IN ({isaret})", istenen
+        ).fetchall()
+        return [int(r["id"]) for r in rows]
+
+    def active_doc_ids(self) -> list[int]:
+        rows = self._conn.execute(
+            "SELECT id FROM documents WHERE is_active = 1"
+        ).fetchall()
+        return [int(r["id"]) for r in rows]
+
+    def is_inactive(self, source: str) -> bool:
+        """Belge bilerek pasiflestirilmis mi.
+
+        Yeniden indeksleme bunu sormak ZORUNDA: dosya diskte durdugu
+        icin `docs/` her tarandiginda geri gelirdi ve kullanicinin
+        "artik buna bakma" karari sessizce iptal olurdu.
+        """
+        row = self._conn.execute(
+            "SELECT is_active FROM documents WHERE source = ?", (str(source),)
+        ).fetchone()
+        return row is not None and not int(row["is_active"])
+
+    def set_active(self, source: str, active: bool) -> bool:
+        """Belgeyi aramadan ve yeniden indekslemeden cikarir/geri alir.
+
+        Silmekten farki: parcalar ve vektorler DURUR, yani geri almak
+        yeniden indeksleme gerektirmez. Bir sartnamenin eski surumunu
+        "artik buna bakma" diye isaretlemek, silmekten daha sik istenen
+        seydir ve geri donusu olmali.
+        """
+        cur = self._conn.execute(
+            "UPDATE documents SET is_active = ? WHERE source = ?",
+            (1 if active else 0, str(source)),
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
 
     def stats(self) -> dict[str, Any]:
         docs = self._conn.execute("SELECT COUNT(*) AS n FROM documents").fetchone()["n"]

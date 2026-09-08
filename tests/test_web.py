@@ -123,11 +123,89 @@ class TestKnowledge:
         )
         assert response.status_code == 400
 
-    def test_forget_document(self, client):
+    def test_deactivating_is_the_default_and_is_reversible(self, client):
+        """Varsayilan islem PASIFLESTIRME, silme degil.
+
+        Onceden tek bir "kaldir" vardi ve o yalnizca dizinden siliyordu;
+        dosya diskte kaldigi icin bir sonraki `ingest` belgeyi sessizce
+        geri getiriyordu. Kullanicinin "artik buna bakma" karari, geri
+        alinabilir ve KALICI bir sey olmali.
+        """
         client.post("/api/ingest", json={"path": "docs"})
         source = client.get("/api/documents").json()["documents"][0]["source"]
-        assert client.post("/api/forget", json={"source": source}).json()["removed_chunks"] > 0
+
+        cevap = client.post("/api/forget", json={"source": source})
+        assert cevap.status_code == 200 and cevap.json()["mode"] == "deactivate"
+
+        belgeler = client.get("/api/documents").json()
+        # Parcalar DURUR: geri almak yeniden indeksleme gerektirmemeli.
+        assert belgeler["stats"]["chunks"] > 0
+        assert belgeler["documents"][0]["is_active"] == 0
+
+        client.post("/api/forget", json={"source": source, "mode": "activate"})
+        assert client.get("/api/documents").json()["documents"][0]["is_active"] == 1
+
+    def test_deleting_removes_the_chunks_and_the_file(self, client, settings):
+        client.post("/api/ingest", json={"path": "docs"})
+        source = client.get("/api/documents").json()["documents"][0]["source"]
+
+        cevap = client.post("/api/forget", json={"source": source, "mode": "delete"})
+        assert cevap.json()["removed_chunks"] > 0
         assert client.get("/api/documents").json()["stats"]["chunks"] == 0
+        assert not Path(source).exists(), "dosya diskte kaldi; bir sonraki ingest geri getirir"
+
+    def test_an_unknown_forget_mode_is_refused(self, client):
+        client.post("/api/ingest", json={"path": "docs"})
+        source = client.get("/api/documents").json()["documents"][0]["source"]
+        assert client.post(
+            "/api/forget", json={"source": source, "mode": "sil-gitsin"}
+        ).status_code == 400
+
+
+class TestDocumentScope:
+    """Kosunun okuyabilecegi belgeler kullanicidan gelir.
+
+    Kullanicinin adiyla istedigi sey: "gelistirme yaparken dokuman
+    yukleyebilmeli VEYA YUKLU OLANLARDAN SECEBILMELI". Kapsam olmadan
+    her kosu korpusun tamamini goruyordu.
+    """
+
+    def test_the_scope_is_recorded_on_the_run(self, client):
+        client.post("/api/ingest", json={"path": "docs"})
+        kaynak = client.get("/api/documents").json()["documents"][0]["source"]
+
+        cevap = client.post(
+            "/api/run", json={"phases": ["ingest"], "doc_scope": [kaynak]}
+        )
+        assert cevap.status_code == 200, cevap.text
+        run_id = cevap.json()["run"]["id"]
+
+        _bekle(client)
+        kosu = client.get(f"/api/runs/{run_id}").json()["run"]
+        assert kosu["doc_scope"] == [kaynak]
+
+    def test_no_scope_means_the_whole_corpus(self, client):
+        """Kapsam GONDERILMEDIGINDE bos kalir ve bos "tum korpus" demektir.
+
+        Gecmis kosularin anlami boylece degismiyor: `doc_scope` sutunu
+        onlar icin de bos.
+        """
+        client.post("/api/ingest", json={"path": "docs"})
+        cevap = client.post("/api/run", json={"phases": ["ingest"]})
+        run_id = cevap.json()["run"]["id"]
+
+        _bekle(client)
+        assert client.get(f"/api/runs/{run_id}").json()["run"]["doc_scope"] == []
+
+
+def _bekle(client, saniye: float = 10.0) -> None:
+    """Arka plandaki kosu bitene kadar bekler."""
+    son = time.time() + saniye
+    while time.time() < son:
+        if not client.get("/api/overview").json()["run"]["running"]:
+            return
+        time.sleep(0.05)
+    raise AssertionError("kosu zamaninda bitmedi")
 
 
 class TestArtifacts:
