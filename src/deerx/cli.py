@@ -21,7 +21,7 @@ from .config import (
 )
 from .errors import DeerXError
 from .i18n import set_language, t
-from .logging import GLYPHS, EventLog, console, setup_logging
+from .logging import GLYPHS, EventLog, console, get_logger, setup_logging
 from .pipeline import Orchestrator, Phase, Status
 
 
@@ -248,6 +248,8 @@ def run(
         )
     )
 
+    _kaynak_kaydet(settings, "run.start", ", ".join(str(p) for p in phases))
+
     with _orchestrator(settings) as orch:
         report = orch.run(
             phases,
@@ -428,6 +430,30 @@ def _auth_store():
     # orada olur, otekisi zaten tasinmis bir veritabani gorur.
     migrate_from_project(settings.db_path, store)
     return store, settings
+
+
+def _kaynak_kaydet(settings, action: str, detail: str = "") -> None:
+    """Komut satirindan yapilan islemi denetim gunluguene yazar.
+
+    Bir kosu web'den baslatildiginda gunluge duser, komut satirindan
+    baslatildiginda dusmuyordu: cok kullanicili bir kurulumda "bu faz
+    neden yeniden kosdu?" sorusunun cevabi kayip oluyordu.
+
+    Kullanici adi BOS -- CLI'da oturum yok ve tahmin etmek yanlis olur.
+    Hicbir kosulda kosuyu dusurmez: gunluk yazilamadi diye is
+    yapilmamasi, gunlugu ise yaramaz kilar.
+    """
+    try:
+        from .web.auth import AuthStore
+
+        settings.platform_db_path.parent.mkdir(parents=True, exist_ok=True)
+        depo = AuthStore(settings.platform_db_path)
+        try:
+            depo.record_from("cli", action, detail=detail)
+        finally:
+            depo.close()
+    except Exception as exc:  # noqa: BLE001 - gunluk isi durdurmaz
+        get_logger("cli").debug("audit record failed: %s", exc)
 
 
 def _password_from_stdin() -> str:

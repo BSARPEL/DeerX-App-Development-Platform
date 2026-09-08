@@ -94,6 +94,13 @@ class RunInfo:
     status: str = "running"  # running | done | failed | cancelled | needs_input
     error: str | None = None
     cost: float = 0.0
+    # Kosuyu BASLATAN kullanici adi. Bos ise kimlik dogrulama kapali ya
+    # da kosu komut satirindan baslatilmis demektir.
+    #
+    # Cok kullanicili bir projede bu, "calisiyor" rozetinin eksik yarisi:
+    # kim calistiriyor? Ve onay kuyrugunun dayanagi -- ajanin calistirmak
+    # istedigi tehlikeli komutu, o kosuyu baslatan kisi onaylamali.
+    started_by: str = ""
     results: list[dict[str, Any]] = field(default_factory=list)
     pending_questions: list[str] = field(default_factory=list)
 
@@ -111,6 +118,7 @@ class RunInfo:
             "status": self.status,
             "error": self.error,
             "cost": round(self.cost, 4),
+            "started_by": self.started_by,
             "results": self.results,
             "pending_questions": self.pending_questions,
             "elapsed": round((self.finished_at or time.time()) - self.started_at, 1),
@@ -206,6 +214,12 @@ class RunManager:
         with self._lock:
             return [a.to_dict() for a in self._approvals.values()]
 
+    @property
+    def owner(self) -> str:
+        """Suren kosuyu baslatan kullanici; yoksa bos."""
+        with self._lock:
+            return self._current.started_by if self._current else ""
+
     def resolve_approval(self, approval_id: str, granted: bool) -> bool:
         with self._lock:
             request = self._approvals.get(approval_id)
@@ -255,6 +269,7 @@ class RunManager:
         title_key: str = "",
         title_args: dict[str, Any] | None = None,
         doc_scope: list[str] | None = None,
+        started_by: str = "",
     ) -> RunInfo:
         """Fazlari arka planda baslatir."""
         with self._lock:
@@ -272,6 +287,7 @@ class RunManager:
                 title_key=title_key,
                 title_args=dict(title_args or {}),
                 started_at=time.time(),
+                started_by=started_by,
             )
             # Kosu kaydini burada, is parcacigi baslamadan ac: cagiran taraf
             # yanitla birlikte kosu numarasini alsin. Arka planda acilirsa

@@ -545,8 +545,9 @@ class TestRoles:
 
         assert guarded.get("/api/users").status_code == 403
         assert guarded.post("/api/users", json={}).status_code == 403
-        # Ama uygulamanin kendisini kullanabilir.
-        assert guarded.get("/api/overview").status_code == 200
+        # Ve hicbir projeye UYE OLMADIGI icin proje verisini de goremez.
+        # Hesap acmak erisim vermez: uyelik acikca verilen bir sey oldu.
+        assert guarded.get("/api/overview").status_code == 403
 
     def test_a_plain_user_cannot_repoint_the_model_endpoint(self, guarded):
         """OLCULDU: `/api/settings` hicbir rol kontrolu yapmiyordu.
@@ -601,6 +602,15 @@ class TestRoles:
         _login(guarded)
         guarded.post(
             "/api/users", json={"username": "ekip", "password": "ikinci-uzun-parola"}
+        )
+        # Olculen sey AYAR YAZMA yolu, uyelik degil: ekibi projeye
+        # gelistirici olarak ekliyoruz ki 403 uyelikten degil kapsamdan
+        # gelsin.
+        kisiler = {u["username"]: u for u in guarded.get("/api/users").json()["users"]}
+        proje = guarded.get("/api/projects").json()["active"]
+        guarded.post(
+            f"/api/projects/{proje['id']}/members",
+            json={"user_id": kisiler["ekip"]["id"], "role": "developer"},
         )
         guarded.post("/api/auth/logout")
         _login(guarded, "ekip", "ikinci-uzun-parola")

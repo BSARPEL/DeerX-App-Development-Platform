@@ -2211,6 +2211,10 @@ CATALOG: dict[str, dict[str, str]] = {
         "tr": "yeniden etkinlestirildi: {source}",
         "en": "reactivated: {source}",
     },
+    "api.approval_not_yours": {
+        "tr": "Bu onayi kosuyu baslatan verebilir: {user}",
+        "en": "Only the person who started the run can approve this: {user}",
+    },
     "api.unknown_session": {
         "tr": "Boyle bir oturum yok.",
         "en": "No such session.",

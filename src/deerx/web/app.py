@@ -40,6 +40,7 @@ from ..config import (
     browse_host,
     load_settings,
     platform_home,
+    read_toml_table,
     save_settings,
 )
 from ..errors import ConfigError, DeerXError
@@ -206,6 +207,11 @@ MAX_OPEN_PROJECTS = 8
 # Guvenlik acisindan bedeli yok -- uyelik zaten her istekte dogrulaniyor,
 # cerez yalnizca bir tercih tasiyor.
 PROJECT_COOKIE = "deerx_project"
+
+# Istegin hangi projeye ait oldugunu tasiyan baslik. Cerezden ONCE
+# okunur: hash sekmeye aittir ve iki pencerede iki proje ancak boyle
+# acilabilir.
+PROJECT_HEADER = "X-DeerX-Project"
 
 
 class ProjectRuntime:
@@ -532,12 +538,23 @@ SANDBOX_FIELDS = {
 }
 
 
-def settings_snapshot(settings: Settings) -> dict[str, Any]:
-    """Arayuze gonderilen ayar goruntusu. Sirlar deger olarak DONMEZ."""
+def settings_snapshot(
+    settings: Settings, hesap: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Arayuze gonderilen ayar goruntusu. Sirlar deger olarak DONMEZ.
+
+    `hesap`, ISTEGI YAPAN kullanicinin kendi tercihleri. Kapsami "hesap"
+    olan alanlar ortak `Settings` nesnesinden degil buradan okunur:
+    o nesne sunucuda TEK ve paylasilan, dolayisiyla oradan okumak "en son
+    kim kaydettiyse onun dili" demek olurdu.
+    """
     view: dict[str, Any] = {}
+    hesap = hesap or {}
     for name, spec in SETTING_FIELDS.items():
         if spec.secret:
             view[f"has_{name}"] = bool(getattr(settings, name))
+        elif spec.scope == "hesap" and name in hesap:
+            view[name] = hesap[name]
         else:
             view[name] = getattr(settings, name)
     view.update(
@@ -548,6 +565,17 @@ def settings_snapshot(settings: Settings) -> dict[str, Any]:
             "platform_fields": sorted(
                 ad for ad, spec in SETTING_FIELDS.items() if spec.scope == "platform"
             ),
+            # Proje alanlari da kilitlenebilir: bir izleyici onlari GORUR
+            # ama yazamaz. Yalnizca platform listesi gonderilirken arayuz
+            # onlari acik cizip 403 yiyordu.
+            "project_fields": sorted(
+                ad for ad, spec in SETTING_FIELDS.items() if spec.scope == "proje"
+            ),
+            # Alanin HANGI kapsamda oldugu da gidiyor: arayuz bugun bir
+            # alanin proje mi hesap mi oldugunu ayirt edemiyor ve her
+            # alani ya normal ya kilitli ciziyor. Tek kaynak alan
+            # tablosu -- elle kopyalanan bir liste ondan sessizce ayrilir.
+            "field_scopes": {ad: spec.scope for ad, spec in SETTING_FIELDS.items()},
             "workspace": str(settings.workspace),
             "has_api_key": settings.llm_ready,
             "llm_hint": settings.llm_hint,
@@ -591,6 +619,9 @@ def build_app(settings: Settings) -> Starlette:
     # Genel bakis
     # ---------------------------------------------------------------- #
     async def overview(request: Request) -> Response:
+        denied = _require_role(request, "viewer")
+        if denied is not None:
+            return denied
         orch = state.orchestrator
         counts = orch.state.counts()
         phases = phase_catalog(orch.state)
@@ -626,7 +657,7 @@ def build_app(settings: Settings) -> Starlette:
                     asdict(q) for q in orch.state.open_blocking_questions()
                 ],
                 "total_cost": round(total_cost, 4),
-                "settings": settings_snapshot(settings),
+                "settings": settings_snapshot(settings, _hesap_ayarlari(request)),
             }
         )
 
@@ -665,6 +696,14 @@ def build_app(settings: Settings) -> Starlette:
                 return _error(t("api.unknown_setting", name=name))
             if spec.scope == "platform" and not yonetici:
                 return _error(t("api.setting_admin_only", name=name), 403)
+            # Proje ayari da yazma yoludur. Bir izleyici `/api/run`dan
+            # 403 aliyor ama onay modunu "auto"ya cekip baskasinin
+            # kosusunun konak makinede dosya yazmasini saglayabiliyordu:
+            # yazma yolu ucun ADINDA degil, ETKISINDE.
+            if spec.scope == "proje":
+                denied = _require_role(request, "developer")
+                if denied is not None:
+                    return denied
             try:
                 cleaned = spec.parse(value)
             except (TypeError, ValueError) as exc:
@@ -672,13 +711,25 @@ def build_app(settings: Settings) -> Starlette:
             temiz.append((name, cleaned, spec))
 
         changed: dict[str, Any] = {}
+        kisisel = state.auth.is_configured and getattr(request.state, "user", None)
         for name, cleaned, spec in temiz:
-            setattr(settings, name, cleaned)
-            if name == "language":
-                # Atama dogrulayiciyi calistirmaz; Python tarafinin mesaj
-                # katalogunu burada da guncelliyoruz ki arayuz Ingilizceye
-                # gecerken olay akisi Turkce kalmasin.
-                set_language(str(cleaned))
+            # HESAP ayari ortak nesneye YAZILMAZ. `Settings` sunucuda tek
+            # ve paylasilan: oraya yazmak, tercihi hic belirtmemis herkesin
+            # ekranini son kaydedenin diline cevirirdi. Ortak deger
+            # sunucunun acilistaki degeri olarak kalir ve tam da bunun
+            # icin dogru bir yedek olur: "ev varsayilani".
+            if not (spec.scope == "hesap" and kisisel):
+                setattr(settings, name, cleaned)
+                if name == "language":
+                    # Atama dogrulayiciyi calistirmaz; Python tarafinin mesaj
+                    # katalogunu burada da guncelliyoruz ki arayuz Ingilizceye
+                    # gecerken olay akisi Turkce kalmasin.
+                    #
+                    # KISISEL bir kayitta calismaz: bu katalog SUNUCU
+                    # GENELI ve olay akisi projedeki herkese gidiyor.
+                    # Kendi dilini secen kisi, baskasinin akisini
+                    # cevirmemeli.
+                    set_language(str(cleaned))
             changed[name] = t("record.defined") if spec.secret and cleaned else (
                 t("record.cleared") if spec.secret else cleaned
             )
@@ -690,7 +741,7 @@ def build_app(settings: Settings) -> Starlette:
         if set(changed) & SANDBOX_FIELDS:
             state.orchestrator.reset_sandbox()
 
-        _kalici_yaz(temiz)
+        _kalici_yaz(temiz, request)
 
         if changed:
             # Olay akisina Python sozlugunun `repr`i dusuyordu:
@@ -898,6 +949,9 @@ def build_app(settings: Settings) -> Starlette:
     # Proje hafizasi
     # ---------------------------------------------------------------- #
     async def project_state(request: Request) -> Response:
+        denied = _require_role(request, "viewer")
+        if denied is not None:
+            return denied
         section = request.path_params["section"]
         data = state.orchestrator.state.to_dict()
         key = {"research": "research_notes"}.get(section, section)
@@ -921,6 +975,9 @@ def build_app(settings: Settings) -> Starlette:
     # ---------------------------------------------------------------- #
     async def plans(request: Request) -> Response:
         """Planlar ve hangisinin etkin oldugu."""
+        denied = _require_role(request, "viewer")
+        if denied is not None:
+            return denied
         project = state.orchestrator.state
         # Once etkin plan: ilk cagride varsayilan plani olusturur ve plansiz
         # eski gorevleri ona devreder. Listeyi once okursak bos doner.
@@ -1231,7 +1288,9 @@ def build_app(settings: Settings) -> Starlette:
             return _error(t("project.needs_role", role=needed), 403)
         return None
 
-    def _kalici_yaz(temiz: list[tuple[str, Any, SettingField]]) -> None:
+    def _kalici_yaz(
+        temiz: list[tuple[str, Any, SettingField]], request: Request
+    ) -> None:
         """Ayari dosyaya yazar ki sunucu yeniden baslayinca kaybolmasin.
 
         OLCULDU: depoda toml YAZAN tek satir yoktu (`tomllib` salt okur).
@@ -1241,7 +1300,8 @@ def build_app(settings: Settings) -> Starlette:
         eski modelle kosuyordu.
 
         Kapsam dosyayi belirler: proje ayarlari `<proje>/deerx.toml`a,
-        platform ayarlari `<DEERX_HOME>/platform.toml`a.
+        platform ayarlari `<DEERX_HOME>/platform.toml`a, hesap ayarlari
+        `<DEERX_HOME>/users/<kimlik>.toml`a.
 
         SIRLAR YAZILMAZ. API anahtarlari `.env` ile ya da elle
         `deerx.toml` ile veriliyor; arayuzden girilen bir anahtari
@@ -1251,11 +1311,18 @@ def build_app(settings: Settings) -> Starlette:
         """
         proje_alanlari: dict[str, Any] = {}
         platform_alanlari: dict[str, Any] = {}
+        hesap_alanlari: dict[str, Any] = {}
+        # UC kapsam, UC kova. Once ikisi vardi ("platform degilse proje")
+        # ve "hesap" sessizce projeye dusuyordu.
+        kovalar = {
+            "platform": platform_alanlari,
+            "hesap": hesap_alanlari,
+            "proje": proje_alanlari,
+        }
         for ad, deger, spec in temiz:
             if spec.secret:
                 continue
-            hedef = platform_alanlari if spec.scope == "platform" else proje_alanlari
-            hedef[ad] = deger
+            kovalar.get(spec.scope, proje_alanlari)[ad] = deger
 
         try:
             if proje_alanlari:
@@ -1266,11 +1333,32 @@ def build_app(settings: Settings) -> Starlette:
                 save_settings(
                     platform_home() / "platform.toml", platform_alanlari
                 )
+            if hesap_alanlari:
+                save_settings(_hesap_yolu(request), hesap_alanlari)
         except OSError as exc:  # pragma: no cover - disk hatasi
             # Yazma dustuyse ayar YINE DE bu oturumda gecerli; kullaniciya
             # "kaydedilemedi" demek ama degisikligi geri almak, iki kotu
             # secenegin daha kotusu olurdu.
             log.warning(t("api.settings_not_saved", error=exc))
+
+    def _hesap_yolu(request: Request) -> Path:
+        """Hesap kapsamli ayarin yazildigi dosya.
+
+        Kimlik dogrulama hic kurulmamis yerel kurulumda KULLANICI YOK ve
+        makinede tek kisi var: tercih platform dosyasina duser, cunku
+        orada "yalnizca beni etkiler" zaten dogru.
+        """
+        user = getattr(request.state, "user", None)
+        if not state.auth.is_configured or user is None:
+            return platform_home() / "platform.toml"
+        return platform_home() / "users" / f"{user.id}.toml"
+
+    def _hesap_ayarlari(request: Request) -> dict[str, Any]:
+        """Istegi yapan kullanicinin kendi tercihleri."""
+        try:
+            return read_toml_table(_hesap_yolu(request))
+        except (OSError, ConfigError):  # pragma: no cover - bozuk dosya
+            return {}
 
     def _is_admin(request: Request) -> bool:
         """Kimlik dogrulama hic kurulmamissa yerel kurulum tek kisiliktir
@@ -1317,6 +1405,9 @@ def build_app(settings: Settings) -> Starlette:
 
     async def environment(request: Request) -> Response:
         """Bu projenin gelistirme ortami: kabin, portlar, servisler."""
+        denied = _require_role(request, "viewer")
+        if denied is not None:
+            return denied
         calisan = state.runtime()
         ayar = calisan.settings
         proje = state.project
@@ -1723,10 +1814,16 @@ def build_app(settings: Settings) -> Starlette:
     # Bilgi tabani
     # ---------------------------------------------------------------- #
     async def documents(request: Request) -> Response:
+        denied = _require_role(request, "viewer")
+        if denied is not None:
+            return denied
         orch = state.orchestrator
         return _json({"stats": orch.kb.stats(), "documents": orch.kb.list_documents()})
 
     async def search(request: Request) -> Response:
+        denied = _require_role(request, "viewer")
+        if denied is not None:
+            return denied
         try:
             body = await _body(request)
         except DeerXError as exc:
@@ -1953,6 +2050,9 @@ def build_app(settings: Settings) -> Starlette:
     # ---------------------------------------------------------------- #
     async def package_status(request: Request) -> Response:
         """Hazirlik denetimi ve mevcut paketler."""
+        denied = _require_role(request, "viewer")
+        if denied is not None:
+            return denied
         from ..pipeline.packaging import check_readiness
 
         readiness = check_readiness(state.orchestrator.state)
@@ -2054,6 +2154,9 @@ def build_app(settings: Settings) -> Starlette:
 
     async def package_download(request: Request) -> Response:
         """Zip dosyasini indirir."""
+        denied = _require_role(request, "viewer")
+        if denied is not None:
+            return denied
         # Yalnizca dosya adi kabul edilir; yol bileseni teslimat dizininden
         # cikmaya calisan bir istek olurdu.
         name = Path(request.path_params["name"].replace("\\", "/")).name
@@ -2074,6 +2177,9 @@ def build_app(settings: Settings) -> Starlette:
     # Kullaniciya sorulan sorular
     # ---------------------------------------------------------------- #
     async def questions(request: Request) -> Response:
+        denied = _require_role(request, "viewer")
+        if denied is not None:
+            return denied
         project = state.orchestrator.state
         return _json(
             {
@@ -2083,6 +2189,11 @@ def build_app(settings: Settings) -> Starlette:
         )
 
     async def resolve_question(request: Request) -> Response:
+        # `answer_question` ajana serbest metin veriyor ve o metin bir
+        # sonraki fazin GIRDISI. Kosu baslatmaktan daha az yazma degil.
+        denied = _require_role(request, "developer")
+        if denied is not None:
+            return denied
         try:
             body = await _body(request)
         except DeerXError as exc:
@@ -2122,6 +2233,9 @@ def build_app(settings: Settings) -> Starlette:
         ve kosusuz bir grup basligi kullaniciya hicbir sey anlatmiyordu.
         `?orphans=1` ile kosu kaydindan onceki ciktilar da dahil edilir.
         """
+        denied = _require_role(request, "viewer")
+        if denied is not None:
+            return denied
         project = state.orchestrator.state
         runs = {r["id"]: r for r in project.list_runs(200)}
         # Kosu bir IS AKISININ adimi; cikti da o is akisina aittir. Numara
@@ -2185,6 +2299,9 @@ def build_app(settings: Settings) -> Starlette:
         return _json({"groups": ordered, "total": total, "orphans": orphans})
 
     async def artifact_detail(request: Request) -> Response:
+        denied = _require_role(request, "viewer")
+        if denied is not None:
+            return denied
         name = request.path_params["name"]
         match = next(
             (a for a in state.orchestrator.state.list_artifacts() if a.name == name), None
@@ -2242,6 +2359,9 @@ def build_app(settings: Settings) -> Starlette:
 
     async def artifact_download(request: Request) -> Response:
         """Ciktiyi dosya olarak indirir (zip, gorsel, PDF …)."""
+        denied = _require_role(request, "viewer")
+        if denied is not None:
+            return denied
         name = request.path_params["name"]
         match = next(
             (a for a in state.orchestrator.state.list_artifacts() if a.name == name), None
@@ -2282,6 +2402,9 @@ def build_app(settings: Settings) -> Starlette:
     # Kosu
     # ---------------------------------------------------------------- #
     async def run_status(request: Request) -> Response:
+        denied = _require_role(request, "viewer")
+        if denied is not None:
+            return denied
         return _json(state.runner.status())
 
     async def run_workflow(request: Request) -> Response:
@@ -2316,6 +2439,17 @@ def build_app(settings: Settings) -> Starlette:
         etmemek icin bir is parcacigina alinir. Aksi halde sohbet suren
         her saniye butun arayuz -- canli akis dahil -- donardi.
         """
+        # Sohbet bir YAZMA yolu: cevabin `changes` alani is akisinin
+        # durumunu degistiriyor ve model cagrisi para harciyor. `#btn-run`
+        # dan 403 alan bir izleyici, sohbetten ayni projeyi
+        # degistirebiliyordu. GET serbest kalir -- "bu is akisi hakkinda
+        # ne konusulmus" izleyicinin gormesi gereken sey.
+        if request.method != "GET":
+            denied = _require_role(
+                request, "owner" if request.method == "DELETE" else "developer"
+            )
+            if denied is not None:
+                return denied
         project = state.orchestrator.state
         raw_id = request.path_params["workflow_id"]
         workflow_id = _resolve_id(raw_id, project.get_workflow, project.get_workflow_by_seq)
@@ -2357,6 +2491,9 @@ def build_app(settings: Settings) -> Starlette:
 
     async def run_list(request: Request) -> Response:
         """Kosu gecmisi — en yenisi basta."""
+        denied = _require_role(request, "viewer")
+        if denied is not None:
+            return denied
         project = state.orchestrator.state
         live = state.runner.status()
         current = (live.get("current") or {}).get("id")
@@ -2370,6 +2507,9 @@ def build_app(settings: Settings) -> Starlette:
 
     async def run_detail_route(request: Request) -> Response:
         """Tek bir kosunun tum adimlari. `#3` gibi sirali numara da kabul edilir."""
+        denied = _require_role(request, "viewer")
+        if denied is not None:
+            return denied
         raw_id = request.path_params["run_id"]
         project = state.orchestrator.state
         run_id = _resolve_id(raw_id, project.get_run, project.get_run_by_seq)
@@ -2423,6 +2563,7 @@ def build_app(settings: Settings) -> Starlette:
         try:
             info = state.runner.start(
                 phases,
+                started_by=_uploader(request),
                 goal=record["goal"],
                 brief=record["brief"],
                 title=title,
@@ -2531,6 +2672,7 @@ def build_app(settings: Settings) -> Starlette:
         try:
             info = state.runner.start(
                 phases,
+                started_by=_uploader(request),
                 goal=str(body.get("goal", "") or ""),
                 title=title,
                 title_key=title_key,
@@ -2567,12 +2709,27 @@ def build_app(settings: Settings) -> Starlette:
     # Onaylar
     # ---------------------------------------------------------------- #
     async def approvals(request: Request) -> Response:
+        # Bekleyen onay istegi projenin isini durduruyor: uye olmayan
+        # biri o listeyi gormemeli, cunku istek metni ajanin calistirmak
+        # istedigi KOMUTU tasiyor.
+        denied = _require_role(request, "viewer")
+        if denied is not None:
+            return denied
         return _json({"items": state.runner.pending_approvals()})
 
     async def resolve_approval(request: Request) -> Response:
         denied = _require_role(request, "developer")
         if denied is not None:
             return denied
+        # ONAYI KOSUYU BASLATAN VERIR. Ajanin calistirmak istedigi
+        # tehlikeli komutu, o kosuyu baslatan kisi degerlendirebilir:
+        # baskasi icin "evet" demek, onun adina risk almak olur ve
+        # gunlukte de o kisinin adi kalir. Platform yoneticisi disarida
+        # -- takilmis bir kosuyu cozecek biri her zaman olmali.
+        sahip = state.runner.owner
+        ben = _uploader(request)
+        if sahip and ben and sahip != ben and not _is_admin(request):
+            return _error(t("api.approval_not_yours", user=sahip), 403)
         try:
             body = await _body(request)
         except DeerXError as exc:
@@ -2581,6 +2738,11 @@ def build_app(settings: Settings) -> Starlette:
         granted = bool(body.get("granted", False))
         if not state.runner.resolve_approval(approval_id, granted):
             return _error(t("api.approval_gone"), 404)
+        # Bir kabuk komutunu konak makinede calistirma iznini KIMIN
+        # verdigi, cok kullanicili bir kurulumda en cok sorulacak denetim
+        # sorusu; gunluk onu cevaplayamiyordu.
+        _audit(request, "approval.resolve",
+               detail=("onaylandi" if granted else "reddedildi") + f" · {approval_id}")
         return _json({"ok": True, "granted": granted})
 
     # ---------------------------------------------------------------- #
@@ -2597,6 +2759,9 @@ def build_app(settings: Settings) -> Starlette:
         alip son iki yuz satirini vermek, istenen seyi yapmanin en pahali
         yoludur.
         """
+        denied = _require_role(request, "viewer")
+        if denied is not None:
+            return denied
         try:
             limit = int(request.query_params.get("limit", "300"))
         except ValueError:
@@ -2624,6 +2789,9 @@ def build_app(settings: Settings) -> Starlette:
         return _json({"events": olaylar, "total": len(olaylar), "path": str(yol)})
 
     async def events_stream(request: Request) -> Response:
+        denied = _require_role(request, "viewer")
+        if denied is not None:
+            return denied
         try:
             cursor = int(request.query_params.get("since", "0"))
         except ValueError:
@@ -2784,6 +2952,17 @@ class AuthMiddleware(BaseHTTPMiddleware):
         Uye olunmayan bir projeye gecmek, o projenin belgelerini ve
         planini okumak demek olurdu.
         """
+        # ONCE BASLIK, sonra cerez. Cerez tarayici genelidir: A
+        # sekmesinde proje degistiren kisi B sekmesinin sonraki istegini
+        # de tasiyordu ve B'deki "Baslat" baska projeyi kosturuyordu.
+        # Hash sekmeye aittir; baslik onu sunucuya tasir.
+        slug = request.headers.get(PROJECT_HEADER, "").strip()
+        if slug and slug != "-":
+            proje = self.state.projects.by_slug(slug)
+            if proje is None or proje.archived:
+                return 0
+            return self._uyeyse(request, proje.id)
+
         ham = request.cookies.get(PROJECT_COOKIE, "")
         if not ham.isdigit():
             return 0
@@ -2791,6 +2970,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
         proje = self.state.projects.get(pid)
         if proje is None or proje.archived:
             return 0
+        return self._uyeyse(request, pid)
+
+    def _uyeyse(self, request: Request, pid: int) -> int:
+        """Uyelik dogrulanmis proje kimligi; degilse 0.
+
+        Dogrulama sart: cerez de baslik da ISTEMCIDEN geliyor ve elle
+        degistirilebilir. Uye olunmayan bir projeye gecmek, o projenin
+        belgelerini ve planini okumak demek olurdu.
+        """
         if not self.state.auth.is_configured:
             return pid
         user = getattr(request.state, "user", None)

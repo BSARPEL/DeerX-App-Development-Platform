@@ -229,6 +229,12 @@ class ProjectStore:
         ).fetchone()
         return self._row(row) if row else None
 
+    def by_slug(self, slug: str) -> Project | None:
+        row = self._conn.execute(
+            "SELECT * FROM projects WHERE slug = ?", (str(slug),)
+        ).fetchone()
+        return self._row(row) if row else None
+
     def by_path(self, path: Path) -> Project | None:
         row = self._conn.execute(
             "SELECT * FROM projects WHERE path = ?", (str(Path(path).resolve()),)

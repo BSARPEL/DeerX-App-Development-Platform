@@ -512,6 +512,16 @@ def dump_toml(tablo: dict[str, Any], *, baslik: str = "deerx") -> str:
     return "\n".join(satirlar) + "\n"
 
 
+def read_toml_table(path: Path, *, baslik: str = "deerx") -> dict[str, Any]:
+    """Bir TOML dosyasindaki tek tabloyu okur; dosya yoksa bos sozluk.
+
+    `_read_toml` gizli: web katmani da ayni dosyalari okuyor ve her
+    okuyanin kendi ayristiricisini yazmasi, birinin `[deerx]` basligini
+    unutmasi demekti.
+    """
+    return _read_toml(path).get(baslik, {})
+
+
 def save_settings(
     path: Path, degerler: dict[str, Any], *, baslik: str = "deerx"
 ) -> None:

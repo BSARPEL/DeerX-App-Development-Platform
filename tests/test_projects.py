@@ -387,8 +387,11 @@ class TestProjeYalitimi:
             )
 
             client.cookies.set(PROJECT_COOKIE, str(gizli["id"]))
-            # Uye olmadigi icin cerez YOK SAYILIR ve varsayilana duser.
-            assert client.get("/api/overview").json()["project"]["id"] != gizli["id"]
+            # Cerez YOK SAYILIR ve istek varsayilan projeye duser; orada
+            # da uyeligi olmadigi icin 403 alir. Sessizce BASKA bir
+            # projenin verisini dondurmek daha kotu olurdu: paylasilan
+            # bir baglanti yanlis veriyi dogru baslikla gosterirdi.
+            assert client.get("/api/overview").status_code == 403
             assert client.post(
                 f"/api/projects/{gizli['id']}/activate"
             ).status_code == 403
@@ -465,3 +468,237 @@ class TestPortDilimi:
                 veri["ports"]["base"] + veri["ports"]["count"] - 1
             )
             assert "sandbox" in veri and "services" in veri
+
+
+class TestOkumaDaUyelikIster:
+    """OLCULEN SIZINTI: hicbir OKUMA ucu uyelik sormuyordu.
+
+    `_require_role` yalnizca yazma uclarinda cagriliyordu. Sonuc: hicbir
+    projeye uye olmayan bir hesap, sunucunun acilis projesinin hedefini,
+    talimatini, bilgi tabanini, planini ve ciktilarini goruyordu. Tek
+    kullanicida "makul varsayilan"di; cok kullanicida sessiz sizinti --
+    ve "bu projeye erisimin yok" ekraninin bugune kadar hic
+    tetiklenememesinin sebebi.
+    """
+
+    @pytest.fixture
+    def yabanci(self, settings):
+        from starlette.testclient import TestClient
+
+        from deerx.web.app import build_app
+
+        with TestClient(build_app(settings)) as client:
+            auth = client.app.state.deerx.auth
+            auth.create_first_admin(
+                auth.issue_setup_token(), "yonetici", "cok-uzun-parola-1"
+            )
+            client.post(
+                "/api/auth/login",
+                json={"username": "yonetici", "password": "cok-uzun-parola-1"},
+            )
+            # Uyeligi OLMAYAN bir hesap ac.
+            client.post(
+                "/api/users",
+                json={"username": "yabanci", "password": "ikinci-uzun-parola"},
+            )
+            proje = client.get("/api/projects").json()["active"]
+            client.delete(f"/api/projects/{proje['id']}/members/2")
+            client.post("/api/auth/logout")
+            client.post(
+                "/api/auth/login",
+                json={"username": "yabanci", "password": "ikinci-uzun-parola"},
+            )
+            yield client
+
+    @pytest.mark.parametrize("yol", [
+        "/api/overview",
+        "/api/documents",
+        "/api/artifacts",
+        "/api/state/requirements",
+        "/api/runs",
+    ])
+    def test_a_non_member_cannot_read_the_project(self, yabanci, yol):
+        cevap = yabanci.get(yol)
+        assert cevap.status_code == 403, f"{yol} -> {cevap.status_code}"
+
+
+class TestOnaySahipligi:
+    """Ajanin calistirmak istedigi tehlikeli komutu, o kosuyu BASLATAN
+    kisi degerlendirmeli.
+
+    Bugune kadar kosuyu kimin baslattigi hicbir yerde kayitli degildi ve
+    bekleyen bir onayi projedeki herhangi bir gelistirici cozebiliyordu:
+    baskasi icin "evet" demek, onun adina risk almak ve gunlukte onun
+    adini birakmak olurdu.
+    """
+
+    @pytest.fixture
+    def iki_kisi(self, settings):
+        from starlette.testclient import TestClient
+
+        from deerx.web.app import build_app
+
+        with TestClient(build_app(settings)) as client:
+            auth = client.app.state.deerx.auth
+            auth.create_first_admin(
+                auth.issue_setup_token(), "yonetici", "cok-uzun-parola-1"
+            )
+            client.post(
+                "/api/auth/login",
+                json={"username": "yonetici", "password": "cok-uzun-parola-1"},
+            )
+            client.post(
+                "/api/users",
+                json={"username": "ekip", "password": "ikinci-uzun-parola"},
+            )
+            kisiler = {u["username"]: u for u in client.get("/api/users").json()["users"]}
+            proje = client.get("/api/projects").json()["active"]
+            client.post(
+                f"/api/projects/{proje['id']}/members",
+                json={"user_id": kisiler["ekip"]["id"], "role": "developer"},
+            )
+            yield client
+
+    def test_the_run_records_who_started_it(self, iki_kisi):
+        iki_kisi.post("/api/ingest", json={"path": "docs"})
+        cevap = iki_kisi.post("/api/run", json={"phases": ["ingest"]})
+        assert cevap.json()["run"]["started_by"] == "yonetici"
+
+    def test_another_developer_cannot_resolve_someone_elses_approval(self, iki_kisi):
+        durum = iki_kisi.app.state.deerx
+        calisan = durum.runtime()
+        # Kosuyu "yonetici" baslatmis gibi davran ve bir onay beklet.
+        import threading
+
+        from deerx.web.runner import RunInfo
+
+        calisan.runner._current = RunInfo(  # noqa: SLF001 - testin kurdugu durum
+            id="x", phases=["ingest"], goal="", started_at=0.0, started_by="yonetici"
+        )
+        sonuc = []
+        isci = threading.Thread(
+            target=lambda: sonuc.append(
+                calisan.runner._request_approval("Dosya sil", "rm -rf build")  # noqa: SLF001
+            )
+        )
+        isci.start()
+        son = __import__("time").monotonic() + 5
+        while not calisan.runner.pending_approvals() and __import__("time").monotonic() < son:
+            __import__("time").sleep(0.02)
+
+        istek = iki_kisi.get("/api/approvals").json()["items"][0]
+
+        iki_kisi.post("/api/auth/logout")
+        iki_kisi.post(
+            "/api/auth/login",
+            json={"username": "ekip", "password": "ikinci-uzun-parola"},
+        )
+        cevap = iki_kisi.post(
+            f"/api/approvals/{istek['id']}", json={"granted": True}
+        )
+        assert cevap.status_code == 403, cevap.text
+
+        # Sahibi cozebilmeli.
+        iki_kisi.post("/api/auth/logout")
+        iki_kisi.post(
+            "/api/auth/login",
+            json={"username": "yonetici", "password": "cok-uzun-parola-1"},
+        )
+        assert iki_kisi.post(
+            f"/api/approvals/{istek['id']}", json={"granted": False}
+        ).status_code == 200
+        isci.join(timeout=5)
+        assert sonuc == [False]
+
+    def test_a_non_member_cannot_even_see_the_queue(self, iki_kisi):
+        """Istek metni ajanin calistirmak istedigi KOMUTU tasiyor."""
+        iki_kisi.post("/api/auth/logout")
+        iki_kisi.post(
+            "/api/users", json={"username": "x", "password": "y"}
+        )
+        assert iki_kisi.get("/api/approvals").status_code == 401
+
+
+class TestHesapAyariKisiye_Ozeldir:
+    """"Yalnizca beni etkiler" gercekten yalnizca beni etkilemeli.
+
+    `SettingField.scope` UC deger belgeliyor ama kalici yazici IKI kova
+    kullaniyordu: "platform degilse proje". `language` -- kapsami "hesap"
+    diye isaretlenmis TEK alan -- `<proje>/deerx.toml`a dusuyordu ve
+    arayuzu Ingilizceye ceviren kisi AYNI PROJEYE GIREN HERKESIN
+    ekranini Ingilizce yapiyordu.
+    """
+
+    @pytest.fixture
+    def sunucu(self, settings):
+        from starlette.testclient import TestClient
+
+        from deerx.web.app import build_app
+
+        with TestClient(build_app(settings)) as client:
+            auth = client.app.state.deerx.auth
+            auth.create_first_admin(
+                auth.issue_setup_token(), "yonetici", "cok-uzun-parola-1"
+            )
+            yield client
+
+    @staticmethod
+    def _giris(client, ad="yonetici", parola="cok-uzun-parola-1"):
+        assert client.post(
+            "/api/auth/login", json={"username": ad, "password": parola}
+        ).status_code == 200
+
+    def _ikinci_kisi(self, client):
+        """Projeye gelistirici olarak ikinci bir hesap katar."""
+        client.post(
+            "/api/users",
+            json={"username": "oteki", "password": "ikinci-uzun-parola"},
+        )
+        kisiler = {u["username"]: u for u in client.get("/api/users").json()["users"]}
+        proje = client.get("/api/projects").json()["active"]
+        assert client.post(
+            f"/api/projects/{proje['id']}/members",
+            json={"user_id": kisiler["oteki"]["id"], "role": "developer"},
+        ).status_code == 200
+
+    def test_an_account_setting_never_touches_the_project_file(self, sunucu, settings):
+        self._giris(sunucu)
+        assert sunucu.post(
+            "/api/settings", json={"language": "en"}
+        ).status_code == 200
+
+        dosya = settings.workspace / "deerx.toml"
+        icerik = dosya.read_text(encoding="utf-8") if dosya.is_file() else ""
+        assert "language" not in icerik, (
+            "hesap ayari proje dosyasina yazildi: projeye giren HERKESIN "
+            "dilini degistirir"
+        )
+
+    def test_two_people_keep_two_languages(self, sunucu):
+        """Ortak `Settings` nesnesinden okumak "en son kim kaydettiyse
+        onun dili" demekti."""
+        self._giris(sunucu)
+        self._ikinci_kisi(sunucu)
+        sunucu.post("/api/settings", json={"language": "en"})
+        assert sunucu.get("/api/overview").json()["settings"]["language"] == "en"
+
+        sunucu.post("/api/auth/logout")
+        self._giris(sunucu, "oteki", "ikinci-uzun-parola")
+        assert sunucu.get("/api/overview").json()["settings"]["language"] == "tr", (
+            "baskasinin dil tercihi bu hesabin ekranina sizdi"
+        )
+
+        # Ve kendi secimi kendisinde kalir.
+        sunucu.post("/api/settings", json={"language": "en"})
+        sunucu.post("/api/auth/logout")
+        self._giris(sunucu)
+        assert sunucu.get("/api/overview").json()["settings"]["language"] == "en"
+
+    def test_the_account_file_is_per_user(self, sunucu):
+        from deerx.config import platform_home
+
+        self._giris(sunucu)
+        sunucu.post("/api/settings", json={"language": "en"})
+        dosyalar = sorted((platform_home() / "users").glob("*.toml"))
+        assert len(dosyalar) == 1, f"beklenen tek hesap dosyasi, bulunan {dosyalar}"
+        assert "language" in dosyalar[0].read_text(encoding="utf-8")
