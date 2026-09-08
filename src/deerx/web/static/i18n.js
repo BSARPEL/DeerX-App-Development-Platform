@@ -26,7 +26,9 @@ const I18N = {
     "app.loading": "Yükleniyor…",
     "app.failed": "Yüklenemedi",
     "app.retry": "Tekrar dene",
-    "app.offlinePill": "Sunucu yok",
+    "app.offlinePill": "Bağlantı yok",
+    "app.offline":
+      "Sunucuya ulaşılamıyor; ekrandaki bilgi {age} saniye öncesine ait.",
     "access.deniedTitle": "Bu projeye erişiminiz yok",
     "access.deniedHint":
       "Proje sahibinden üyelik isteyin ya da erişebildiğiniz bir projeye geçin.",
@@ -110,6 +112,11 @@ const I18N = {
     "projectRole.viewer": "izleyici",
     "platformRole.admin": "yönetici",
     "platformRole.user": "kullanıcı",
+    "app.runningByOther": "{user} çalıştırıyor · {n} faz",
+    "develop.stopOthers": "{user} kullanıcısının koşusunu durdurur",
+    "develop.stopConfirmOther":
+      "Bu koşuyu {user} başlattı. Yine de durdurulsun mu?",
+    "approval.alreadyResolved": "Bu isteği başkası çözdü.",
     "settings.groupProvider": "Model sağlayıcısı",
     "settings.scopeProject": "Bu proje",
     "settings.scopeAccount": "Hesabım",
@@ -914,7 +921,9 @@ const I18N = {
     "app.loading": "Loading…",
     "app.failed": "Could not load",
     "app.retry": "Try again",
-    "app.offlinePill": "No server",
+    "app.offlinePill": "Offline",
+    "app.offline":
+      "Can’t reach the server; what you see is {age}s old.",
     "access.deniedTitle": "You don’t have access to this project",
     "access.deniedHint":
       "Ask the project owner for membership, or switch to a project you can reach.",
@@ -997,6 +1006,11 @@ const I18N = {
     "projectRole.viewer": "viewer",
     "platformRole.admin": "admin",
     "platformRole.user": "user",
+    "app.runningByOther": "{user} is running · {n} phases",
+    "develop.stopOthers": "Stops {user}’s run",
+    "develop.stopConfirmOther":
+      "{user} started this run. Stop it anyway?",
+    "approval.alreadyResolved": "Someone else resolved this request.",
     "settings.groupProvider": "Model provider",
     "settings.scopeProject": "This project",
     "settings.scopeAccount": "My account",

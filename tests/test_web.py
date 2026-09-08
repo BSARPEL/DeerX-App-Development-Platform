@@ -3395,7 +3395,7 @@ class TestControlsDeclareTheRoleTheServerEnforces:
         # satir satir tarayan bir okuyucu onu HIC gormemisti.
         roller: dict[str, dict[str, str]] = {}
         parcalar = re.split(r"\n    async def (\w+)\(request", kaynak)
-        for ad, govde in zip(parcalar[1::2], parcalar[2::2]):
+        for ad, govde in zip(parcalar[1::2], parcalar[2::2], strict=True):
             govde = govde.split("\n    async def ")[0]
             m = re.search(
                 r'_require_role\(\s*request,\s*"(\w+)"\s+if request\.method == "(\w+)"'

@@ -273,9 +273,28 @@ button, zip downloads and a **Report** button per package.
 
 ![Settings: the isolation panel, with the agent's commands set to run in a container](images/settings-en.png)
 
-Ten panels: model provider, models, generation limits, run behaviour,
-**isolation**, web research, browser, general (language, log level), users and
-your account.
+One screen, **three scope tabs**, three Save buttons — because "let me look at
+my own setting" and "let us manage the users" are a tab apart, not a navigation
+apart:
+
+| Tab | Holds | Who may write |
+|---|---|---|
+| This project | models, generation limits, run behaviour | project `developer` |
+| My account | language, your password, your open sessions | you |
+| Platform | provider and keys, isolation, web research, browser, log level, users, audit log | account `admin` |
+
+A field's tab comes from the server (`field_scopes`), never from a list copied
+into the interface — a copied list drifts from the field table the day a setting
+is added, and that setting then appears in no tab at all. Each Save sends only
+its own tab's unlocked fields. One button sending all thirty-eight meant that a
+member changing nothing but their language still had `sandbox_image` in the
+body, the request was refused at the first platform field, and they could save
+*nothing*.
+
+"My account" really is per-person: it is written to
+`<DEERX_HOME>/users/<id>.toml`, not into the project file. While every scope
+landed in two buckets, switching the interface to English switched it for
+everyone who opened that project.
 
 **Isolation** is where `execution` lives — host or Docker container — with the
 image, the setup command, the published port range and the memory/CPU/process
@@ -346,7 +365,31 @@ Authorization has **two layers**, and mixing them is the mistake to avoid:
 A platform administrator reaches every project — otherwise a project whose owner
 left would become a directory nobody can open. A project owner cannot touch
 platform settings. A `viewer` reads; a `developer` runs; only an `owner` hands
-out membership.
+out membership. The member list itself is readable by every member: it is not a
+secret, and without it the name in "ayse started this run" belongs to nobody.
+
+**Disable, don't hide.** A write control you lack the role for stays where it
+is, greyed and inert, with a title saying which role it needs — deleting it
+would be the lie "there is no such thing", and you would keep looking for it.
+Each control declares its requirement in `data-needs-role`, and a test reads the
+server's own `_require_role` calls and refuses any control that claims a
+different role than the endpoint it posts to. Only a *section* whose entire
+content is out of reach is hidden: a locked "Add user" form fills the screen
+with noise and tells you nothing.
+
+The three refusals no longer look alike. A **403** becomes a screen with a way
+out, a **404** says the record is gone, a **409** says who is busy; only an
+unreachable server is a badge, plus a strip saying how old what you see is.
+While all three were the same grey "Could not load", there was no way to know
+whether to ask for access, go back to the list, or wait.
+
+A run remembers **who started it** (`runs.started_by`; empty is legitimate — a
+run from `deerx run` has no owner). Your own name is never printed back at you,
+someone else's always is, and stopping someone else's run asks first. The
+approval modal opens only for the person who started the run and only for a
+`developer`: it is full-screen and blocking, and every browser attached to the
+project used to get it — a viewer got locked into a dialog whose both buttons
+returned 403.
 
 Registering a project does not create or touch the directory: the record is a
 label placed on something that already exists. The same directory cannot be
@@ -355,12 +398,17 @@ sharing a database, each seeing the other's tasks. Archiving hides a project
 without deleting it; deleting one would delete the history of everything done
 in it.
 
-Switching projects is a browser-level choice, carried in a cookie rather than
-stored on the session: the choice belongs to the *tab*, not the person, and
-keeping it server-side would make two windows on two projects impossible. It
-costs nothing in safety — membership is verified on **every** request, so a
-hand-edited cookie falls back to the default project rather than opening someone
-else's work.
+**The address carries the project**: `#/p/<slug>/<view>[/<detail>]`. That is
+what makes a link shareable — which project "look at this plan" opens is decided
+by the sender, not by the recipient's cookie. The hash reaches the server as an
+`X-DeerX-Project` header, read *before* the cookie; the cookie survives only as
+"the project I used last", for an address with no hash. A cookie is
+browser-wide, so while it was the only carrier, switching project in tab A moved
+tab B's next request too — and *Start* in B ran a different project.
+
+It costs nothing in safety: membership is verified on **every** request, header
+and cookie alike, since both come from the client. An unverified slug resolves
+to no project rather than opening someone else's work.
 
 Each open project gets its own runtime: settings, event log, orchestrator and run
 manager. That is what makes `RunBusy` project-scoped — before, one person's run

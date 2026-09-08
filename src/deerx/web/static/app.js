@@ -50,11 +50,31 @@ async function api(path, options = {}) {
 
 const post = (path, body) => api(path, { method: "POST", body: JSON.stringify(body ?? {}) });
 
-function toast(message, tone = "info", ttl = 4200) {
+const sonToast = new Map();
+
+function toast(message, tone = "info", ttl = 4200, key = message) {
+  // Yoklama iki bucuk saniyede bir kosuyor: sunucu dustugunde AYNI
+  // cumle ekrani dolduruyor ve altindaki gercek hatayi goze
+  // gorunmez kiliyordu.
+  const simdi = Date.now();
+  if (sonToast.get(key) > simdi - ttl) return;
+  sonToast.set(key, simdi);
+
   const node = document.createElement("div");
   node.className = "toast";
   node.dataset.tone = tone;
   node.textContent = message;
+
+  // Kapatma dugmesi: uzun bir hata metni okundu diye solmasini
+  // beklemek gerekmemeli.
+  const kapat = document.createElement("button");
+  kapat.className = "toast-close";
+  kapat.type = "button";
+  kapat.textContent = "\u00d7";
+  kapat.setAttribute("aria-label", t("app.close"));
+  kapat.addEventListener("click", () => node.remove());
+  node.append(kapat);
+
   $("#toasts").append(node);
   setTimeout(() => {
     node.style.transition = "opacity .25s, transform .25s";
@@ -122,6 +142,8 @@ const state = {
   projectSlug: "",
   routeDetail: "",
   settingsScope: "proje",
+  // Ekrandaki bilginin ne kadar eski oldugunu soyleyebilmek icin.
+  lastOkAt: 0,
   activeArtifact: null,
   pollTimer: null,
   // Sorular teker teker sorulur; kuyrukta nerede oldugumuz ve yazilmis
@@ -400,6 +422,7 @@ function applyPermissions(root = document) {
 }
 
 function initRouting() {
+  $("#conn-retry").addEventListener("click", () => loadOverview());
   document.addEventListener("click", (event) => {
     if (event.target.closest("[data-retry]")) {
       showView(state.view, state.routeDetail);
@@ -442,11 +465,19 @@ async function loadOverview() {
       showBlock(error);
       return false;
     }
+    // Rozet SUSMAZ: "3 faz calisiyor" yazip oyle kalmak, ekranin
+    // soyledigi en zararli yalandi.
     $("#run-pill").dataset.state = "offline";
     $("#run-pill-text").textContent = t("app.offlinePill");
+    $("#conn-text").textContent = t("app.offline", {
+      age: Math.round((Date.now() - (state.lastOkAt || Date.now())) / 1000),
+    });
+    $("#conn-banner").hidden = false;
     return false;
   }
   state.overviewError = null;
+  state.lastOkAt = Date.now();
+  $("#conn-banner").hidden = true;
   clearBlock();
   state.overview = data;
   state.phases = data.phases;
@@ -823,19 +854,37 @@ function initStepPicker() {
   });
 }
 
+/* Kosunun sahibi BEN miyim.
+
+   Bos sahip "bilinmiyor" demek, "baskasi" degil: `deerx run` ile
+   terminalden baslatilan kosunun ve kimlik dogrulamasi kurulmamis
+   kurulumun sahibi yoktur ve orada uyarmak bosuna korkutmak olurdu. */
+function kosuBenim(run) {
+  const sahip = run?.current?.started_by || "";
+  if (!sahip || state.auth?.configured === false) return true;
+  const me = state.auth?.user;
+  return sahip === (me?.display_name || me?.username || "");
+}
+
 function syncRunState(run) {
   const pill = $("#run-pill");
   const running = run.running;
   const last = run.last;
+  const sahip = run.current?.started_by || "";
+  const benim = kosuBenim(run);
 
   let stateName = "idle";
   let text = t("app.idle");
   if (running) {
     stateName = "running";
     const current = run.current;
+    // Kendi adimi ust barda okumak bilgi degil, gurultu.
     text = run.stopping
       ? t("app.stopping")
-      : t("app.runningPhases", { n: current ? current.phases.length : "?" });
+      : benim
+        ? t("app.runningPhases", { n: current ? current.phases.length : "?" })
+        : t("app.runningByOther", {
+            user: sahip, n: current ? current.phases.length : "?" });
   } else if (last) {
     stateName = last.status;
     text = {
@@ -849,7 +898,12 @@ function syncRunState(run) {
   $("#run-pill-text").textContent = text;
 
   $("#btn-run").disabled = running || !chosenPhases().length;
+  // "Durdur" baskasinin kosusunda da CALISIR -- bir ekibin kacan kosuyu
+  // durdurabilmesi gerekir -- ama ne yaptigini bilerek bassin.
   $("#btn-stop").disabled = !running;
+  $("#btn-stop").dataset.other = running && !benim ? "1" : "";
+  $("#btn-stop").title = running && !benim
+    ? t("develop.stopOthers", { user: sahip }) : "";
   $("#rail-live").hidden = !running;
   $("#rail-running").hidden = !running;
 
@@ -925,6 +979,9 @@ function initRunControls() {
   });
 
   $("#btn-stop").addEventListener("click", async () => {
+    const sahibi = state.overview?.run?.current?.started_by || "";
+    if ($("#btn-stop").dataset.other === "1" &&
+        !confirm(t("develop.stopConfirmOther", { user: sahibi }))) return;
     try {
       await post("/api/run/stop");
       toast(t("develop.stopRequested"), "warn");
@@ -1253,7 +1310,7 @@ function renderProjects(data) {
       </header>
       <div class="panel-body">
         <p class="project-path">${esc(p.path)}</p>
-        ${p.role === "owner" ? `<div class="project-members" id="members-${p.id}"></div>` : ""}
+        <div class="project-members" id="members-${p.id}"></div>
       </div>
     </section>`).join("");
 
@@ -1297,17 +1354,25 @@ async function loadMembers(project) {
   hedef.innerHTML = busyState();
   try {
     const data = await api(`/api/projects/${project.id}/members`);
+    // Yonetim yalnizca sahibe cizilir (BOLUM gizleme kurali): kilitli
+    // bir rol acilir listesi "degistirebilirim" yanilgisi yaratir.
+    // Izleyici rolu duz bir rozet olarak OKUR.
+    const yonetebilir = project.role === "owner" ||
+      state.auth?.configured === false || state.auth?.user?.role === "admin";
     hedef.innerHTML = `
       <h3 class="project-members-title">${esc(t("projects.members"))}</h3>
       <ul class="member-list">${data.members.map((m) => `
         <li class="member">
           <span class="member-name">${esc(m.display_name || m.username)}</span>
-          <select data-member="${m.user_id}" data-project="${project.id}">
-            ${["viewer", "developer", "owner"].map((r) => `
-              <option value="${r}" ${r === m.role ? "selected" : ""}>${esc(tv("projectRole", r))}</option>`).join("")}
-          </select>
-          <button class="btn btn-ghost btn-sm" data-drop="${m.user_id}"
-                  data-project="${project.id}">${esc(t("app.delete"))}</button>
+          ${yonetebilir ? `
+            <select data-member="${m.user_id}" data-project="${project.id}">
+              ${["viewer", "developer", "owner"].map((r) => `
+                <option value="${r}" ${r === m.role ? "selected" : ""}>${esc(tv("projectRole", r))}</option>`).join("")}
+            </select>
+            <button class="btn btn-ghost btn-sm" data-drop="${m.user_id}"
+                    data-project="${project.id}">${esc(t("app.delete"))}</button>`
+          : `<span class="badge" data-v="${esc(m.role)}">${
+              esc(tv("projectRole", m.role))}</span>`}
         </li>`).join("")}</ul>`;
 
     $$("[data-member]", hedef).forEach((sec) => sec.addEventListener("change", async () => {
@@ -3887,13 +3952,29 @@ function initStream() {
 }
 
 // ─── Onay penceresi ───────────────────────────────────────────────────────
+/* Modali kim gorur.
+
+   `/api/overview` rol farki gozetmedigi icin PROJEYE BAGLI HER TARAYICI
+   ayni tam ekran modali aliyordu. Bir izleyici kilitleniyor, Onayla'ya
+   basiyor ve 403 aliyor; bir gelistirici daha kotusunu yapiyor:
+   BASKASININ adina, ne oldugunu bilmedigi bir dosya yazmasini
+   onayliyor. Karari yalnizca kosuyu BASLATAN verir. */
+function onayBana(run) {
+  return yetkiVar("developer") && kosuBenim(run);
+}
+
 function renderApproval() {
   const overlay = $("#approval-overlay");
   const pending = state.approvals;
-  if (!pending.length) {
+  const run = state.overview?.run;
+  if (!pending.length || !onayBana(run)) {
     overlay.hidden = true;
+    // Ekrani KILITLEMEYEN dogru yer zaten yazilmis: is akisi
+    // ekranindaki gecit karti ve ust bardaki rozet.
+    $("#run-pill").dataset.waiting = pending.length && !onayBana(run) ? "1" : "";
     return;
   }
+  $("#run-pill").dataset.waiting = "";
   const request = pending[0];
   $("#approval-title").textContent = request.action;
   $("#approval-detail").textContent = request.detail || t("approval.noDetail");
@@ -3912,7 +3993,10 @@ function initApproval() {
     try {
       await post(`/api/approvals/${id}`, { granted });
     } catch (error) {
-      toast(error.message, "err");
+      // Baskasi cozduyse gelen 404 bir ARIZA degil, iyi haber: istek
+      // artik beklemiyor. Kirmizi toast olarak dusuyordu.
+      if (error.status === 404) toast(t("approval.alreadyResolved"), "ok");
+      else toast(error.message, "err");
     } finally {
       $("#approval-accept").disabled = false;
       $("#approval-reject").disabled = false;

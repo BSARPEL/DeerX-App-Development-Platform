@@ -267,9 +267,28 @@ zip indirmeleri ve paket başına bir **Rapor** düğmesi.
 
 ![Ayarlar: yalıtım paneli, ajanın komutları konteynerde çalışacak şekilde](../images/settings-tr.png)
 
-On panel: model sağlayıcısı, modeller, üretim sınırları, koşu davranışı,
-**yalıtım**, web araştırma, tarayıcı, genel (dil, günlük düzeyi), kullanıcılar
-ve hesabım.
+Tek ekran, **üç kapsam sekmesi**, üç Kaydet — çünkü "kendi ayarıma bakayım" ile
+"kullanıcıları yönetelim" arasındaki fark bir sekme farkı, bir gezinme farkı
+değil:
+
+| Sekme | İçindekiler | Kim yazabilir |
+|---|---|---|
+| Bu proje | modeller, üretim sınırları, koşu davranışı | proje `developer` |
+| Hesabım | dil, parolanız, açık oturumlarınız | siz |
+| Platform | sağlayıcı ve anahtarlar, yalıtım, web araştırma, tarayıcı, günlük düzeyi, kullanıcılar, denetim günlüğü | hesap `admin` |
+
+Bir alanın hangi sekmeye düştüğünü sunucu söylüyor (`field_scopes`); arayüze
+kopyalanmış bir liste, alan tablosuna yeni bir ayar eklendiği gün ondan sessizce
+ayrılır ve o ayar hiçbir sekmede görünmez. Her Kaydet yalnızca kendi sekmesinin
+kilitli olmayan alanlarını gönderiyor. Tek düğme otuz sekiz alanı birden
+gönderirken, yalnızca dilini değiştiren bir üyenin gövdesinde `sandbox_image` de
+gidiyor, istek ilk platform alanında reddediliyor ve o kişi **hiçbir** ayarını
+kaydedemiyordu.
+
+"Hesabım" gerçekten kişiye özel: `<DEERX_HOME>/users/<kimlik>.toml` dosyasına
+yazılıyor, proje dosyasına değil. Her kapsam iki kovaya düştüğü sürece arayüzü
+İngilizceye çeviren kişi, o projeye giren herkesin ekranını İngilizce
+yapıyordu.
 
 **Yalıtım** paneli `execution` ayarının yeri — konak ya da Docker konteyneri —
 imaj, kurulum komutu, yayınlanan port aralığı ve bellek/CPU/süreç sınırlarıyla
@@ -342,7 +361,30 @@ Yetki **iki katmanlıdır** ve karıştırılmamalı:
 
 Platform yöneticisi her projeye erişir — yoksa sahibi ayrılmış bir proje
 kimsenin açamadığı bir dizine dönüşürdü. Proje sahibi platform ayarlarına
-dokunamaz. `viewer` okur, `developer` koşturur, üyeliği yalnızca `owner` verir.
+dokunamaz. `viewer` okur, `developer` koşturur, üyeliği yalnızca `owner`
+verir. Üye listesini her üye okuyabilir: bir sır değil, ve o liste olmadan
+"bu koşuyu ayşe başlattı" satırındaki ayşe hiç kimse.
+
+**Gizleme, kapat.** Yetkinizin yetmediği bir yazma düğmesi yerinde durur ama
+çalışmaz; üzerinde hangi rolün gerektiği yazar. Silmek "böyle bir şey yok"
+yalanı olurdu ve onu aramaya devam ederdiniz. Her denetim gereksinimini
+`data-needs-role` ile taşıyor, bir test de sunucudaki `_require_role`
+çağrılarını okuyup istek attığı uçtan farklı bir rol beyan eden denetimi
+reddediyor. Yalnızca içeriği **bütünüyle** yetki dışı olan bölüm gizleniyor:
+kilitli bir "Kullanıcı ekle" formu ekranı gürültüyle doldurur, bilgi vermez.
+
+Üç ret artık birbirine benzemiyor. **403** çıkışı olan bir ekran oluyor, **404**
+kaydın gittiğini söylüyor, **409** kimin meşgul olduğunu; yalnızca ulaşılamayan
+sunucu bir rozet — yanında ekrandaki bilginin kaç saniye önceye ait olduğunu
+söyleyen bir şerit. Üçü de aynı gri "Yüklenemedi" iken yetki mi istemek, listeye
+mi dönmek, beklemek mi gerektiği bilinmiyordu.
+
+Bir koşu **kimin başlattığını** hatırlıyor (`runs.started_by`; boş olması meşru —
+`deerx run` ile açılan koşunun sahibi yoktur). Kendi adınız size geri
+yazılmıyor, başkasınınki her zaman yazılıyor ve başkasının koşusunu durdurmak
+önce soruyor. Onay modalı yalnızca koşuyu başlatana ve yalnızca `developer`a
+açılıyor: tam ekran ve engelleyici, ve önceden projeye bağlı **her** tarayıcıya
+geliyordu — bir izleyici, iki düğmesi de 403 dönen bir kutuya kilitleniyordu.
 
 Proje kaydetmek dizini oluşturmaz ve içine dokunmaz: kayıt, var olan bir şeyin
 üzerine konan bir etikettir. Aynı dizin ikinci kez kaydedilemez — iki satır tek
@@ -350,11 +392,18 @@ bir dizini gösterirse iki proje aynı veritabanını paylaşır ve biri ötekin
 görevlerini görür. Arşivlemek silmeden gizler; silmek, o projede yapılmış her
 şeyin geçmişini de silmek olurdu.
 
-Proje değiştirmek tarayıcı düzeyinde bir tercih ve oturumda değil çerezde
-taşınıyor: seçim kişiye değil **sekmeye** ait ve sunucuda tutulsaydı iki
-pencerede iki proje açmak imkânsız olurdu. Güvenlikten bir şey götürmüyor —
-üyelik **her** istekte doğrulanıyor, yani elle düzenlenmiş bir çerez başkasının
-işini açmak yerine varsayılan projeye düşer.
+**Projeyi adres taşır**: `#/p/<kısa-ad>/<görünüm>[/<detay>]`. Bir bağlantının
+paylaşılabilir olmasını sağlayan şey bu — "şu plana bak" dendiğinde hangi
+projenin açılacağına gönderen karar verir, alıcının çerezi değil. Hash sunucuya
+`X-DeerX-Project` başlığıyla ulaşıyor ve başlık çerezden **önce** okunuyor;
+çerez yalnızca "en son kullandığım proje" olarak, hash'siz açılan bir adres
+için kalıyor. Çerez tarayıcı geneli: tek taşıyıcı oyken A sekmesinde proje
+değiştiren kişi B sekmesinin sonraki isteğini de taşıyordu ve B'deki *Başlat*
+başka projeyi koşturuyordu.
+
+Güvenlikten bir şey götürmüyor: üyelik **her** istekte doğrulanıyor, başlık da
+çerez de istemciden geliyor. Doğrulanmayan bir kısa ad başkasının işini açmak
+yerine hiçbir projeye çözülmüyor.
 
 Her açık projenin kendi çalışma zamanı var: ayarlar, olay günlüğü, orkestratör
 ve koşu yöneticisi. `RunBusy`yi proje kapsamlı yapan şey bu — önceden bir

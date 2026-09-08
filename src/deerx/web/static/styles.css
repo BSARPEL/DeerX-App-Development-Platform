@@ -1385,6 +1385,14 @@ body[data-blocked] .view.is-active { display: none; }
 .toast[data-tone="ok"]   { border-left-color: var(--ok); }
 .toast[data-tone="err"]  { border-left-color: var(--err); }
 .toast[data-tone="warn"] { border-left-color: var(--warn); }
+.toast { position: relative; padding-right: 32px; }
+.toast-close {
+  position: absolute; top: 8px; right: 8px;
+  width: 20px; height: 20px;
+  border: 0; background: none; color: var(--text-3);
+  font-size: 13px; line-height: 1; cursor: pointer;
+}
+.toast-close:hover { color: var(--text); }
 @keyframes slide-in { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: none; } }
 
 /* ── Yukleniyor ──────────────────────────────────────────────────────── */
@@ -1562,6 +1570,17 @@ body[data-blocked] .view.is-active { display: none; }
 .phase[data-status="needs_input"] .phase-label { color: var(--warn); font-weight: 600; }
 
 .run-pill[data-state="needs_input"] { background: var(--warn-soft); color: var(--warn); }
+.run-pill[data-state="offline"] { background: var(--warn-soft); color: var(--warn); }
+.run-pill[data-state="offline"] .run-dot { animation: none; }
+/* Onay BASKASINI bekliyor: ekrani kilitlemeyen tek isaret. */
+.run-pill[data-waiting="1"] { background: var(--warn-soft); color: var(--warn); }
+
+.banner {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 20px;
+  background: var(--warn-soft); color: var(--warn);
+  font-size: 12px; font-weight: 500;
+}
 
 @media (max-width: 620px) {
   .question-why, .question-suggestion, .question-actions { padding-left: 0; }
@@ -2853,6 +2872,15 @@ body[data-blocked] .view.is-active { display: none; }
    alanın hâlâ doldurulabilir olduğu izlenimini bırakıyordu. */
 /* Kapsam sekmeleri. `.tabs`/`.tab` zaten var; yalnizca bolumun kendisi
    ve her sekmenin kendi Kaydet'i yeni. */
+/* Yetki on projelik bir listede GOZLE taranabilir olmali: sahibi
+   oldugum proje ile izleyici oldugum proje ayni griyi tasiyordu ve
+   yanindaki "arsivlendi" rozetinden bile ayirt edilemiyordu.
+   Yeni renk jetonu yok; dordu de olculmus paletten. */
+.badge[data-v="owner"]     { background: var(--accent-soft); color: var(--accent); }
+.badge[data-v="developer"] { background: var(--info-soft);   color: var(--info); }
+.badge[data-v="viewer"]    { background: var(--muted-soft);  color: var(--text-2); }
+.badge[data-v="admin"]     { background: var(--warn-soft);   color: var(--warn); }
+
 .settings-scope { display: block; }
 .settings-save { display: flex; justify-content: flex-end; padding: 16px 0 0; }
 

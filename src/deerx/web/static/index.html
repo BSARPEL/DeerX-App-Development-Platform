@@ -137,6 +137,14 @@
 
   <!-- ── İçerik ───────────────────────────────────────────────── -->
   <main class="content" id="content">
+    <!-- Sunucuya ulasilamadiginda. Toast degil SERIT: toast solar,
+         sorun solmaz. -->
+    <div class="banner" id="conn-banner" hidden role="status">
+      <span id="conn-text"></span>
+      <button class="btn btn-sm" id="conn-retry" type="button"
+              data-i18n="app.retry">Tekrar dene</button>
+    </div>
+
     <!-- Ekran HANGI PROJEDE oldugunu her zaman tekrarlar. Bugun bunu
          yapan tek yer faz rayinin ustundeki kucuk satirdi. -->
     <p class="content-scope" id="content-scope" hidden></p>
