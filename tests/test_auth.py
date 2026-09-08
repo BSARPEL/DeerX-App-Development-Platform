@@ -360,6 +360,73 @@ class TestRoles:
         # Ama uygulamanin kendisini kullanabilir.
         assert guarded.get("/api/overview").status_code == 200
 
+    def test_a_plain_user_cannot_repoint_the_model_endpoint(self, guarded):
+        """OLCULDU: `/api/settings` hicbir rol kontrolu yapmiyordu.
+
+        `_require_admin` bes uc noktada cagriliyor (hesap listesi, hesap
+        acma/silme, rol degistirme, denetim gunlugu) ve `/api/settings`
+        onlardan biri degil. Yani "giris yapabilen herkes" saglayici
+        ucunu ve API anahtarini yazabiliyordu: alt kullanici
+        `openai_base_url`i kendi sunucusuna cevirir ve o andan itibaren
+        butun istemler -- sartname, kaynak kod, uretilen plan -- oraya
+        gider. Kimse fark etmez, cunku arayuzde hicbir sey degismez.
+        """
+        _login(guarded)
+        guarded.post(
+            "/api/users", json={"username": "ekip", "password": "ikinci-uzun-parola"}
+        )
+        guarded.post("/api/auth/logout")
+        _login(guarded, "ekip", "ikinci-uzun-parola")
+
+        response = guarded.post(
+            "/api/settings",
+            json={"openai_base_url": "http://kotu-sunucu.example/v1"},
+        )
+        assert response.status_code == 403, "alt kullanici model ucunu yazabiliyor"
+
+    def test_a_plain_user_cannot_turn_off_isolation(self, guarded):
+        """Yalitim ve onay kapisi birlikte tek bir kacis yolu olusturuyor.
+
+        `execution=host` ajanin komutlarini konteynerden cikarip konak
+        makineye tasir; `approval_mode=auto` da tehlikeli komut onayini
+        kaldirir. Ikisi tek istekte yazilabiliyordu.
+        """
+        _login(guarded)
+        guarded.post(
+            "/api/users", json={"username": "ekip", "password": "ikinci-uzun-parola"}
+        )
+        guarded.post("/api/auth/logout")
+        _login(guarded, "ekip", "ikinci-uzun-parola")
+
+        assert guarded.post(
+            "/api/settings", json={"execution": "host"}
+        ).status_code == 403
+
+    def test_a_refused_field_does_not_leave_half_a_write_behind(self, guarded):
+        """Yetkili alan once, yetkisiz alan sonra gelirse ilki YAZILMAMALI.
+
+        `update_settings` dongu icinde `setattr` cagiriyor: bir alan
+        reddedildiginde ondan onceki alanlar ayarlara islenmis oluyordu.
+        Yarim uygulanan bir ayar degisikligi, hic uygulanmayandan daha
+        kotudur -- kullanici reddedildigini gorur ve degismedigini sanir.
+        """
+        _login(guarded)
+        guarded.post(
+            "/api/users", json={"username": "ekip", "password": "ikinci-uzun-parola"}
+        )
+        guarded.post("/api/auth/logout")
+        _login(guarded, "ekip", "ikinci-uzun-parola")
+
+        onceki = guarded.get("/api/overview").json()["settings"]["approval_mode"]
+        yeni = "auto" if onceki != "auto" else "ask"
+
+        assert guarded.post(
+            "/api/settings",
+            json={"approval_mode": yeni, "execution": "host"},
+        ).status_code == 403
+        sonraki = guarded.get("/api/overview").json()["settings"]["approval_mode"]
+        assert sonraki == onceki, "reddedilen istek yine de bir alani yazmis"
+
     def test_an_admin_cannot_delete_itself(self, guarded):
         me = _login(guarded).json()["user"]
         response = guarded.delete(f"/api/users/{me['id']}")

@@ -1260,15 +1260,30 @@ function renderSettings() {
     effortsReady = true;
   }
 
+  // Platform kapsamli alanlar butun kullanicilari ve konak makineyi
+  // etkiler: modelin ucu, kimlik bilgileri, yalitim, dis erisim. Alt
+  // kullanici bunlari GORUR ama yazamaz -- gizlemek "boyle bir ayar yok"
+  // demek olurdu, oysa var ve yoneticisi degistirebilir.
+  const me = state.auth?.user;
+  const yonetici = state.auth?.configured === false || me?.role === "admin";
+  const kilitli = new Set(yonetici ? [] : (s.platform_fields || []));
+
   for (const [id, name, kind] of SETTING_INPUTS) {
     const node = $(id);
     if (kind === "bool") node.checked = Boolean(s[name]);
     else node.value = s[name] ?? "";
+    node.disabled = kilitli.has(name);
+    node.closest(".field, .check")?.toggleAttribute("data-locked", kilitli.has(name));
   }
   for (const [id, name] of SECRET_INPUTS) {
     $(id).value = "";
-    $(id).placeholder = s[`has_${name}`] ? t("settings.keySet") : t("settings.keyUnset");
+    $(id).disabled = kilitli.has(name);
+    $(id).closest(".field, .check")?.toggleAttribute("data-locked", kilitli.has(name));
+    $(id).placeholder = kilitli.has(name)
+      ? t("settings.lockedField")
+      : (s[`has_${name}`] ? t("settings.keySet") : t("settings.keyUnset"));
   }
+  $("#settings-locked-hint").hidden = kilitli.size === 0;
 
   loadProviders().then(() => {
     // Dil degismis olabilir; etiketler ceviriden geciyor.

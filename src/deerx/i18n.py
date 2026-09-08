@@ -1587,6 +1587,10 @@ CATALOG: dict[str, dict[str, str]] = {
         "tr": "Bilinmeyen ayar: {name}",
         "en": "Unknown setting: {name}",
     },
+    "api.setting_admin_only": {
+        "tr": "Bu ayari yalnizca yonetici degistirebilir: {name}",
+        "en": "Only an administrator can change this setting: {name}",
+    },
     "api.unknown_section": {
         "tr": "Bilinmeyen bolum: {name}",
         "en": "Unknown section: {name}",

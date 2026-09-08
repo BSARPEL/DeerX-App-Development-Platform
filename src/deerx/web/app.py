@@ -225,6 +225,11 @@ class SettingField:
 
     parse: Callable[[Any], Any]
     secret: bool = False
+    # Kimin yazabilecegi. `platform` alanlari butun kullanicilari ve konak
+    # makineyi etkiler: modelin ucu, kimlik bilgileri, yalitim, dis erisim.
+    # `proje` alanlari yalnizca bu calisma alaninin kosusunu etkiler.
+    # `hesap` alanlari yalnizca yazani etkiler.
+    scope: str = "proje"
 
 
 def _text(value: Any) -> str:
@@ -291,10 +296,10 @@ _EFFORT = _choice("low", "medium", "high", "max")
 
 SETTING_FIELDS: dict[str, SettingField] = {
     # Saglayici ve kimlik
-    "provider": SettingField(_choice("openai", "anthropic")),
-    "openai_base_url": SettingField(_optional_text),
-    "openai_api_key": SettingField(_optional_text, secret=True),
-    "anthropic_api_key": SettingField(_optional_text, secret=True),
+    "provider": SettingField(_choice("openai", "anthropic"), scope="platform"),
+    "openai_base_url": SettingField(_optional_text, scope="platform"),
+    "openai_api_key": SettingField(_optional_text, secret=True, scope="platform"),
+    "anthropic_api_key": SettingField(_optional_text, secret=True, scope="platform"),
     # Modeller
     "model_lead": SettingField(_required_text),
     "model_worker": SettingField(_required_text),
@@ -316,31 +321,31 @@ SETTING_FIELDS: dict[str, SettingField] = {
     # Yalitim. README'nin uc ayirt edici ozelliginden biri, ama ayarlar
     # ekraninda hic yoktu: acmanin tek yolu `deerx.toml` dosyasini elle
     # duzenlemekti.
-    "execution": SettingField(_choice("host", "docker")),
-    "sandbox_image": SettingField(_required_text),
-    "sandbox_setup": SettingField(_text),
-    "sandbox_port_base": SettingField(_bounded_int(1024, 65_000)),
-    "sandbox_port_count": SettingField(_bounded_int(1, 100)),
-    "sandbox_memory": SettingField(_required_text),
-    "sandbox_cpus": SettingField(_bounded_float(0.1, 256.0)),
-    "sandbox_pids": SettingField(_bounded_int(16, 100_000)),
-    "language": SettingField(_choice("tr", "en")),
-    "enable_web": SettingField(lambda v: bool(v)),
+    "execution": SettingField(_choice("host", "docker"), scope="platform"),
+    "sandbox_image": SettingField(_required_text, scope="platform"),
+    "sandbox_setup": SettingField(_text, scope="platform"),
+    "sandbox_port_base": SettingField(_bounded_int(1024, 65_000), scope="platform"),
+    "sandbox_port_count": SettingField(_bounded_int(1, 100), scope="platform"),
+    "sandbox_memory": SettingField(_required_text, scope="platform"),
+    "sandbox_cpus": SettingField(_bounded_float(0.1, 256.0), scope="platform"),
+    "sandbox_pids": SettingField(_bounded_int(16, 100_000), scope="platform"),
+    "language": SettingField(_choice("tr", "en"), scope="hesap"),
+    "enable_web": SettingField(lambda v: bool(v), scope="platform"),
     "search_provider": SettingField(
         _choice("browser", "duckduckgo", "brave", "tavily", "searxng", "google")
-    ),
-    "searxng_url": SettingField(_optional_text),
+    , scope="platform"),
+    "searxng_url": SettingField(_optional_text, scope="platform"),
     # Google'in arama motoru kimligi bir sir degil, bir tanimlayici: gizli
     # isaretlenirse arayuz degerini geri gostermez ve kullanici ne
     # yazdigini goremez.
-    "google_cse_id": SettingField(_optional_text),
-    "search_api_key": SettingField(_optional_text, secret=True),
+    "google_cse_id": SettingField(_optional_text, scope="platform"),
+    "search_api_key": SettingField(_optional_text, secret=True, scope="platform"),
     # Tarayici
-    "browser_channel": SettingField(_choice("auto", "chrome", "edge", "chromium")),
-    "browser_headless": SettingField(lambda v: bool(v)),
-    "browser_idle_seconds": SettingField(_bounded_int(0, 86_400)),
-    "browser_allow_preview": SettingField(lambda v: bool(v)),
-    "log_level": SettingField(_choice("DEBUG", "INFO", "WARNING", "ERROR")),
+    "browser_channel": SettingField(_choice("auto", "chrome", "edge", "chromium"), scope="platform"),
+    "browser_headless": SettingField(lambda v: bool(v), scope="platform"),
+    "browser_idle_seconds": SettingField(_bounded_int(0, 86_400), scope="platform"),
+    "browser_allow_preview": SettingField(lambda v: bool(v), scope="platform"),
+    "log_level": SettingField(_choice("DEBUG", "INFO", "WARNING", "ERROR"), scope="platform"),
 }
 
 # Bunlar degisince LLM istemcisi yeniden kurulmali; istemci bu degerleri
@@ -370,6 +375,12 @@ def settings_snapshot(settings: Settings) -> dict[str, Any]:
             view[name] = getattr(settings, name)
     view.update(
         {
+            # Arayuz yazamayacagi alani kilitli cizsin diye. Liste
+            # SUNUCUDAN gelir: alan tablosu tek gercek kaynak, kopyalanan
+            # bir liste sessizce ayrilir.
+            "platform_fields": sorted(
+                ad for ad, spec in SETTING_FIELDS.items() if spec.scope == "platform"
+            ),
             "workspace": str(settings.workspace),
             "has_api_key": settings.llm_ready,
             "llm_hint": settings.llm_hint,
@@ -470,15 +481,26 @@ def build_app(settings: Settings) -> Starlette:
         if state.runner.is_running and (set(body) & SANDBOX_FIELDS):
             return _error(t("api.sandbox_locked"), 409)
 
-        changed: dict[str, Any] = {}
+        # ONCE dogrula, SONRA yaz. Dongu icinde `setattr` cagirmak, bir
+        # alan reddedildiginde ondan oncekileri islenmis birakiyordu:
+        # kullanici reddedildigini gorur ve hicbir seyin degismedigini
+        # sanir. Iki gecis, istegi ya tumuyle uygular ya hic uygulamaz.
+        yonetici = _is_admin(request)
+        temiz: list[tuple[str, Any, SettingField]] = []
         for name, value in body.items():
             spec = SETTING_FIELDS.get(name)
             if spec is None:
                 return _error(t("api.unknown_setting", name=name))
+            if spec.scope == "platform" and not yonetici:
+                return _error(t("api.setting_admin_only", name=name), 403)
             try:
                 cleaned = spec.parse(value)
             except (TypeError, ValueError) as exc:
                 return _error(f"{name}: {exc}")
+            temiz.append((name, cleaned, spec))
+
+        changed: dict[str, Any] = {}
+        for name, cleaned, spec in temiz:
             setattr(settings, name, cleaned)
             if name == "language":
                 # Atama dogrulayiciyi calistirmaz; Python tarafinin mesaj
@@ -946,6 +968,14 @@ def build_app(settings: Settings) -> Starlette:
     # ---------------------------------------------------------------- #
     # Kullanici yonetimi (yalnizca yonetici)
     # ---------------------------------------------------------------- #
+    def _is_admin(request: Request) -> bool:
+        """Kimlik dogrulama hic kurulmamissa yerel kurulum tek kisiliktir
+        ve o kisi her seyi yapabilir; kurulmussa rol karar verir."""
+        if not state.auth.is_configured:
+            return True
+        user = getattr(request.state, "user", None)
+        return bool(user and user.is_admin)
+
     def _require_admin(request: Request) -> Response | None:
         user = getattr(request.state, "user", None)
         if user is None or not user.is_admin:

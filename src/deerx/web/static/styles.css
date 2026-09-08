@@ -2823,3 +2823,21 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
   color: var(--text-3);
 }
 .settings-group:first-of-type { margin-top: 0; }
+
+/* ─── Yetki dışı ayar alanı ────────────────────────────────────────────── */
+/* Alt kullanıcı platform kapsamlı ayarları GÖRÜR ama yazamaz. Gizlemek
+   "böyle bir ayar yok" demek olurdu; oysa var ve yöneticisi
+   değiştirebilir. Etiket de soluklaşır — yalnızca kutuyu söndürmek,
+   alanın hâlâ doldurulabilir olduğu izlenimini bırakıyordu. */
+.field[data-locked] > span,
+.check[data-locked] { opacity: .55; }
+
+.field[data-locked] input,
+.field[data-locked] select,
+.field[data-locked] textarea,
+.check[data-locked] input {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text-3);
+  cursor: not-allowed;
+}
