@@ -303,7 +303,7 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
 
 .run-pill {
   display: inline-flex; align-items: center; gap: 8px;
-  padding: 5px 11px 5px 9px;
+  padding: 4px 12px 4px 8px;
   border-radius: var(--r-full);
   background: var(--muted-soft);
   color: var(--text-2);
@@ -333,7 +333,7 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
 }
 .lang-opt {
   min-width: 30px;
-  padding: 3px 7px;
+  padding: 3px 8px;
   border-radius: calc(var(--r-sm) - 2px);
   color: var(--text-3);
   font-size: 11px;
@@ -372,7 +372,7 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 12px 10px;
+  padding: 12px 8px;
   background: var(--surface);
   border-right: 1px solid var(--border);
   overflow-y: auto;
@@ -380,7 +380,7 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
 
 .rail-item {
   display: flex; align-items: center; gap: 8px;
-  padding: 8px 10px;
+  padding: 8px 12px;
   border-radius: var(--r-sm);
   color: var(--text-2);
   font-size: 13px;
@@ -422,10 +422,10 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
 }
 
 .rail-foot { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); }
-.rail-setting { display: flex; flex-direction: column; gap: 4px; padding: 6px 10px; }
+.rail-setting { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; }
 .rail-setting label { font-size: 12px; font-weight: 500; color: var(--text-2); }
 .rail-models {
-  padding: 8px 10px 2px;
+  padding: 8px 12px 4px;
   font-family: var(--mono);
   font-size: 11px;
   line-height: 1.5;
@@ -446,7 +446,7 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
 }
 .rail-ws-label {
   display: block;
-  padding: 0 10px;
+  padding: 0 12px;
   font-size: 12px;
   font-weight: 500;
   color: var(--text-2);
@@ -454,7 +454,7 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
 .rail-ws {
   display: block;
   width: 100%;
-  padding: 2px 10px 4px;
+  padding: 2px 12px 4px;
   border-radius: var(--r-sm);
   text-align: left;
   transition: background var(--t-fast);
@@ -865,7 +865,7 @@ select { cursor: pointer; }
 .tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
 .tab {
   display: inline-flex; align-items: center; gap: 8px;
-  padding: 9px 14px;
+  padding: 8px 16px;
   border-bottom: 2px solid transparent;
   color: var(--text-2);
   font-size: 13px;
@@ -902,7 +902,7 @@ select { cursor: pointer; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 thead th {
   position: sticky; top: 0;
-  padding: 9px 14px;
+  padding: 8px 16px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
   font-size: 11px;
@@ -913,14 +913,14 @@ thead th {
   text-align: left;
   white-space: nowrap;
 }
-tbody td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+tbody td { padding: 8px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
 tbody tr:last-child td { border-bottom: none; }
 tbody tr.clickable { cursor: pointer; }
 tbody tr.clickable:hover { background: var(--surface-2); }
 td.key { font-family: var(--mono); font-size: 12px; color: var(--text-2); white-space: nowrap; }
 td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
 
-.row-detail td { background: var(--surface-2); padding: 14px 18px; }
+.row-detail td { background: var(--surface-2); padding: 16px 16px; }
 .detail-grid { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; font-size: 13px; }
 .detail-grid dt { color: var(--text-3); font-weight: 500; white-space: nowrap; }
 .detail-grid dd { color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -928,7 +928,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 /* ── Rozetler ────────────────────────────────────────────────────────── */
 .badge {
   display: inline-block;
-  padding: 1px 7px;
+  padding: 1px 8px;
   /* `currentColor`: kenarlik rozetin kendi anlamsal rengi olur ve o renk
      palet testinde yuzeye karsi zaten >=4.5:1 kilitli. Yeni jeton yok. */
   border: 1px solid currentColor;
@@ -1028,7 +1028,13 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 .task-key { font-family: var(--mono); font-size: 12px; color: var(--text-2); min-width: 52px; }
 .task-title { flex: 1; font-size: 14px; font-weight: 500; }
 .task-deps { font-family: var(--mono); font-size: 12px; color: var(--text-3); }
-.task-body { padding: 0 15px 15px 79px; border-top: 1px solid var(--border); padding-top: 13px; }
+/* Sol girinti TURETILMIS: 16 baslik dolgusu + 52 anahtar sutunu +
+   12 bosluk. Elle secilmis bir sayi degil; baslik dolgusu degisirse
+   burasi da degismeli. */
+.task-body {
+  padding: 12px 16px 16px 80px;
+  border-top: 1px solid var(--border);
+}
 .task-body p { font-size: 13px; color: var(--text-2); margin-bottom: 10px; white-space: pre-wrap; }
 .task-files { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
 .task-file {
@@ -1040,7 +1046,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
   color: var(--text-2);
 }
 .task-accept {
-  padding: 9px 12px;
+  padding: 8px 12px;
   border-left: 2px solid var(--ok);
   border-radius: 0 var(--r-sm) var(--r-sm) 0;
   background: var(--ok-soft);
@@ -1080,7 +1086,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
      genislige yayilmasi icin acikca soylenmeli. Yoksa "satir" 331px'lik
      bir kutu olarak kaliyor ve olcu bilgisi adin hemen dibinde duruyordu. */
   width: 100%;
-  padding: 10px 14px;
+  padding: 8px 16px;
   border: 0;
   background: transparent;
   text-align: left;
@@ -1101,7 +1107,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 /* Detay listenin ICINDE, secilen satirin altinda. Ustten cizgiyle
    baglanir: hangi satirin detayi oldugu bakisla anlasilsin. */
 .artifact-view {
-  padding: 18px 20px;
+  padding: 16px 20px;
   border-top: 1px solid var(--border);
   background: var(--surface-2);
   /* Detay KENDI ICINDE kayar. Bir teslimat raporu sayfayi 13.600 piksele
@@ -1145,7 +1151,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 .prose > h1, .prose > h2, .prose > h3, .prose > h4 { max-width: 78ch; }
 .prose > * + * { margin-top: .85em; }
 .prose h1 { font-size: 22px; font-weight: 600; letter-spacing: -.02em; line-height: 1.2; margin-top: 1.5em; }
-.prose h2 { font-size: 17px; font-weight: 600; margin-top: 1.6em; padding-bottom: 5px; border-bottom: 1px solid var(--border); }
+.prose h2 { font-size: 17px; font-weight: 600; margin-top: 1.6em; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
 .prose h3 { font-size: 14px; font-weight: 600; margin-top: 1.4em; }
 .prose h4 { font-size: 14px; font-weight: 600; color: var(--text-2); margin-top: 1.2em; }
 .prose > h1:first-child, .prose > h2:first-child { margin-top: 0; }
@@ -1167,12 +1173,12 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 }
 .prose pre code { padding: 0; background: none; }
 .prose blockquote {
-  padding: 2px 0 2px 14px;
+  padding: 2px 0 2px 16px;
   border-left: 3px solid var(--border-strong);
   color: var(--text-2);
 }
 .prose table { border: 1px solid var(--border); border-radius: var(--r-sm); font-size: 13px; }
-.prose th, .prose td { padding: 7px 12px; border-bottom: 1px solid var(--border); text-align: left; }
+.prose th, .prose td { padding: 8px 12px; border-bottom: 1px solid var(--border); text-align: left; }
 .prose th {
   background: var(--surface-2);
   font-weight: 600;
@@ -1192,7 +1198,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
   overflow: hidden;
 }
 .prose .diagram figcaption {
-  padding: 6px 14px;
+  padding: 6px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--surface-3);
   font-size: 11px;
@@ -1247,7 +1253,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 .ev[data-kind="approval"]   .ev-glyph, .ev[data-kind="approval"] .ev-msg   { color: var(--warn); }
 .ev[data-kind="message"] {
   grid-template-columns: 58px 20px minmax(0, 1fr);
-  padding: 9px 12px;
+  padding: 8px 12px;
   margin: 4px 0;
   border-left: 2px solid var(--accent);
   background: var(--surface-2);
@@ -1272,7 +1278,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 .empty code {
   display: inline-block;
   margin-top: 8px;
-  padding: 4px 9px;
+  padding: 4px 8px;
   border-radius: var(--r-sm);
   background: var(--surface-3);
   color: var(--text-2);
@@ -1299,10 +1305,10 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
   box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
-.modal-head { padding: 18px 22px 14px; border-bottom: 1px solid var(--border); }
+.modal-head { padding: 16px 20px 16px; border-bottom: 1px solid var(--border); }
 .modal-badge {
   display: inline-block;
-  padding: 2px 9px;
+  padding: 2px 8px;
   margin-bottom: 8px;
   border-radius: var(--r-full);
   background: var(--warn-soft);
@@ -1317,7 +1323,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
   flex: 1;
   min-height: 60px;
   margin: 0;
-  padding: 16px 22px;
+  padding: 16px 20px;
   overflow: auto;
   background: var(--surface-2);
   font-size: 12px;
@@ -1328,7 +1334,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 }
 .modal-foot {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 14px 22px;
+  padding: 16px 20px;
   border-top: 1px solid var(--border);
 }
 .modal-count { font-size: 12px; color: var(--text-3); }
@@ -1399,12 +1405,12 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
   /* Ust bar dar ekranda tasiyordu (375px'te 39px). Maliyet Genel bakis'ta
      kart olarak zaten duruyor; ust bardaki kopyasi kaybi olmayan tek parca. */
   .topbar .stat-inline { display: none; }
-  .content { padding: 16px 14px 48px; }
+  .content { padding: 16px 16px 48px; }
   /* Dar ekranda on uc sutun okunmaz olur: serit yatay kayar ve
      asama basliklari gizlenir -- sikismis bir baslik, olmayan bir
      baslikan daha kotudur. */
   .phase-rail {
-    display: flex; padding: 16px 12px 14px;
+    display: flex; padding: 16px 12px 16px;
     overflow-x: auto; row-gap: 0;
   }
   .phase-stage { display: none; }
@@ -1412,7 +1418,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
   .field-row { grid-template-columns: 1fr; }
   .ev { grid-template-columns: 48px 18px minmax(0, 1fr); }
   .ev-actor { display: none; }
-  .task-body { padding-left: 15px; }
+  .task-body { padding-left: 16px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1432,13 +1438,13 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
   overflow: hidden;
 }
 .questions-head {
-  padding: 16px 20px 14px;
+  padding: 16px 20px 16px;
   background: var(--warn-soft);
   border-bottom: 1px solid var(--border);
 }
 .questions-badge {
   display: inline-block;
-  padding: 2px 9px;
+  padding: 2px 8px;
   margin-bottom: 8px;
   border-radius: var(--r-full);
   background: var(--warn);
@@ -1455,6 +1461,10 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 .question:first-child { border-top: none; }
 .question-head { display: flex; align-items: baseline; gap: 8px; }
 .question-key {
+  /* Sabit genislik: altindaki girinti (48px = 40 + 8 bosluk) buna
+     dayaniyor. Genislik serbest birakilirsa girinti anahtarin
+     uzunluguna gore kayar. */
+  min-width: 40px;
   font-family: var(--mono);
   font-size: 12px;
   font-weight: 600;
@@ -1465,12 +1475,12 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 .question-why,
 .question-suggestion {
   margin-top: 6px;
-  padding-left: 46px;
+  padding-left: 48px;
   font-size: 13px;
   color: var(--text-2);
 }
 .question-suggestion { color: var(--text-3); font-style: italic; }
-.question-actions { margin-top: 12px; padding-left: 46px; }
+.question-actions { margin-top: 12px; padding-left: 48px; }
 .question-actions textarea { resize: vertical; min-height: 44px; }
 .question-buttons { display: flex; gap: 8px; margin-top: 8px; }
 
@@ -1479,7 +1489,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
    alttaki yazilacak alan. */
 .row-answer {
   margin-top: var(--stack);
-  padding-top: 14px;
+  padding-top: 16px;
   border-top: 1px solid var(--border);
 }
 .row-answer textarea { width: 100%; }
@@ -1569,7 +1579,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 
 .package-row {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 10px 15px;
+  padding: 8px 16px;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   background: var(--surface);
@@ -1584,7 +1594,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
    projede ne yapildigini anlatan rapor hemen altina gelir. */
 .attachment {
   display: flex; align-items: center; gap: 12px;
-  padding: 16px 18px;
+  padding: 16px 16px;
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   background: var(--surface-2);
@@ -1609,7 +1619,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 }
 .attachment-contents li {
   display: flex; justify-content: space-between; gap: 12px;
-  padding: 5px 12px; list-style: none;
+  padding: 4px 12px; list-style: none;
 }
 .attachment-contents li + li { border-top: 1px solid var(--border); }
 .attachment-contents code { font-size: 12px; overflow-wrap: anywhere; }
@@ -1682,7 +1692,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
   overflow-y: auto;
 }
 .phase-summary {
-  padding: 11px 13px;
+  padding: 12px 12px;
   border: 1px solid var(--border);
   border-left: 3px solid var(--border-strong);
   border-radius: var(--r-md);
@@ -1729,7 +1739,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 }
 .doc-chips li {
   display: flex; align-items: center; gap: 8px;
-  padding: 7px 11px;
+  padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   background: var(--surface-2);
@@ -1787,7 +1797,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
   display: flex; align-items: center; gap: 8px; width: 100%;
   /* Kayarken hangi asamada oldugunuz gorunur kalsin. */
   position: sticky; top: 0; z-index: 1;
-  padding: 7px 12px;
+  padding: 8px 12px;
   border: none; background: var(--surface-2);
   color: var(--text-3);
   font-size: 11px; font-weight: 600;
@@ -1807,7 +1817,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 .step { border-top: 1px solid var(--border); }
 .step label {
   display: flex; align-items: flex-start; gap: 8px;
-  padding: 9px 12px;
+  padding: 8px 12px;
   cursor: pointer;
 }
 .step label:hover { background: var(--muted-soft); }
@@ -2058,7 +2068,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 .pager {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   margin-top: var(--stack);
-  padding: 9px 12px;
+  padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   background: var(--surface);
@@ -2100,7 +2110,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 .wf-meta { margin-bottom: 14px; }
 .wf-summary {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 10px 14px;
+  padding: 8px 16px;
   border: 1px solid var(--border);
   border-left: 3px solid var(--border-strong);
   border-radius: var(--r-md);
@@ -2113,7 +2123,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 .wf-summary[data-state="needs_input"],
 .wf-summary[data-state="cancelled"] { border-left-color: var(--warn); }
 .wf-chip {
-  padding: 2px 9px; border-radius: var(--r-full);
+  padding: 2px 8px; border-radius: var(--r-full);
   background: var(--muted-soft); color: var(--text);
   font-weight: 600;
 }
@@ -2138,7 +2148,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 
 .wf-head {
   display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 11px 14px;
+  padding: 12px 16px;
   border: none; background: none;
   text-align: left; cursor: pointer;
 }
@@ -2166,7 +2176,12 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 .wf-warn { color: var(--warn); font-weight: 600; }
 .wf-caret { color: var(--text-3); width: 10px; }
 
-.wf-body { padding: 4px 14px 14px 46px; border-top: 1px solid var(--border); }
+/* Sol girinti TURETILMIS: 16 baslik dolgusu + 22 sira rozeti + 8
+   bosluk. `.wf-head` dolgusu degisirse burasi da degismeli. */
+.wf-body {
+  padding: 4px 16px 16px 44px;
+  border-top: 1px solid var(--border);
+}
 .wf-section + .wf-section { margin-top: 14px; }
 .wf-section h4 {
   font-size: 11px; font-weight: 600; color: var(--text-3);
@@ -2213,7 +2228,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 /* Ust duzeyde kosular; birine tiklayinca o kosunun adim adim dokumu acilir. */
 .run-row {
   display: flex; align-items: center; gap: 12px; width: 100%;
-  padding: 12px 15px;
+  padding: 12px 16px;
   margin-bottom: 8px;
   border: 1px solid var(--border);
   border-left: 3px solid var(--border-strong);
@@ -2266,7 +2281,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
    ajanin yazacagi yeni gorevler oraya duser. */
 .plan-bar {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 10px 12px;
+  padding: 8px 12px;
   margin-bottom: 12px;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
@@ -2277,7 +2292,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 
 .plan-tab {
   display: inline-flex; align-items: center; gap: 8px;
-  padding: 5px 12px;
+  padding: 4px 12px;
   border: 1px solid var(--control-border);
   border-radius: var(--r-full);
   background: var(--surface);
@@ -2304,7 +2319,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 .artifact-group + .artifact-group { margin-top: 14px; }
 .artifact-group-head {
   display: flex; align-items: center; gap: 8px;
-  padding: 6px 4px 7px;
+  padding: 6px 4px 8px;
   margin-bottom: 4px;
   border-bottom: 1px solid var(--border);
 }
@@ -2352,7 +2367,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 /* Alti panelde kirk alan var; gruplar birbirinden ayrilmazsa duvar gibi
    okunur. Basliklar renk kodlu, alanlar nefes alacak sekilde araliklandi. */
 #view-settings .panel { border-top: 2px solid var(--border); }
-#view-settings .panel-body { padding-top: 14px; }
+#view-settings .panel-body { padding-top: 16px; }
 #view-settings .field { margin-bottom: 15px; }
 #view-settings .field:last-child { margin-bottom: 0; }
 #view-settings .field-row { gap: 12px; }
@@ -2361,7 +2376,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 
 /* Panel basligindaki durum rozeti: hazir/eksik ayrimi bir bakista. */
 #view-settings .panel-hint {
-  padding: 2px 9px;
+  padding: 2px 8px;
   border-radius: var(--r-full);
   background: var(--muted-soft);
   color: var(--text-3);
@@ -2374,7 +2389,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 
 /* Test sonucu: yesil/kirmizi zeminli, okunakli bir kutu. */
 #view-settings .note[data-tone] {
-  padding: 9px 12px;
+  padding: 8px 12px;
   border-radius: var(--r-sm);
   border-left: 3px solid transparent;
   font-family: var(--mono); font-size: 12px;
@@ -2408,7 +2423,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
    asil aradiginiz gorunmez. En yeni kosu acik gelir. */
 .artifact-group-head {
   display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 7px 6px 8px;
+  padding: 8px 6px 8px;
   border: none; border-bottom: 1px solid var(--border);
   background: none; text-align: left; cursor: pointer;
 }
@@ -2546,7 +2561,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 
 .chat-msg {
   display: flex; flex-direction: column; gap: 4px;
-  padding: 11px 13px;
+  padding: 12px 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface-2);
@@ -2746,7 +2761,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 
 /* Dar ekranda yalnızca simge kalır; metin köşeyi kaplardı. */
 @media (max-width: 640px) {
-  .chat-fab { padding: 14px; }
+  .chat-fab { padding: 16px; }
   .chat-fab-text { display: none; }
 }
 

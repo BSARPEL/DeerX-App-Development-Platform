@@ -2005,6 +2005,40 @@ class TestDesignScale:
         stray = {v for v in used if v.endswith("px") and v not in self.SPACE}
         assert not stray, f"dort piksel izgarasi disi bosluk: {sorted(stray)}"
 
+    # Dolgu icin izin verilen kume. Dortun katlari izgaranin kendisi;
+    # 1/2/3 sac teli ve optik nudge; 6 sikisik satirlarda yarim adim.
+    # 46/79 gibi "turetilmis" degerler burada YOK: bir girinti komsu
+    # olculerden hesaplanmali, elle secilmemeli -- yoksa komsu olcu
+    # degistiginde sessizce yanlis olur (gorev govdesinde tam bu oldu).
+    PADDING = {0, 1, 2, 3, 4, 6, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 64, 80}
+
+    def test_padding_stays_on_the_four_pixel_grid(self):
+        """`gap` kilitliydi, `padding` serbestti -- ve orada 28 ayri deger
+        birikmisti (3, 5, 7, 9, 10, 11, 13, 14, 15, 18, 22, 26, 34, 79...).
+
+        En cok kullanilan uc deger 12px, 8px ve 14px idi: dosyanin kendisi
+        bile hangi ritmi izledigine karar verememis. Tek sayilar hicbir
+        yerde gerekcelendirilmemis ve yan yana duran kutular arasinda 1-2
+        piksellik farklar uretiyor; bunlar toplaninca hiza kaymasi olarak
+        gorunuyor. Arayuzun "toplanmis" degil "tasarlanmis" gorunmesini
+        saglayan sey, bir bilesenin komsusuna bakmadan kendi degerini
+        secmemesidir.
+        """
+        import re
+
+        stray: dict[int, list[str]] = {}
+        for match in re.finditer(
+            r"(padding(?:-top|-right|-bottom|-left|-inline-start)?):\s*([^;{}]+);",
+            self._css(),
+        ):
+            for parca in match.group(2).split():
+                px = re.fullmatch(r"(\d+)px", parca)
+                if px and int(px.group(1)) not in self.PADDING:
+                    stray.setdefault(int(px.group(1)), []).append(match.group(0))
+        assert not stray, "izgara disi dolgu: " + "; ".join(
+            f"{n}px -> {ornek[0]}" for n, ornek in sorted(stray.items())
+        )
+
     def test_the_page_title_is_the_largest_text(self):
         """Istatistik sayilari basligi bastirmamali.
 
