@@ -358,13 +358,32 @@ Günlüğün tavanı son 5000 satır, ve proje veritabanını paylaşıyor.
 Palet markadan türetilmiştir: logonun laciverti (`#082850`) başlangıç noktası ve
 tüm ölçek o mavi ailesinde kalır. Anlamsal renkler (ok/warn/err/info) aynı
 parlaklık ve doygunluk ailesine çekildi ki yan yana geldiklerinde biri
-diğerinden yüksek sesli durmasın. Tipografi yedi punto, dört ağırlık ve 4
-piksellik bir boşluk ızgarası üzerine oturur.
+diğerinden yüksek sesli durmasın.
+
+Her değer, ait olduğu bileşene değil bir **role** cevap verir. Tipografi yedi
+punto kullanır ve her birinin bir işi vardır: 11px büyük harf mikro-etiket ve
+sayaçlar, 12px meta satırları, 13px gövde ve kontrol etiketleri, 14px nesne
+başlıkları, 17px ve üstü sayfa başlıkları. Boşluk — yalnızca `gap` değil,
+`padding` de — dört piksellik ızgaraya oturur; bloklar arası ayraç tek bir
+`--stack`, büyük harf aralığı tek bir `--track-caps`, hareket de on bir değil
+iki süredir.
+
+Derinlik ölçülmüştür, süs değildir. Üç yüzey basamağı birbirinden en az 1.16:1
+ayrışır; çünkü göz, 1.2:1'in altındaki farkı tek bir düzlem olarak okur. Açık
+temada yükselti iki katmanlı gerçek bir gölgedir; koyu temada üst kenarın
+aydınlanmasıdır — orada dürüst araç budur, siyahın üstüne siyah sinyal üretmez.
 
 Bunların hiçbiri göz kararı değil. **1458 render edilmiş metin öğesinin tamamı
 WCAG AA'yı geçiyor** ve ölçek `tests/test_web.py` içinde kilitli: `TestPalette`
 kontrastı ve marka tonunu, `TestDesignScale` punto/ağırlık/boşluk ölçeğini ve
-başlık hiyerarşisini doğruluyor.
+başlık hiyerarşisini doğruluyor. `tests/test_theme.py` de kontrol jetonlarını
+ölçüyor: dolu bir düğmenin panelinden ayrıştığını, bir kenarlığın gerçekte
+üzerinde durduğu yüzeye karşı 3:1 eşiğini tuttuğunu ve hover'ın açık temada
+koyulaşıp koyu temada açıldığını.
+
+İki şekil anlam taşır ve asla karışmaz: hap tıklanabilir olanı, yuvarlatılmış
+dikdörtgen durum etiketini gösterir. Odak ayrık bir halka, seçim ise dolgudur —
+ikisi de vurgu rengini kullandığı için farkı şekil taşımak zorunda.
 
 Açık ve koyu tema, klavyeyle tam gezinilebilirlik, mobil düzen.
 

@@ -8,7 +8,7 @@ doğrulama değildir, ve ikisini karıştırmak dürüst iddiaları da değersiz
 
 ## Süit
 
-Python 3.11 ve 3.13'te **1760 test geçiyor**, `ruff` temiz.
+Python 3.11 ve 3.13'te **1772 test geçiyor**, `ruff` temiz.
 
 Hiçbir test ağ çağrısı ya da gerçek model çağrısı yapmaz. Ajanlar
 `tests/conftest.py` içindeki sahte istemciye karşı koşar, yani süit
@@ -194,6 +194,14 @@ koruma gerektiren kategoridir, çünkü kendini duyuran hiçbir yanı yoktur.
 | Kabuk politikasında yeni satır ayraç sayılmıyordu | Çok satırlı bir komutun yalnızca ilk satırı denetleniyor, bash hepsini çalıştırıyordu: tek başına reddedilen `whoami`, izinli bir satırın ardına konunca çalıştı. `approval_mode = "auto"` kipinde izin listesi tek bariyerdi |
 | Vekil, denetimden sonra adı yeniden çözüyordu | Doğrulanan adresler atılıyor ve `create_connection` adı baştan çözüyordu — DNS rebinding'in kullandığı ikinci çözümleme tam olarak buydu |
 | Stilsiz bir DOCX paragrafı bütün dosyayı düşürüyordu | `para.style` None olabiliyor; tek bir stilsiz paragraf yüzünden şartnamenin tamamı indekslenemiyordu |
+| Çekmecenin dinlenme konumu bir geçişin bitiş durumuydu | Varsayılan geometrisi ekran dışıydı; arka plandaki bir sekmede geçiş hiç ilerlemediği için panel görüntü alanının dışında kalıyordu ve ekran görüntüsü alan her araç tam o kareyi yakalıyordu |
+| Kapalı çekmece sekme sırasında kalıyordu | Görünmeyen bir panelin metin kutusuna ve "Gönder" düğmesine Tab ile giriliyordu, üstelik `aria-hidden` taşıyan bir ağacın içinde |
+| `password` ve `number` girdileri taban form kuralını almıyordu | Seçici yalnızca `text`/`search` sayıyordu; Giriş ekranında kullanıcı adı biçimliyken parola ham bir tarayıcı kutusuydu |
+| Rozetin dolgusu her iki temada görünmüyordu | `--*-soft` / `--surface` 1.02–1.18:1 ölçüyor; koyu temada "başarısız" rozetinin arkasında hiçbir şey yoktu, yalnızca kırmızı bir kelime |
+| Girdilerin odak halkası 1.14:1 ölçüyordu | `outline: none` sistemin halkasını atıp yerine yüzeyden ayrışmayan `--accent-soft` koyuyordu — Ayarlar'daki kırk alanda klavye konumu görünmüyordu |
+| `:focus-visible` odaklanan öğenin kendi köşe yarıçapını değiştiriyordu | Kendi `border-radius`'u olmayan her bileşen klavye odağında sessizce şekil değiştiriyordu |
+| Tam genişlikli satırların odak halkası `overflow: hidden` ile kırpılıyordu | Halka gövde kutusunun dışına çiziliyor, kırpma sınırı ise tam gövde kutusunda: görev, çıktı ve iş akışı satırlarında klavye odağı görünmüyordu |
+| Bildirim yığını çekmecenin "Gönder" düğmesini örtüyordu | Üstelik `sendChat` bildirimi hata durumunda atıyor: düğmeye yeniden basmanız gereken anda düğme kayboluyordu |
 
 ## Yeniden üretme
 

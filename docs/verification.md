@@ -9,7 +9,7 @@ worthless too.
 
 ## The suite
 
-**1760 tests pass**, `ruff` clean, on Python 3.11 and 3.13.
+**1772 tests pass**, `ruff` clean, on Python 3.11 and 3.13.
 
 No test makes a network call or a real model call. Agents run against a fake
 client in `tests/conftest.py`, so the suite is deterministic.
@@ -197,6 +197,14 @@ needs a permanent guard, because nothing about it announces itself.
 | A newline was not a command separator in the shell policy | Only the first line of a multi-line command was checked, and bash ran them all: `whoami`, refused on its own, ran when placed after an allowed line. With `approval_mode = "auto"` the allow list was the only barrier |
 | The proxy re-resolved the hostname after checking it | The validated addresses were discarded and `create_connection` resolved the name again — the exact second lookup DNS rebinding exploits |
 | A DOCX paragraph with no style aborted the whole file | `para.style` can be `None`; one style-less paragraph meant the entire specification failed to index |
+| The drawer's resting position was the end state of a transition | Its default geometry was off-screen, so in a background tab — where the transition never advances — the panel stayed outside the viewport; every screenshot tool caught exactly that frame |
+| A closed drawer stayed in the tab order | Tab reached the text box and Send button of an invisible panel, inside a subtree marked `aria-hidden` |
+| `password` and `number` inputs missed the base form rule | The selector listed only `text`/`search`; on the sign-in screen the username was styled and the password was a raw browser box |
+| The badge fill was invisible in both themes | `--*-soft` on `--surface` measures 1.02–1.18:1, so in dark theme a "failed" badge was a red word with nothing behind it |
+| The input focus ring measured 1.14:1 | `outline: none` replaced the system ring with `--accent-soft`, which does not separate from the surface — forty fields in Settings with no keyboard position |
+| `:focus-visible` changed the focused element's own corner radius | Any component without its own `border-radius` silently changed shape on keyboard focus |
+| Focus rings on full-width rows were clipped by `overflow: hidden` | The ring is drawn outside the border box and the clip boundary is the border box, so keyboard focus was invisible on task, artifact and workflow rows |
+| The toast stack covered the drawer's Send button | And `sendChat` raises a toast on error — the button disappeared at the moment you needed to press it again |
 
 ## Reproducing
 

@@ -365,13 +365,32 @@ The log is capped at the last 5000 rows and shares the project database.
 The palette derives from the brand: the logo's navy (`#082850`) is the starting
 point and the whole scale stays in that blue family. Semantic colours
 (ok/warn/err/info) were pulled into the same lightness and saturation family so
-none reads louder than the others side by side. Typography rests on seven sizes,
-four weights and a 4px spacing grid.
+none reads louder than the others side by side.
+
+Every value answers to a role rather than to its own component. Type uses seven
+sizes, and each one means something: 11px for uppercase micro-labels and
+counters, 12px for meta lines, 13px for body and control labels, 14px for object
+titles, 17px and up for headings. Spacing — padding as well as `gap` — sits on a
+4px grid, blocks are separated by one `--stack`, uppercase tracking comes from
+one `--track-caps`, and motion has two durations rather than eleven.
+
+Depth is measured, not decorative. The three surface steps stay at least 1.16:1
+apart, because the eye reads anything below about 1.2:1 as a single plane. In
+light theme elevation is a real two-layer shadow; in dark theme it is the top
+edge catching light, which is the honest tool there — black on black produces no
+signal.
 
 None of this is by eye. **All 1458 rendered text elements pass WCAG AA**, and
 the scale is locked in `tests/test_web.py`: `TestPalette` checks contrast and
 brand hue, `TestDesignScale` checks the size/weight/spacing scale and the
-heading hierarchy.
+heading hierarchy, and `tests/test_theme.py` checks the control tokens — that a
+filled button separates from its panel, that a border meets the 3:1 component
+threshold on whichever surface it actually sits on, and that hover darkens in
+light and lightens in dark.
+
+Two shapes carry meaning and are never mixed: a pill is something you can click,
+a rounded rectangle is a status label. Focus is a detached ring, selection is a
+fill — both use the accent colour, so the difference has to be shape.
 
 Light and dark themes, full keyboard navigation, mobile layout.
 
