@@ -209,6 +209,17 @@
             <span class="panel-hint" id="run-hint"></span>
           </header>
           <div class="panel-body">
+            <label class="field">
+              <span><span data-i18n="develop.goal">Hedef</span>
+                    <em data-i18n="develop.goalHint">(tek cümle)</em></span>
+              <input type="text" id="run-goal" data-i18n-placeholder="develop.goalPlaceholder">
+            </label>
+            <label class="field">
+              <span><span data-i18n="develop.brief">Analiste talimat</span>
+                    <em data-i18n="develop.briefHint">(neye dikkat etsin)</em></span>
+              <textarea id="run-brief" rows="4"
+                data-i18n-placeholder="develop.briefPlaceholder"></textarea>
+            </label>
             <div class="field">
               <span><span data-i18n="develop.steps">Çalıştırılacak adımlar</span>
                     <em data-i18n="develop.stepsHint">(sırayla uygulanır)</em></span>
@@ -223,17 +234,6 @@
                   aria-label="Çalıştırılacak adımlar"></ol>
               <div class="run-route" id="run-route" aria-live="polite"></div>
             </div>
-            <label class="field">
-              <span><span data-i18n="develop.goal">Hedef</span>
-                    <em data-i18n="develop.goalHint">(tek cümle)</em></span>
-              <input type="text" id="run-goal" data-i18n-placeholder="develop.goalPlaceholder">
-            </label>
-            <label class="field">
-              <span><span data-i18n="develop.brief">Analiste talimat</span>
-                    <em data-i18n="develop.briefHint">(neye dikkat etsin)</em></span>
-              <textarea id="run-brief" rows="4"
-                data-i18n-placeholder="develop.briefPlaceholder"></textarea>
-            </label>
             <label class="check">
               <input type="checkbox" id="run-force">
               <span data-i18n="develop.forceRerun">Tamamlanmış fazları da yeniden çalıştır</span>
@@ -269,6 +269,8 @@
           <p class="view-sub" id="workflow-sub">—</p>
         </div>
         <div class="wf-actions">
+          <button class="btn btn-primary btn-sm" id="workflow-new" data-view="develop"
+                  type="button" data-i18n="wf.newRun">Yeni koşu başlat →</button>
           <button class="btn btn-ghost btn-sm" id="workflow-back" type="button" hidden
                   data-i18n="app.back">← Geri</button>
           <label class="check" id="workflow-expand-label" hidden>
@@ -291,6 +293,22 @@
         <p class="view-sub" id="kb-sub">—</p>
       </div>
 
+      <!-- Envanter once: bu sayfaya cogunlukla "hangi belgeler
+           indekslenmis" diye gelinir. Once bos bir arama formu, sonra
+           bir EYLEM panelinin icine gomulu bir tablo vardi. -->
+      <section class="panel">
+        <header class="panel-head">
+          <h2 data-i18n="kb.documents">Belgeler</h2>
+          <button class="btn btn-ghost btn-sm" data-view="develop" type="button"
+                  data-i18n="kb.uploadLink">Belge yükle →</button>
+        </header>
+        <div class="panel-body">
+          <div id="doc-table"></div>
+          <nav class="pager" id="doc-pager" data-i18n-label="pager.aria"
+               aria-label="Sayfalama" hidden></nav>
+        </div>
+      </section>
+
       <section class="panel">
         <header class="panel-head"><h2 data-i18n="kb.search">Arama</h2></header>
         <div class="panel-body">
@@ -309,20 +327,13 @@
       </section>
 
       <section class="panel">
-        <header class="panel-head">
-          <h2 data-i18n="kb.indexing">İndeksleme</h2>
-          <button class="btn btn-ghost btn-sm" data-view="develop" type="button"
-                  data-i18n="kb.uploadLink">Belge yükle →</button>
-        </header>
+        <header class="panel-head"><h2 data-i18n="kb.indexing">İndeksleme</h2></header>
         <div class="panel-body">
           <form class="inline-form" id="ingest-form">
             <input type="text" id="ingest-path" data-i18n-placeholder="kb.pathPlaceholder">
             <label class="check"><input type="checkbox" id="ingest-force"><span data-i18n="kb.force">Zorla</span></label>
             <button class="btn" type="submit" data-i18n="kb.indexDir">Dizini indeksle</button>
           </form>
-          <div id="doc-table"></div>
-          <nav class="pager" id="doc-pager" data-i18n-label="pager.aria"
-               aria-label="Sayfalama" hidden></nav>
         </div>
       </section>
     </section>
@@ -461,6 +472,7 @@
       <!-- Genel durum gelmediyse form boş kalır ve "hiçbir şey ayarlı değil" gibi okunur. -->
       <p class="note" id="settings-unavailable" data-tone="err" hidden></p>
 
+      <h2 class="settings-group" data-i18n="settings.groupModel">Model</h2>
       <div class="panel-row">
         <section class="panel">
           <header class="panel-head">
@@ -548,6 +560,7 @@
         </section>
       </div>
 
+      <h2 class="settings-group" data-i18n="settings.groupExecution">Çalıştırma</h2>
       <div class="panel-row">
         <section class="panel">
           <header class="panel-head"><h2 data-i18n="settings.limits">Üretim sınırları</h2></header>
@@ -619,6 +632,7 @@
         </section>
       </div>
 
+      <h2 class="settings-group" data-i18n="settings.groupAccess">Dış erişim</h2>
       <div class="panel-row">
         <section class="panel">
           <header class="panel-head">
@@ -720,6 +734,7 @@
         </section>
       </div>
 
+      <h2 class="settings-group" data-i18n="settings.groupAdmin">Yönetim</h2>
       <div class="panel-row">
         <section class="panel">
           <header class="panel-head">
@@ -939,10 +954,11 @@
 
   <!-- İş akışı sohbeti: sağdan çekmece, görünümlerin DIŞINDA durur. -->
   <div class="drawer-veil" id="chat-veil" hidden></div>
-  <aside class="drawer" id="chat-drawer" aria-hidden="true">
+  <aside class="drawer" id="chat-drawer"
+         role="dialog" aria-modal="true" aria-labelledby="chat-title">
     <header class="drawer-head">
       <div>
-        <h2 class="drawer-title" data-i18n="chat.title">Bu iş akışı hakkında konuş</h2>
+        <h2 class="drawer-title" id="chat-title" data-i18n="chat.title">Bu iş akışı hakkında konuş</h2>
         <p class="drawer-sub" id="chat-scope">—</p>
       </div>
       <div class="drawer-actions">

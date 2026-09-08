@@ -287,7 +287,10 @@ async function loadOverview() {
   $("#badge-tasks").textContent     = counts.tasks || "";
   $("#badge-artifacts").textContent = counts.artifacts || "";
   $("#c-req").textContent = counts.requirements;
-  $("#c-q").textContent = counts.questions;
+  // Toplam soru sayisi tek basina bir sey soylemiyordu: kosuyu
+  // DURDURAN sey acik ve engelleyen sorulardir.
+  $("#c-q").textContent = `${counts.questions_open}/${counts.questions}`;
+  $("#c-q").dataset.alert = counts.questions_blocking ? "1" : "";
   $("#c-gap").textContent = counts.gaps;
   $("#c-dec").textContent = counts.decisions;
   $("#c-res").textContent = counts.research_notes;
@@ -855,7 +858,7 @@ function initKnowledge() {
         return;
       }
       target.innerHTML = data.hits.map((hit) => `
-        <article class="result">
+        <article class="result" data-kind="${esc(hit.kind)}">
           <div class="result-head">
             <span class="result-cite">${esc(hit.citation)}</span>
             <span class="result-score">${hit.score.toFixed(4)} · ${esc(hit.kind)}</span>
@@ -1613,6 +1616,7 @@ async function loadWorkflowList() {
   const list = $("#run-list");
   $("#workflow-title").textContent = t("wf.title");
   $("#workflow-back").hidden = true;
+  $("#workflow-new").hidden = false;
   // Sohbetin kapsami TEK bir is akisidir; listede "hangisi hakkinda?"
   // sorusunun cevabi yok, o yuzden panel yalnizca detayda gorunur.
   $("#chat-open").hidden = true;
@@ -1677,6 +1681,7 @@ async function loadWorkflowDetail(workflowId) {
   $("#workflow-steps").innerHTML = "";
   $("#workflow-expand-label").hidden = true;
   $("#workflow-back").hidden = false;
+  $("#workflow-new").hidden = true;
   $("#chat-open").hidden = false;
   loadChat(workflowId);
   try {
@@ -1851,6 +1856,7 @@ async function retryRun(runId, phase, button) {
 async function loadRunDetail(runId) {
   $("#run-list").innerHTML = "";
   $("#workflow-back").hidden = false;
+  $("#workflow-new").hidden = true;
   $("#workflow-expand-label").hidden = false;
   try {
     const data = await api(`/api/runs/${encodeURIComponent(runId)}`);
@@ -2041,7 +2047,6 @@ async function sendChat() {
 function openChat() {
   const drawer = $("#chat-drawer");
   drawer.dataset.open = "1";
-  drawer.setAttribute("aria-hidden", "false");
   $("#chat-veil").hidden = false;
   // Cekmece acikken dugme gizlenir: ikisi ayni koseyi paylasiyor.
   $("#chat-open").dataset.behind = "1";
@@ -2057,7 +2062,6 @@ function closeChat() {
   const drawer = $("#chat-drawer");
   if (drawer.dataset.open !== "1") return;
   delete drawer.dataset.open;
-  drawer.setAttribute("aria-hidden", "true");
   $("#chat-veil").hidden = true;
   delete $("#chat-open").dataset.behind;
 }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from pathlib import Path
@@ -3025,9 +3026,47 @@ class TestChatDrawer:
     def test_it_slides_rather_than_appearing(self):
         """`display:none` ile gizlemek gecis animasyonunu imkansiz kilar."""
         css = self._asset("styles.css")
-        blok = css[css.index(".drawer {"):css.index(".drawer-head")]
-        assert "transform: translateX(100%)" in blok
+        blok = css[css.index(".drawer {"):css.index(".drawer:not(")]
         assert "transition: transform" in blok
+
+    def test_the_resting_position_does_not_depend_on_a_transition(self):
+        """Panelin ACIK haldeki yeri varsayilan olmali, gecisin sonucu degil.
+
+        OLCULDU: varsayilan `transform: translateX(100%)` iken `data-open`
+        verildigi anda "Gonder" dugmesi sag kenarin 440px disindaydi ve
+        arka plandaki bir sekmede gecis hic ilerlemedigi icin 600ms sonra
+        bile orada kaliyordu. Ekran goruntusu alan her arac tam olarak o
+        kareyi yakaliyor. Bir panelin dogru yerinde olmasi bir
+        zamanlayiciya baglanamaz: sapma KAPALI duruma ait.
+        """
+        css = self._asset("styles.css")
+        # Yorumlar ayiklanir: bir kuralin ACIKLAMASINDA gecen deger o
+        # kuralin davranisi degildir.
+        govde = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+        acik = govde[govde.index(".drawer {"):govde.index(".drawer:not(")]
+        kapali = govde[govde.index('.drawer:not([data-open="1"]) {'):]
+        kapali = kapali[:kapali.index("}")]
+
+        assert "translateX(100%)" not in acik, "dinlenme konumu ekran disinda"
+        assert "translateX(0)" in acik, "acik hal varsayilan degil"
+        assert "translateX(100%)" in kapali, "kapali hal sapmiyor"
+
+    def test_the_closed_drawer_is_out_of_the_tab_order(self):
+        """Kapali panelin metin kutusuna Tab ile girilememeli.
+
+        `transform` ogeyi yalnizca gorsel olarak tasir: olculdu, kapali
+        cekmecedeki "Gonder" dugmesi odak alabiliyordu. `visibility`
+        alt ogeleri hem sekme sirasindan hem erisilebilirlik agacindan
+        cikarir -- `aria-hidden` gosterisine gerek birakmadan.
+        """
+        css = self._asset("styles.css")
+        kapali = css[css.index('.drawer:not([data-open="1"]) {'):]
+        assert "visibility: hidden" in kapali[:kapali.index("}")]
+
+        # Odak alabilen bir agaca `aria-hidden` koymak denetim
+        # araclarinin `aria-hidden-focus` diye isaretledigi kalip.
+        assert 'id="chat-drawer"' in self._asset("index.html")
+        assert "aria-hidden" not in self._asset("app.js").split("function openChat")[1][:400]
 
     def test_reduced_motion_is_respected(self):
         css = self._asset("styles.css")
