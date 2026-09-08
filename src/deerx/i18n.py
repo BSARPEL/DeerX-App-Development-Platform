@@ -2211,6 +2211,10 @@ CATALOG: dict[str, dict[str, str]] = {
         "tr": "yeniden etkinlestirildi: {source}",
         "en": "reactivated: {source}",
     },
+    "api.outside_workspace": {
+        "tr": "Yol calisma alaninin disinda: {path}",
+        "en": "The path is outside the workspace: {path}",
+    },
     "api.path_required": {
         "tr": "Bir dizin yolu verin.",
         "en": "Give a directory path.",

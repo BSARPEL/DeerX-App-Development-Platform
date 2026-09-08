@@ -1688,6 +1688,26 @@ def build_app(settings: Settings) -> Starlette:
             return _error(str(exc), 500)
         return _json({"query": query, "hits": hits})
 
+    def _alan_ici_yol(raw: str) -> Path | None:
+        """Yolu calisma alanina gore cozer; disari cikiyorsa None doner.
+
+        OLCULDU: `is_absolute()` denetimi yalnizca GORELI yolu calisma
+        alanina bagliyordu; mutlak yol oldugu gibi kabul ediliyordu. Yani
+        giris yapmis herhangi bir kullanici konaktaki herhangi bir dizini
+        indeksleyip icerigini `/api/search` ile geri okuyabiliyordu --
+        ev dizini, ssh anahtarlari, baska bir musterinin projesi.
+
+        `ToolContext.resolve_path` ile ayni disiplin; ajanin uydugu kurala
+        HTTP ucunun uymamasi icin bir sebep yok.
+        """
+        aday = Path(raw).expanduser()
+        if not aday.is_absolute():
+            aday = state.settings.workspace / aday
+        cozulen = aday.resolve()
+        if not cozulen.is_relative_to(state.settings.workspace.resolve()):
+            return None
+        return cozulen
+
     async def ingest(request: Request) -> Response:
         denied = _require_role(request, "developer")
         if denied is not None:
@@ -1703,9 +1723,9 @@ def build_app(settings: Settings) -> Starlette:
         force = bool(body.get("force", False))
         sources: list[Path] = []
         if raw:
-            candidate = Path(raw)
-            if not candidate.is_absolute():
-                candidate = state.settings.workspace / candidate
+            candidate = _alan_ici_yol(raw)
+            if candidate is None:
+                return _error(t("api.outside_workspace", path=raw), 400)
             if not candidate.exists():
                 return _error(t("api.path_not_found", path=raw), 404)
             sources.append(candidate)
@@ -2384,9 +2404,11 @@ def build_app(settings: Settings) -> Starlette:
 
         sources: list[Path] = []
         for entry in body.get("sources") or []:
-            candidate = Path(str(entry))
-            if not candidate.is_absolute():
-                candidate = state.settings.workspace / candidate
+            # Ayni delik burada da vardi: `/api/ingest` ile ayni sekilde
+            # mutlak bir yol denetimsiz geciyordu.
+            candidate = _alan_ici_yol(str(entry))
+            if candidate is None:
+                return _error(t("api.outside_workspace", path=entry), 400)
             sources.append(candidate)
 
         # Kosuya anlamli bir baslik ver: liste "hangi kosu neydi" sorusunu

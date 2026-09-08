@@ -594,6 +594,40 @@ def test_workspace_paths_are_contained(settings: Path) -> None:
         assert response.status_code in (404, 400)
 
 
+def test_an_absolute_path_cannot_reach_outside_the_workspace(settings, tmp_path) -> None:
+    """OLCULDU: mutlak yol HIC denetlenmiyordu.
+
+    `if not candidate.is_absolute()` yalnizca GORELI yolu calisma alanina
+    baglıyor; mutlak yol oldugu gibi kabul ediliyordu. Yani giris yapmis
+    herhangi bir kullanici konaktaki herhangi bir dizini indeksleyip
+    icerigini `/api/search` ile geri okuyabiliyordu -- ev dizini, ssh
+    anahtarlari, baska bir musterinin projesi.
+
+    Ustteki test bunu yakalamiyordu cunku GORELI bir yol veriyor: o yol
+    calisma alanina baglanip var olmadigi icin 404 aliyor ve gercek delik
+    acik kaliyordu.
+    """
+    disarida = tmp_path.parent / "disarida"
+    disarida.mkdir(exist_ok=True)
+    (disarida / "sir.md").write_text(
+        "# Sir\n\ncok gizli anahtar\n", encoding="utf-8"
+    )
+
+    with TestClient(build_app(settings)) as client:
+        cevap = client.post("/api/ingest", json={"path": str(disarida)})
+        assert cevap.status_code in (400, 404), cevap.text
+        # Ve icerigi aramayla geri gelmemeli.
+        arama = client.post("/api/search", json={"query": "cok gizli anahtar"})
+        assert arama.status_code == 200
+        assert arama.json()["hits"] == []
+
+        # `/api/run` govdesindeki `sources` da ayni delige sahipti.
+        kosu = client.post(
+            "/api/run", json={"phases": ["ingest"], "sources": [str(disarida)]}
+        )
+        assert kosu.status_code == 400, kosu.text
+
+
 class TestUpload:
     """Sartname yukleme: govde ham baytlar, dosya adi sorgu parametresinde."""
 

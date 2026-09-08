@@ -224,12 +224,41 @@ class TestDegisiklikGorunur:
 class TestDegisiklikGercektenYapilir:
     def test_the_goal_change_reaches_the_project_meta(self, sohbet):
         """Fazlar "bu faz hangi hedef icin tamamlandi?" diye proje
-        hedefine bakar. Is akisinin hedefi ile projeninki ayrisirsa o
-        karar yanlis tarafa duser."""
+        hedefine bakar. UZERINDE CALISILAN is akisinin hedefi ile
+        projeninki ayrisirsa o karar yanlis tarafa duser."""
         orch, workflow, _ = sohbet
+        orch.state.set_meta("goal", workflow["goal"])
         orch.state.update_workflow(workflow["id"], goal="yeni hedef")
         assert orch.state.get_workflow(workflow["id"])["goal"] == "yeni hedef"
         assert orch.state.get_meta("goal") == "yeni hedef"
+
+    def test_the_first_workflow_sets_the_project_goal(self, sohbet):
+        """Hedef henuz hic yazilmamissa korunacak bir sey de yok."""
+        orch, workflow, _ = sohbet
+        assert orch.state.get_meta("goal", "") == ""
+        orch.state.update_workflow(workflow["id"], goal="ilk hedef")
+        assert orch.state.get_meta("goal") == "ilk hedef"
+
+    def test_editing_another_workflow_does_not_retarget_the_project(self, sohbet):
+        """OLCULDU: kosulsuz yazildiginda, danismana IKINCI bir is
+        akisinin hedefini degistirtmek BIRINCININ bitmis fazlarini
+        gecersiz kiliyordu.
+
+        `_skip_reason` proje geneli hedefe bakiyor; baska bir is akisinin
+        hedefi oraya yazilinca butun fazlar yeniden kosulabilir hale
+        geliyor -- ve kullanici bunu ancak fazlar bastan kosarken fark
+        ediyor.
+        """
+        orch, birinci, _ = sohbet
+        orch.state.set_meta("goal", birinci["goal"])
+        ikinci = orch.state.create_workflow("Baska bir hedef")
+
+        orch.state.update_workflow(ikinci["id"], goal="degistirilmis hedef")
+
+        assert orch.state.get_workflow(ikinci["id"])["goal"] == "degistirilmis hedef"
+        assert orch.state.get_meta("goal") == birinci["goal"], (
+            "baska bir is akisinin hedefi projeyi yeniden hedefledi"
+        )
 
     def test_answering_a_question_reaches_the_knowledge_base(self, sohbet, ctx):
         """Cevap yalnizca hafizada kalsa uzun bir kosuda gecmis kirpilinca

@@ -9,7 +9,7 @@ worthless too.
 
 ## The suite
 
-**1858 tests pass**, `ruff` clean, on Python 3.11 and 3.13.
+**1861 tests pass**, `ruff` clean, on Python 3.11 and 3.13.
 
 No test makes a network call or a real model call. Agents run against a fake
 client in `tests/conftest.py`, so the suite is deterministic.
@@ -197,6 +197,10 @@ needs a permanent guard, because nothing about it announces itself.
 | A newline was not a command separator in the shell policy | Only the first line of a multi-line command was checked, and bash ran them all: `whoami`, refused on its own, ran when placed after an allowed line. With `approval_mode = "auto"` the allow list was the only barrier |
 | The proxy re-resolved the hostname after checking it | The validated addresses were discarded and `create_connection` resolved the name again — the exact second lookup DNS rebinding exploits |
 | A DOCX paragraph with no style aborted the whole file | `para.style` can be `None`; one style-less paragraph meant the entire specification failed to index |
+| An absolute path reached outside the workspace | `/api/ingest` and `/api/run` only joined *relative* paths to the workspace; an absolute one was taken as given. Any signed-in user could index any directory on the host and read it back through `/api/search`. The existing containment test passed for the wrong reason — it used a relative path |
+| Changing one workflow's goal re-targeted the project | The advisor's `update_workflow` wrote the project-wide goal unconditionally, and `_skip_reason` asks "which goal was this phase completed for?". Editing a *second* workflow therefore invalidated the *first* one's finished phases, and it only became visible when the phases started re-running |
+| The sandbox was deleted on shutdown | `sandbox_setup` runs only when the container is first built, so every restart re-ran things like `apt-get install nodejs npm` — minutes and network traffic for nothing. If a project is a lasting development environment, the environment should last too |
+| The port probe required Python inside the image | It ran `docker exec … python -c`; on a node, go or php image the call failed with "command not found" and a perfectly healthy service was silently reported as not listening |
 | The drawer's resting position was the end state of a transition | Its default geometry was off-screen, so in a background tab — where the transition never advances — the panel stayed outside the viewport; every screenshot tool caught exactly that frame |
 | A closed drawer stayed in the tab order | Tab reached the text box and Send button of an invisible panel, inside a subtree marked `aria-hidden` |
 | `password` and `number` inputs missed the base form rule | The selector listed only `text`/`search`; on the sign-in screen the username was styled and the password was a raw browser box |

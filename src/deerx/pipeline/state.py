@@ -1031,14 +1031,37 @@ class ProjectState:
         if not alanlar:
             return self.get_workflow(workflow_id)
 
+        # Karsilastirma UPDATE'ten ONCE okunur: sonra okunursa zaten yeni
+        # hedef gorunur ve kosul her zaman yanlis cikar.
+        onceki = self._conn.execute(
+            "SELECT goal FROM workflows WHERE id = ?", (workflow_id,)
+        ).fetchone()
+
         degerler.append(workflow_id)
         self._conn.execute(
             f"UPDATE workflows SET {', '.join(alanlar)} WHERE id = ?", degerler
         )
-        if goal is not None:
-            self.set_meta("goal", goal)
-        if brief is not None:
-            self.set_meta("brief", brief)
+        # Proje geneli hedef/talimat YALNIZCA su an uzerinde calisilan is
+        # akisi degistiginde guncellenir.
+        #
+        # OLCULDU: kosulsuz yazildiginda, danismana ikinci bir is akisinin
+        # hedefini degistirtmek BIRINCININ bitmis fazlarini gecersiz
+        # kiliyordu. `_skip_reason` "bu faz hangi hedef icin tamamlandi?"
+        # diye soruyor ve proje geneli hedefe bakiyor; baska bir is
+        # akisinin hedefi oraya yazilinca butun fazlar yeniden kosulabilir
+        # hale geliyor -- ve kullanici bunu ancak fazlar bastan kosarken
+        # fark ediyor.
+        aktif_hedef = self.get_meta("goal", "")
+        # Hedef henuz hic yazilmamissa korunacak bir sey de yok: ilk
+        # is akisinin hedefi projenin hedefi olur.
+        bu_akis_aktif = (
+            not aktif_hedef or (onceki is not None and onceki["goal"] == aktif_hedef)
+        )
+        if bu_akis_aktif:
+            if goal is not None:
+                self.set_meta("goal", goal)
+            if brief is not None:
+                self.set_meta("brief", brief)
         self._commit()
         return self.get_workflow(workflow_id)
 
