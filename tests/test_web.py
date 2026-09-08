@@ -2599,8 +2599,15 @@ class TestRunTitlesFollowTheLanguage:
 
     def test_a_phase_range_carries_its_key(self, client):
         r = client.post("/api/run", json={"phases": ["ingest", "analyze"], "goal": "x"})
-        _wait_idle(client)
         assert r.status_code == 200, r.json()
+        # Baslik kosu ACILIRKEN yaziliyor -- `start_run` istek is
+        # parcaciginda, boru hatti baslamadan once kosuyor. Bitmesini
+        # beklemek yalnizca `analyze` fazini gercekten kosturuyordu ve o
+        # GERCEK bir model cagrisi: yerel model ayakta olmadiginda cagri
+        # uc kez yeniden deneniyor, `_wait_idle` zaman asimina dusuyor ve
+        # suit gelistiricinin makinesine gore farkli davraniyordu. Suit
+        # hicbir testte gercek model cagirmamali.
+        client.post("/api/run/stop")
         run = client.get("/api/runs").json()["runs"][0]
         assert run["title_key"] == "runs.titlePhases"
         assert run["title_args"] == {"first": "ingest", "last": "analyze"}
