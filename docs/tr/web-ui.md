@@ -350,6 +350,19 @@ bir dizini gösterirse iki proje aynı veritabanını paylaşır ve biri ötekin
 görevlerini görür. Arşivlemek silmeden gizler; silmek, o projede yapılmış her
 şeyin geçmişini de silmek olurdu.
 
+Proje değiştirmek tarayıcı düzeyinde bir tercih ve oturumda değil çerezde
+taşınıyor: seçim kişiye değil **sekmeye** ait ve sunucuda tutulsaydı iki
+pencerede iki proje açmak imkânsız olurdu. Güvenlikten bir şey götürmüyor —
+üyelik **her** istekte doğrulanıyor, yani elle düzenlenmiş bir çerez başkasının
+işini açmak yerine varsayılan projeye düşer.
+
+Her açık projenin kendi çalışma zamanı var: ayarlar, olay günlüğü, orkestratör
+ve koşu yöneticisi. `RunBusy`yi proje kapsamlı yapan şey bu — önceden bir
+kişinin koşusu herkesinkini reddediyordu, ki bu çok kullanıcılı olmanın tam
+tersi. Aynı anda en fazla sekiz proje açık kalır; sınıra gelindiğinde en uzun
+süredir dokunulmamış **boştaki** proje kapatılır. Koşusu süren bir proje asla
+kapatılmaz: kapatmak, birinin işini yarıda kesmek olurdu.
+
 ## Kullanıcılar ve kimlik doğrulama
 
 Kimlik doğrulama **bir kullanıcı var olduğu anda** devreye girer. Kullanıcısız

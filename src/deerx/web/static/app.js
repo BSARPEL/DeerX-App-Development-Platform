@@ -340,7 +340,11 @@ function renderWorkspace(path) {
 
   // Yol ayırıcısı Windows'ta `\`, başka yerde `/`. İkisini de böl.
   const parcalar = String(path).split(/[\\/]/).filter(Boolean);
-  $("#rail-ws-name").textContent = parcalar[parcalar.length - 1] || path;
+  // Ray artik klasor adini degil PROJE adini gosterir: kullanicinin
+  // sectigi ad, dizinin adindan farkli olabilir ve anlamli olan o.
+  const proje = state.overview?.project;
+  $("#rail-ws-name").textContent =
+    proje?.name || parcalar[parcalar.length - 1] || path;
   // İpucu iki satır: yolun kendisi, ve tıklayınca ne olacağı. Düğmenin
   // üstünde `data-i18n-title` YOK -- olsaydı yolu her dil değişiminde
   // silerdi; ikinci satırı burada birleştirip dil değişiminde bu
@@ -959,6 +963,10 @@ function renderProjects(data) {
           ${p.archived ? `<span class="badge">${esc(t("projects.archived"))}</span>` : ""}
         </div>
         <div class="project-actions">
+          ${p.id !== aktif.id && !p.archived ? `
+            <button class="btn btn-sm" data-activate="${p.id}">${
+              esc(t("projects.switch"))
+            }</button>` : ""}
           ${p.role === "owner" ? `
             <button class="btn btn-ghost btn-sm" data-rename="${p.id}"
                     data-name="${esc(p.name)}">${esc(t("app.rename"))}</button>
@@ -973,6 +981,17 @@ function renderProjects(data) {
         ${p.role === "owner" ? `<div class="project-members" id="members-${p.id}"></div>` : ""}
       </div>
     </section>`).join("");
+
+  $$("[data-activate]", hedef).forEach((b) => b.addEventListener("click", async () => {
+    try {
+      await post(`/api/projects/${b.dataset.activate}/activate`);
+      // Proje degisince EKRANDAKI HER SEY degisir: belgeler, plan,
+      // olaylar, ayarlar. Parca parca tazelemek yerine sayfa yeniden
+      // yukleniyor -- yarim tazelenmis bir ekran, hangi projeye ait
+      // oldugu belirsiz veriler gosterir.
+      location.reload();
+    } catch (error) { toast(error.message, "err"); }
+  }));
 
   $$("[data-rename]", hedef).forEach((b) => b.addEventListener("click", async () => {
     const ad = prompt(t("projects.renamePrompt"), b.dataset.name);

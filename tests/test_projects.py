@@ -279,3 +279,116 @@ class TestRolHttpUzerinde:
 
         gorunen = sunucu.get("/api/projects").json()["projects"]
         assert len(gorunen) == 2
+
+
+class TestProjeYalitimi:
+    """Iki proje birbirini GORMEMELI ve birbirini BEKLEMEMELI.
+
+    Bunlar cok kullanicili hedefin gercek sinavi: bugune kadar tek
+    Orchestrator + tek RunManager vardi ve ikinci kosu `RunBusy` ile
+    reddediliyordu -- yani A kullanicisinin kosusu B'nin isini
+    engelliyordu.
+    """
+
+    @pytest.fixture
+    def sunucu(self, settings, tmp_path):
+        from starlette.testclient import TestClient
+
+        from deerx.web.app import build_app
+
+        with TestClient(build_app(settings)) as client:
+            yield client
+
+    def _ikinci_proje(self, client, tmp_path):
+        yol = tmp_path / "ikinci"
+        (yol / "docs").mkdir(parents=True)
+        (yol / "docs" / "baska.md").write_text(
+            "# Muhasebe\n\nFatura kesme ve e-arsiv.\n", encoding="utf-8"
+        )
+        cevap = client.post("/api/projects", json={"path": str(yol), "name": "Ikinci"})
+        assert cevap.status_code == 200, cevap.text
+        return cevap.json()["project"]
+
+    def test_switching_changes_the_workspace(self, sunucu, settings, tmp_path):
+        ikinci = self._ikinci_proje(sunucu, tmp_path)
+        assert sunucu.get("/api/overview").json()["workspace"] == str(settings.workspace)
+
+        assert sunucu.post(f"/api/projects/{ikinci['id']}/activate").status_code == 200
+        sonra = sunucu.get("/api/overview").json()
+        assert sonra["workspace"] == ikinci["path"]
+        assert sonra["project"]["id"] == ikinci["id"]
+
+    def test_documents_do_not_leak_between_projects(self, sunucu, tmp_path):
+        """Iki proje ayni veritabanini paylassaydi biri otekinin
+        belgelerini gorurdu."""
+        ikinci = self._ikinci_proje(sunucu, tmp_path)
+
+        sunucu.post("/api/ingest", json={"path": "docs"})
+        birinci_belgeler = sunucu.get("/api/documents").json()["documents"]
+        assert len(birinci_belgeler) == 1
+
+        sunucu.post(f"/api/projects/{ikinci['id']}/activate")
+        assert sunucu.get("/api/documents").json()["documents"] == []
+
+        sunucu.post("/api/ingest", json={"path": "docs"})
+        ikinci_belgeler = sunucu.get("/api/documents").json()["documents"]
+        assert len(ikinci_belgeler) == 1
+        assert ikinci_belgeler[0]["title"] != birinci_belgeler[0]["title"]
+
+    def test_a_run_in_one_project_does_not_block_the_other(self, sunucu, tmp_path):
+        """`RunBusy` artik PROJE kapsamli.
+
+        Tek `RunManager` varken A kullanicisinin kosusu B'nin kosusunu
+        reddediyordu; iki kullanicinin ayni anda calisamamasi, cok
+        kullanicili olmanin tam tersi.
+        """
+        ikinci = self._ikinci_proje(sunucu, tmp_path)
+        sunucu.post("/api/ingest", json={"path": "docs"})
+
+        # Birinci projede uzun surecek bir kosu yerine, kosu kaydini
+        # tutan RunManager'larin AYRI nesneler oldugunu dogruluyoruz:
+        # ayni nesne olsalardi ikinci proje birincinin durumunu gorurdu.
+        durum = sunucu.app.state.deerx
+        birinci_rt = durum.runtime(durum.default_project)
+        ikinci_rt = durum.runtime(durum.projects.get(ikinci["id"]))
+        assert birinci_rt.runner is not ikinci_rt.runner
+        assert birinci_rt.orchestrator is not ikinci_rt.orchestrator
+        assert birinci_rt.settings.workspace != ikinci_rt.settings.workspace
+
+    def test_a_forged_cookie_cannot_open_someone_elses_project(self, settings, tmp_path):
+        """Cerez istemcide duruyor ve elle degistirilebilir; uyelik HER
+        istekte dogrulanmali."""
+        from starlette.testclient import TestClient
+
+        from deerx.web.app import PROJECT_COOKIE, build_app
+
+        with TestClient(build_app(settings)) as client:
+            auth = client.app.state.deerx.auth
+            auth.create_first_admin(
+                auth.issue_setup_token(), "yonetici", "cok-uzun-parola-1"
+            )
+            client.post(
+                "/api/auth/login",
+                json={"username": "yonetici", "password": "cok-uzun-parola-1"},
+            )
+            yol = tmp_path / "gizli"
+            yol.mkdir()
+            gizli = client.post(
+                "/api/projects", json={"path": str(yol)}
+            ).json()["project"]
+            client.post(
+                "/api/users",
+                json={"username": "yabanci", "password": "ikinci-uzun-parola"},
+            )
+            client.post("/api/auth/logout")
+            client.post(
+                "/api/auth/login",
+                json={"username": "yabanci", "password": "ikinci-uzun-parola"},
+            )
+
+            client.cookies.set(PROJECT_COOKIE, str(gizli["id"]))
+            # Uye olmadigi icin cerez YOK SAYILIR ve varsayilana duser.
+            assert client.get("/api/overview").json()["project"]["id"] != gizli["id"]
+            assert client.post(
+                f"/api/projects/{gizli['id']}/activate"
+            ).status_code == 403

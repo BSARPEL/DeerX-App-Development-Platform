@@ -2243,6 +2243,14 @@ CATALOG: dict[str, dict[str, str]] = {
         "tr": "proje kaydedildi: {name} ({path})",
         "en": "project registered: {name} ({path})",
     },
+    "project.archived_switch": {
+        "tr": "Arsivlenmis bir projeye gecilemez; once arsivden cikarin.",
+        "en": "Cannot switch to an archived project; unarchive it first.",
+    },
+    "api.login_required": {
+        "tr": "Giris gerekli.",
+        "en": "Sign-in required.",
+    },
     "project.not_member": {
         "tr": "Bu projeye erisiminiz yok.",
         "en": "You do not have access to this project.",

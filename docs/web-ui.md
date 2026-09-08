@@ -355,6 +355,20 @@ sharing a database, each seeing the other's tasks. Archiving hides a project
 without deleting it; deleting one would delete the history of everything done
 in it.
 
+Switching projects is a browser-level choice, carried in a cookie rather than
+stored on the session: the choice belongs to the *tab*, not the person, and
+keeping it server-side would make two windows on two projects impossible. It
+costs nothing in safety — membership is verified on **every** request, so a
+hand-edited cookie falls back to the default project rather than opening someone
+else's work.
+
+Each open project gets its own runtime: settings, event log, orchestrator and run
+manager. That is what makes `RunBusy` project-scoped — before, one person's run
+refused everyone else's, which is the opposite of multi-user. At most eight
+projects stay open at once; when the limit is reached the least recently used
+**idle** one is closed. A project with a run in flight is never closed: closing
+it would cut someone's work in half.
+
 ## Users and authentication
 
 Authentication is active **as soon as one user exists**. A local install with no

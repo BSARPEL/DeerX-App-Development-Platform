@@ -15,8 +15,10 @@ import asyncio
 import json
 import os
 import time
+from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -31,7 +33,7 @@ from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from ..config import DEFAULT_PORT, Settings, browse_host
+from ..config import DEFAULT_PORT, Settings, browse_host, load_settings
 from ..errors import ConfigError, DeerXError
 from ..i18n import set_language, t
 from ..logging import EventLog, get_logger
@@ -179,23 +181,68 @@ class NoCacheStatics(StaticFiles):
 SHUTDOWN_GRACE = 20.0
 
 
+# Istek boyunca hangi projenin konusuldugu. `ContextVar` secildi cunku
+# async gorevlere gore yalitilmis: es zamanli iki istek birbirinin
+# projesini gormez. Arka plandaki kosu is parcacigi bunu HIC okumaz --
+# kendi orkestratorunu nesne olarak tutuyor.
+_AKTIF_PROJE: ContextVar[int] = ContextVar("deerx_aktif_proje", default=0)
+
+# Ayni anda acik tutulan proje sayisi. Her acik proje en az iki SQLite
+# baglantisi ve olasi bir tarayici oturumu tutuyor; sinirsiz birakmak
+# uzun omurlu bir sunucuda dosya tanimlayicisi biriktirir.
+MAX_OPEN_PROJECTS = 8
+
+# Hangi projede calisildigi tarayicida durur. Oturum tablosuna sutun
+# eklemek yerine cerez secildi: secim kullaniciya degil SEKMEYE ait bir
+# tercih ve sunucuda tutulursa iki pencerede iki proje acamazsin.
+# Guvenlik acisindan bedeli yok -- uyelik zaten her istekte dogrulaniyor,
+# cerez yalnizca bir tercih tasiyor.
+PROJECT_COOKIE = "deerx_project"
+
+
+class ProjectRuntime:
+    """Tek bir projenin calisma zamani.
+
+    Ayarlar, olay gunlugu, orkestrator ve kosu yoneticisi PROJE
+    BASINADIR: bunlari paylasmak, bir projedeki kosunun otekinin olay
+    akisina dusmesi ve `RunBusy`nin butun platformu kilitlemesi demekti.
+    """
+
+    def __init__(self, project: Project, settings: Settings) -> None:
+        self.project = project
+        self.settings = settings
+        settings.ensure_dirs()
+        self.events = EventLog(settings.events_path, echo=True)
+        self.orchestrator = Orchestrator(settings, events=self.events, stream=False)
+        self.runner = RunManager(settings, self.orchestrator)
+        self.son_kullanim = time.time()
+
+    @property
+    def busy(self) -> bool:
+        return self.runner.is_running
+
+    def close(self) -> None:
+        if self.runner.is_running:
+            self.runner.stop()
+            self.runner.wait(SHUTDOWN_GRACE)
+        self.orchestrator.close()
+
+
 class AppState:
     """Sunucu omru boyunca paylasilan kaynaklar.
 
-    Tek bir Orkestrator hem okuma isteklerine hem de kosu thread'ine hizmet eder.
-    Python'un sqlite3 modulu serilestirilmis kipte (threadsafety=3) calisir, bu
-    yuzden baglantiyi paylasmak guvenlidir; ayrica vektor onbellegi indeksleme
-    sonrasi tek yerde gecersiz kilinir.
+    Hesaplar ve proje kaydi PLATFORM kapsamlidir ve burada durur; kosu
+    kaynaklari (ayarlar, olay gunlugu, orkestrator, kosu yoneticisi)
+    PROJE kapsamlidir ve `ProjectRuntime` icinde yasar. Hangi projenin
+    konusuldugu istek basina `_AKTIF_PROJE` baglaminda tasinir, boylece
+    `state.orchestrator` gibi kullanim yerleri degismeden dogru projeye
+    bakar.
     """
 
     def __init__(self, settings: Settings) -> None:
         settings.ensure_dirs()
-        self.settings = settings
-        self.events = EventLog(settings.events_path, echo=True)
-        # stream=False: modelin metni stdout yerine olay akisina gider,
-        # boylece tarayici da gorur.
-        self.orchestrator = Orchestrator(settings, events=self.events, stream=False)
-        self.runner = RunManager(settings, self.orchestrator)
+        self.boot_settings = settings
+        self._runtimes: OrderedDict[int, ProjectRuntime] = OrderedDict()
         # Hesaplar PROJELERIN USTUNDE durur. Proje veritabaninin icinde
         # tutulduklarinda ayni kisi her projede ayri bir hesap, ayri bir
         # parola ve bolunmus bir gecmis demekti; oturum cerezi de bir
@@ -211,7 +258,64 @@ class AppState:
         # Proje kaydi hesaplarla ayni dosyada: "kim hangi projede ne
         # yapabilir" sorusu ikisini birden okumadan cevaplanamaz.
         self.projects = ProjectStore(settings.platform_db_path)
-        self.project = self._sunulan_projeyi_kaydet()
+        self.default_project = self._sunulan_projeyi_kaydet()
+        # Acilista sunulan proje hazir olsun: ilk istek bir veritabani
+        # acilisini beklemesin.
+        self._runtimes[self.default_project.id] = ProjectRuntime(
+            self.default_project, settings
+        )
+
+    # ------------------------------------------------------------------ #
+    # Calisma zamani kayit defteri
+    # ------------------------------------------------------------------ #
+    @property
+    def project(self) -> Project:
+        """Bu istegin konustugu proje."""
+        pid = _AKTIF_PROJE.get() or self.default_project.id
+        proje = self.projects.get(pid)
+        return proje or self.default_project
+
+    def runtime(self, project: Project | None = None) -> ProjectRuntime:
+        """Projenin calisma zamani; yoksa acar.
+
+        Acik proje sayisi sinira ulasinca EN ESKI BOSTAKI kapatilir.
+        Kosan bir proje asla kapatilmaz: kapatmak, birinin suren isini
+        yarida kesmek olurdu.
+        """
+        proje = project or self.project
+        mevcut = self._runtimes.get(proje.id)
+        if mevcut is not None:
+            mevcut.son_kullanim = time.time()
+            self._runtimes.move_to_end(proje.id)
+            return mevcut
+
+        while len(self._runtimes) >= MAX_OPEN_PROJECTS:
+            adaylar = [pid for pid, rt in self._runtimes.items() if not rt.busy]
+            if not adaylar:
+                break
+            eski = adaylar[0]
+            self._runtimes.pop(eski).close()
+
+        ayar = load_settings(workspace=proje.path)
+        yeni = ProjectRuntime(proje, ayar)
+        self._runtimes[proje.id] = yeni
+        return yeni
+
+    @property
+    def settings(self) -> Settings:
+        return self.runtime().settings
+
+    @property
+    def orchestrator(self) -> Orchestrator:
+        return self.runtime().orchestrator
+
+    @property
+    def runner(self) -> RunManager:
+        return self.runtime().runner
+
+    @property
+    def events(self) -> EventLog:
+        return self.runtime().events
 
     def _sunulan_projeyi_kaydet(self) -> Project:
         """`serve --workspace X` ile acilan dizini proje olarak kaydeder.
@@ -221,7 +325,7 @@ class AppState:
         hicbir yetki DARALMIYOR -- daralma yalnizca platform kapsamli
         ayarlarda, ve o zaten ayri bir asamada kapatildi.
         """
-        varolan = self.projects.by_path(self.settings.workspace)
+        varolan = self.projects.by_path(self.boot_settings.workspace)
         if varolan is not None:
             return varolan
 
@@ -231,26 +335,30 @@ class AppState:
         ]
         sahip = next((uid for uid, rol in uyeler if rol == "owner"), None)
         return self.projects.create(
-            self.settings.workspace, owner_id=sahip, members=uyeler
+            self.boot_settings.workspace, owner_id=sahip, members=uyeler
         )
 
     def close(self) -> None:
-        # Once kosuyu durdur ve bitmesini bekle. Veritabani, arka plandaki
-        # is parcacigi hala yazarken kapatilirsa SQLite serbest birakilmis
-        # bir baglantiya dokunur ve surec erisim ihlaliyle coker -- kapanis
-        # sirasinda gorulen tam olarak buydu.
-        if self.runner.is_running:
-            self.runner.stop()
-            self.runner.wait(SHUTDOWN_GRACE)
-            if self.runner.is_running:
-                # Adim bir model cagrisinda asili kalmis olabilir. Baglantiyi
-                # kapatmiyoruz: coken bir surec yerine sizan bir thread daha
-                # iyidir, surec zaten sonlaniyor.
+        # Once kosulari durdur ve bitmelerini bekle. Veritabani, arka
+        # plandaki is parcacigi hala yazarken kapatilirsa SQLite serbest
+        # birakilmis bir baglantiya dokunur ve surec erisim ihlaliyle
+        # coker -- kapanis sirasinda gorulen tam olarak buydu.
+        for calisan in list(self._runtimes.values()):
+            if not calisan.runner.is_running:
+                continue
+            calisan.runner.stop()
+            calisan.runner.wait(SHUTDOWN_GRACE)
+            if calisan.runner.is_running:
+                # Adim bir model cagrisinda asili kalmis olabilir.
+                # Baglantiyi kapatmiyoruz: coken bir surec yerine sizan
+                # bir thread daha iyidir, surec zaten sonlaniyor.
                 log.warning(t("api.run_not_stopping", seconds=SHUTDOWN_GRACE))
                 return
+        for calisan in list(self._runtimes.values()):
+            calisan.orchestrator.close()
+        self._runtimes.clear()
         self.auth.close()
         self.projects.close()
-        self.orchestrator.close()
 
 
 # ---------------------------------------------------------------------- #
@@ -481,7 +589,7 @@ def build_app(settings: Settings) -> Starlette:
         adimlar = workflow_step_load(orch.state, aktif["id"]) if aktif else []
         return _json(
             {
-                "workspace": str(settings.workspace),
+                "workspace": str(state.settings.workspace),
                 # Aktif proje ve istegi yapanin ORADAKI rolu. Arayuz
                 # yapamayacagi eylemi kilitli cizsin diye rol de gidiyor:
                 # bir izleyiciye "Baslat" dugmesini gosterip sonra 403
@@ -590,8 +698,8 @@ def build_app(settings: Settings) -> Starlette:
         Ayari kaydedip kirk dakikalik bir kosu baslattiktan sonra "model
         adi yanlismis" demekle bunun arasindaki fark, bu dugme.
         """
-        if not settings.llm_ready:
-            return _json({"ok": False, "error": settings.llm_hint})
+        if not state.settings.llm_ready:
+            return _json({"ok": False, "error": state.settings.llm_hint})
 
         def probe() -> dict[str, Any]:
             import time as _time
@@ -613,8 +721,8 @@ def build_app(settings: Settings) -> Starlette:
                 return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
             return {
                 "ok": True,
-                "provider": settings.provider,
-                "model": settings.model_for("fast"),
+                "provider": state.settings.provider,
+                "model": state.settings.model_for("fast"),
                 "seconds": round(_time.time() - started, 1),
                 "text": (out.text or "").strip()[:200],
                 "tokens": f"{out.usage.input_tokens} -> {out.usage.output_tokens}",
@@ -628,7 +736,7 @@ def build_app(settings: Settings) -> Starlette:
 
         return _json({
             "providers": catalog(),
-            "current": preset_for(settings.openai_base_url, settings.provider),
+            "current": preset_for(state.settings.openai_base_url, state.settings.provider),
             "no_listing": sorted(NO_MODEL_LISTING),
         })
 
@@ -642,16 +750,16 @@ def build_app(settings: Settings) -> Starlette:
         def probe() -> dict[str, Any]:
             import httpx
 
-            if settings.provider == "anthropic":
+            if state.settings.provider == "anthropic":
                 base, key, header = (
                     "https://api.anthropic.com/v1",
-                    settings.anthropic_api_key,
-                    {"x-api-key": settings.anthropic_api_key or "",
+                    state.settings.anthropic_api_key,
+                    {"x-api-key": state.settings.anthropic_api_key or "",
                      "anthropic-version": "2023-06-01"},
                 )
             else:
-                base = (settings.openai_base_url or "").rstrip("/")
-                key = settings.openai_api_key
+                base = (state.settings.openai_base_url or "").rstrip("/")
+                key = state.settings.openai_api_key
                 header = {"Authorization": f"Bearer {key}"} if key else {}
             if not base:
                 return {"ok": False, "error": "Model ucu tanimli degil."}
@@ -702,11 +810,11 @@ def build_app(settings: Settings) -> Starlette:
 
             from ..browser import BrowserSession, UrlPolicy, find_browser
 
-            found = find_browser(settings.browser_channel)
+            found = find_browser(state.settings.browser_channel)
             base = {
                 "binary": found.label if found else None,
                 "kind": found.kind if found else None,
-                "channel": settings.browser_channel,
+                "channel": state.settings.browser_channel,
             }
             if found is None:
                 return {"ok": False, "error": "Sistemde tarayici bulunamadi.", **base}
@@ -715,8 +823,8 @@ def build_app(settings: Settings) -> Starlette:
             session = BrowserSession(
                 profile_dir=Path(tempfile.mkdtemp(prefix="deerx-test-")),
                 policy=UrlPolicy(),
-                channel=settings.browser_channel,
-                headless=settings.browser_headless,
+                channel=state.settings.browser_channel,
+                headless=state.settings.browser_headless,
                 idle_seconds=0,
             )
             try:
@@ -761,7 +869,7 @@ def build_app(settings: Settings) -> Starlette:
             )
             return {
                 "ok": not outcome.is_error,
-                "provider": settings.search_provider,
+                "provider": state.settings.search_provider,
                 "result": outcome.content[:1200],
             }
 
@@ -1172,6 +1280,32 @@ def build_app(settings: Settings) -> Starlette:
         _audit(request, "project.create", detail=proje.name)
         return _json({"ok": True, "project": proje.to_dict()})
 
+    async def project_activate(request: Request) -> Response:
+        """Bu tarayicinin uzerinde calistigi projeyi degistirir."""
+        proje, hata = _proje_veya_hata(request)
+        if hata is not None:
+            return hata
+        assert proje is not None
+        if proje.archived:
+            return _error(t("project.archived_switch"), 400)
+
+        # Uyelik dogrulanir: cerezi elle yazmak yetmesin.
+        if state.auth.is_configured:
+            user = getattr(request.state, "user", None)
+            if user is None:
+                return _error(t("api.login_required"), 401)
+            if not user.is_admin and not state.projects.role_of(proje.id, user.id):
+                return _error(t("project.not_member"), 403)
+
+        cevap = _json({"ok": True, "project": proje.to_dict()})
+        cevap.set_cookie(
+            PROJECT_COOKIE, str(proje.id),
+            httponly=True, samesite="lax", path="/",
+            secure=request.url.scheme == "https",
+        )
+        _audit(request, "project.activate", detail=proje.name)
+        return cevap
+
     async def projects_update(request: Request) -> Response:
         proje, hata = _proje_veya_hata(request)
         if hata is not None:
@@ -1494,7 +1628,7 @@ def build_app(settings: Settings) -> Starlette:
         if raw:
             candidate = Path(raw)
             if not candidate.is_absolute():
-                candidate = settings.workspace / candidate
+                candidate = state.settings.workspace / candidate
             if not candidate.exists():
                 return _error(t("api.path_not_found", path=raw), 404)
             sources.append(candidate)
@@ -1591,16 +1725,16 @@ def build_app(settings: Settings) -> Starlette:
         body = await request.body()
         if not body:
             return _error(t("api.empty_file"))
-        if len(body) > settings.rag.max_file_bytes:
+        if len(body) > state.settings.rag.max_file_bytes:
             return _error(
                 t(
                     "api.file_too_large",
                     size=f"{len(body):,}",
-                    limit=f"{settings.rag.max_file_bytes:,}",
+                    limit=f"{state.settings.rag.max_file_bytes:,}",
                 )
             )
 
-        docs_dir = settings.workspace / "docs"
+        docs_dir = state.settings.workspace / "docs"
         docs_dir.mkdir(parents=True, exist_ok=True)
         target = docs_dir / name
         # Ayni adla ikinci bir yukleme okunamazsa, oncekini silmemeliyiz:
@@ -1649,7 +1783,7 @@ def build_app(settings: Settings) -> Starlette:
 
         readiness = check_readiness(state.orchestrator.state)
         packages = sorted(
-            settings.deliveries_dir.glob("*.zip"),
+            state.settings.deliveries_dir.glob("*.zip"),
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
@@ -1704,8 +1838,8 @@ def build_app(settings: Settings) -> Starlette:
             try:
                 result = build_package(
                     project,
-                    settings.workspace,
-                    settings.deliveries_dir,
+                    state.settings.workspace,
+                    state.settings.deliveries_dir,
                     goal=project.get_meta("goal", ""),
                     force=force,
                     run_id=run_id,
@@ -1752,7 +1886,7 @@ def build_app(settings: Settings) -> Starlette:
         if not name.endswith(".zip"):
             return _error(t("api.zip_only"), 400)
 
-        archive = settings.deliveries_dir / name
+        archive = state.settings.deliveries_dir / name
         if not archive.is_file():
             return _error(t("api.not_found", name=name), 404)
         return FileResponse(
@@ -2105,8 +2239,8 @@ def build_app(settings: Settings) -> Starlette:
             return _error(str(exc))
 
         needs_llm = any(p is not Phase.INGEST for p in phases)
-        if needs_llm and not settings.llm_ready:
-            return _error(f"Model cagrisi yapilamaz: {settings.llm_hint}.", 400)
+        if needs_llm and not state.settings.llm_ready:
+            return _error(f"Model cagrisi yapilamaz: {state.settings.llm_hint}.", 400)
 
         title = f"#{record['seq']} tekrar · {baslangic.label}"
         title_key = "runs.titleRetry"
@@ -2163,8 +2297,8 @@ def build_app(settings: Settings) -> Starlette:
             return _error(str(exc) or "Bilinmeyen faz.")
 
         needs_llm = any(p is not Phase.INGEST for p in phases)
-        if needs_llm and not settings.llm_ready:
-            return _error(f"Model cagrisi yapilamaz: {settings.llm_hint}.", 400)
+        if needs_llm and not state.settings.llm_ready:
+            return _error(f"Model cagrisi yapilamaz: {state.settings.llm_hint}.", 400)
 
         # `sources` INDEKSLENECEK yollar; `doc_scope` kosunun OKUYABILECEGI
         # belgeler. Ikisi ayri sey ve ayni istekte birlikte gelebilir:
@@ -2175,7 +2309,7 @@ def build_app(settings: Settings) -> Starlette:
         for entry in body.get("sources") or []:
             candidate = Path(str(entry))
             if not candidate.is_absolute():
-                candidate = settings.workspace / candidate
+                candidate = state.settings.workspace / candidate
             sources.append(candidate)
 
         # Kosuya anlamli bir baslik ver: liste "hangi kosu neydi" sorusunu
@@ -2293,7 +2427,7 @@ def build_app(settings: Settings) -> Starlette:
             limit = 300
         limit = max(1, min(limit, 2000))
 
-        yol = settings.events_path
+        yol = state.settings.events_path
         if not yol.is_file():
             return _json({"events": [], "total": 0, "path": str(yol)})
 
@@ -2345,6 +2479,8 @@ def build_app(settings: Settings) -> Starlette:
         Route("/api/projects", projects_list),
         Route("/api/projects", projects_create, methods=["POST"]),
         Route("/api/projects/{project_id}", projects_update, methods=["POST"]),
+        Route("/api/projects/{project_id}/activate", project_activate,
+              methods=["POST"]),
         Route("/api/projects/{project_id}/members", project_members),
         Route("/api/projects/{project_id}/members", project_member_set,
               methods=["POST"]),
@@ -2460,10 +2596,42 @@ class AuthMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.state = state
 
+    def _proje_coz(self, request: Request) -> int:
+        """Cerezdeki projeyi DOGRULAR; gecersizse varsayilana duser.
+
+        Dogrulama sart: cerez istemcide duruyor ve elle degistirilebilir.
+        Uye olunmayan bir projeye gecmek, o projenin belgelerini ve
+        planini okumak demek olurdu.
+        """
+        ham = request.cookies.get(PROJECT_COOKIE, "")
+        if not ham.isdigit():
+            return 0
+        pid = int(ham)
+        proje = self.state.projects.get(pid)
+        if proje is None or proje.archived:
+            return 0
+        if not self.state.auth.is_configured:
+            return pid
+        user = getattr(request.state, "user", None)
+        if user is None:
+            return 0
+        if user.is_admin or self.state.projects.role_of(pid, user.id):
+            return pid
+        return 0
+
     async def dispatch(self, request: Request, call_next: Any) -> Response:
         request.state.user = self.state.auth.resolve_session(
             request.cookies.get(SESSION_COOKIE)
         )
+        # Proje baglamI, kimlik cozuldukten SONRA kurulur: dogrulama
+        # kullaniciyi bilmek zorunda.
+        jeton = _AKTIF_PROJE.set(self._proje_coz(request))
+        try:
+            return await self._dispatch(request, call_next)
+        finally:
+            _AKTIF_PROJE.reset(jeton)
+
+    async def _dispatch(self, request: Request, call_next: Any) -> Response:
         path = request.url.path
 
         # Hic kullanici yoksa kimlik dogrulama kapalidir: yerel tek kullanicili
@@ -2570,7 +2738,7 @@ def serve(
             url=f"http://{browse_host(host)}:{port}",
         )
     )
-    console.print(t("serve.workspace", path=settings.workspace))
+    console.print(t("serve.workspace", path=state.settings.workspace))
 
     if state.auth.is_configured:
         console.print(t("serve.login_required"))
@@ -2584,6 +2752,6 @@ def serve(
         app,
         host=host,
         port=port,
-        log_level=settings.log_level.lower(),
+        log_level=state.settings.log_level.lower(),
         access_log=False,
     )
