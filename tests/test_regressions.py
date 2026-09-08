@@ -370,9 +370,18 @@ def test_no_stale_process_left_after_timeout(tmp_path: Path):
         ctx,
     )
     time.sleep(1)
+    # `wmic` Windows 11'in guncel surumlerinde KALDIRILDI (bu makinede
+    # 10.0.26200'de yok) ve cagrisi `FileNotFoundError` ile duserek testi
+    # gecersiz bir sekilde kirmisti -- yani surec sizintisini olcmesi
+    # gereken test, olcmedigi icin degil calisamadigi icin kirmiziydi.
+    # `Get-CimInstance` ayni bilgiyi verir ve desteklenen yoldur.
     listing = subprocess.run(
-        ["wmic", "process", "get", "commandline"], capture_output=True, text=True, check=False
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+         "Get-CimInstance Win32_Process | "
+         "Select-Object -ExpandProperty CommandLine"],
+        capture_output=True, text=True, check=False,
     )
+    assert listing.returncode == 0, f"surec listesi alinamadi: {listing.stderr[:200]}"
     assert marker not in (listing.stdout or ""), "zaman asimindan sonra surec hayatta kaldi"
 
 
