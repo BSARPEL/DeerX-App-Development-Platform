@@ -297,6 +297,10 @@ class AuthStore:
     """Kullanicilar ve oturumlar. Proje veritabaniyla ayni dosyayi paylasir."""
 
     def __init__(self, db_path: Path) -> None:
+        # Yol saklanir: "hangi dosyayi actin?" sorusunun cevabi bir
+        # regresyon testinin dayandigi sey. CLI ile web AYNI dosyayi
+        # acmak zorunda ve bu ancak sorulabiliyorsa dogrulanabilir.
+        self.db_path = db_path
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
@@ -603,6 +607,17 @@ class AuthStore:
             for r in rows
         ]
 
+    def record_from(self, source: str, action: str, *, detail: str = "") -> None:
+        """Web DISI bir yoldan gelen islemi gunluge yazar.
+
+        CLI ve MCP'de oturum yok: kabuk erisimi olan kisi zaten kimlik
+        dogrulamasindan gecmemis olur. Kullanici adi BOS birakilir ve
+        UYDURULMAZ -- "bir sey CLI uzerinden kosuldu" dogru bir satir,
+        "sarpel kosdu" ise tahmindir ve bir denetim gunlugunde tahminin
+        yeri yok.
+        """
+        self.record(action, username="", detail=detail, agent=source)
+
     def close_session_by_prefix(self, user_id: int, prefix: str) -> bool:
         """Kullanicinin oturumlarindan birini on ekiyle kapatir.
 
@@ -646,6 +661,10 @@ class AuthStore:
         ok: bool = True,
     ) -> None:
         """Bir islemi gunluge yazar.
+
+        `agent` web istekleri icin tarayicinin kimligi, web DISI yollar
+        icin kaynagin adi ("cli", "mcp"). Ayri bir sutun acilmadi cunku
+        ikisi ayni soruyu cevapliyor: bu istek NEREDEN geldi.
 
         `username` ayrica alinabilir cunku basarisiz girislerde hicbir
         `User` yoktur: DENENEN ad yazilir. Bir gunlukte "bilinmeyen bir

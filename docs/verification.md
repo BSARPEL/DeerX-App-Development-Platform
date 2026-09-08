@@ -9,7 +9,7 @@ worthless too.
 
 ## The suite
 
-**1877 tests pass**, `ruff` clean, on Python 3.11 and 3.13.
+**1879 tests pass**, `ruff` clean, on Python 3.11 and 3.13.
 
 No test makes a network call or a real model call. Agents run against a fake
 client in `tests/conftest.py`, so the suite is deterministic.
@@ -198,6 +198,7 @@ needs a permanent guard, because nothing about it announces itself.
 | The proxy re-resolved the hostname after checking it | The validated addresses were discarded and `create_connection` resolved the name again — the exact second lookup DNS rebinding exploits |
 | A DOCX paragraph with no style aborted the whole file | `para.style` can be `None`; one style-less paragraph meant the entire specification failed to index |
 | An absolute path reached outside the workspace | `/api/ingest` and `/api/run` only joined *relative* paths to the workspace; an absolute one was taken as given. Any signed-in user could index any directory on the host and read it back through `/api/search`. The existing containment test passed for the wrong reason — it used a relative path |
+| `deerx user add` wrote to a different database than the server read | Accounts moved to a platform database but the CLI still opened the project one: an account created from the command line was invisible in the interface, and nothing said "your account is in another file" |
 | Changing one workflow's goal re-targeted the project | The advisor's `update_workflow` wrote the project-wide goal unconditionally, and `_skip_reason` asks "which goal was this phase completed for?". Editing a *second* workflow therefore invalidated the *first* one's finished phases, and it only became visible when the phases started re-running |
 | The sandbox was deleted on shutdown | `sandbox_setup` runs only when the container is first built, so every restart re-ran things like `apt-get install nodejs npm` — minutes and network traffic for nothing. If a project is a lasting development environment, the environment should last too |
 | The port probe required Python inside the image | It ran `docker exec … python -c`; on a node, go or php image the call failed with "command not found" and a perfectly healthy service was silently reported as not listening |

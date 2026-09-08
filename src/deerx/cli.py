@@ -410,11 +410,24 @@ app.add_typer(user_app, name="user")
 
 
 def _auth_store():
-    from .web.auth import AuthStore
+    """Hesap deposu: PLATFORM veritabani.
+
+    OLCULDU: burasi proje veritabanini aciyordu ve web sunucusu platform
+    veritabanini okuyordu. Yani `deerx user add` ile acilan bir hesap
+    arayuzde HIC gorunmuyordu -- kullanici hesabi olusturdugunu goruyor,
+    sonra giremiyordu. Iki tarafin ayni dosyayi acmasi bir tercih degil,
+    zorunluluk.
+    """
+    from .web.auth import AuthStore, migrate_from_project
 
     settings = _settings()
     settings.ensure_dirs()
-    return AuthStore(settings.db_path), settings
+    settings.platform_db_path.parent.mkdir(parents=True, exist_ok=True)
+    store = AuthStore(settings.platform_db_path)
+    # CLI ile web ayni gocmeni cagirir: hangisi once acilirsa tasima
+    # orada olur, otekisi zaten tasinmis bir veritabani gorur.
+    migrate_from_project(settings.db_path, store)
+    return store, settings
 
 
 def _password_from_stdin() -> str:

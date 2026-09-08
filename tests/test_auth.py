@@ -14,6 +14,7 @@ import time
 import pytest
 from starlette.testclient import TestClient
 
+from deerx.config import platform_db_path
 from deerx.web.app import build_app
 from deerx.web.auth import (
     LOCKOUT_SECONDS,
@@ -383,6 +384,57 @@ class TestAcikOturumlar:
 
     def test_signing_out_requires_a_session(self, guarded):
         assert guarded.get("/api/auth/sessions").status_code == 401
+
+
+class TestCliVeWebAyniDepoyuAcar:
+    """OLCULEN HATA: ikisi FARKLI veritabanlarini aciyordu.
+
+    `deerx user add` proje veritabanina yaziyor, web sunucusu platform
+    veritabanini okuyordu. Kullanici hesabi olusturdugunu goruyor,
+    sonra arayuze giremiyordu -- ve hicbir hata mesaji "hesap baska bir
+    dosyada" demiyordu.
+    """
+
+    def test_the_cli_store_is_the_platform_store(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DEERX_HOME", str(tmp_path / "ev"))
+        monkeypatch.chdir(tmp_path)
+
+        from deerx.cli import _auth_store
+
+        store, settings = _auth_store()
+        try:
+            assert store.db_path == settings.platform_db_path
+            assert store.db_path != settings.db_path
+        finally:
+            store.close()
+
+    def test_an_account_made_by_the_cli_is_seen_by_the_web(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DEERX_HOME", str(tmp_path / "ev"))
+        monkeypatch.chdir(tmp_path)
+
+        from deerx.cli import _auth_store
+
+        store, _ = _auth_store()
+        try:
+            store.create_first_admin(
+                store.issue_setup_token(), "cliuser", "cok-uzun-parola-1"
+            )
+        finally:
+            store.close()
+
+        from deerx.config import Settings
+        from deerx.web.app import build_app
+
+        ayar = Settings(workspace=tmp_path, approval_mode="auto")
+        ayar.rag.embedding_provider = "hash"
+        ayar.rag.embedding_dim = 128
+        ayar.ensure_dirs()
+        with TestClient(build_app(ayar)) as client:
+            cevap = client.post(
+                "/api/auth/login",
+                json={"username": "cliuser", "password": "cok-uzun-parola-1"},
+            )
+            assert cevap.status_code == 200, cevap.text
 
 
 class TestPlatformMigration:
@@ -1247,6 +1299,11 @@ class TestAuditEndpoint:
 class TestPasswordFromStdin:
     """Parolayi standart girdiden alan yol.
 
+    NOT: hesaplar PROJE dosyasinda degil PLATFORM dosyasinda duruyor.
+    Alt surec `DEERX_HOME`u ortamdan devraliyor ve conftest onu gecici
+    bir dizine baglamis durumda -- yani buradaki `platform_db_path()`
+    alt surecin yazdigi dosyayla ayni.
+
     `getpass` Windows'ta konsolu DOGRUDAN okur ve boru hattindaki veriyi
     hic gormez: `printf ... | deerx user passwd admin` ciktisiz kilitlenir.
     Kullanicinin "sifre degistirme calismiyor" dedigi sey buydu -- bir
@@ -1282,7 +1339,7 @@ class TestPasswordFromStdin:
         )
         assert sonuc.returncode == 0, sonuc.stdout + sonuc.stderr
 
-        store = AuthStore(calisma / ".deerx" / "deerx.db")
+        store = AuthStore(platform_db_path())
         try:
             user = store.find("admin")
             assert user is not None and user.is_master and user.role == "admin"
@@ -1297,7 +1354,7 @@ class TestPasswordFromStdin:
         )
         assert sonuc.returncode == 0, sonuc.stdout + sonuc.stderr
 
-        store = AuthStore(calisma / ".deerx" / "deerx.db")
+        store = AuthStore(platform_db_path())
         try:
             store.authenticate("admin", "ikinci-uzun-parola")
             with pytest.raises(AuthError):
@@ -1309,7 +1366,7 @@ class TestPasswordFromStdin:
         self._kos(calisma, "user", "ensure", "admin", "--stdin", girdi="cok-uzun-parola-1\n")
         self._kos(calisma, "user", "ensure", "sarpel", "--stdin", girdi="baska-uzun-parola\n")
 
-        store = AuthStore(calisma / ".deerx" / "deerx.db")
+        store = AuthStore(platform_db_path())
         try:
             ikinci = store.find("sarpel")
             assert ikinci is not None and ikinci.role == "admin"
@@ -1325,7 +1382,7 @@ class TestPasswordFromStdin:
         )
         assert sonuc.returncode == 0, sonuc.stdout + sonuc.stderr
 
-        store = AuthStore(calisma / ".deerx" / "deerx.db")
+        store = AuthStore(platform_db_path())
         try:
             store.authenticate("admin", "yeni-uzun-parola")
         finally:

@@ -8,7 +8,7 @@ doğrulama değildir, ve ikisini karıştırmak dürüst iddiaları da değersiz
 
 ## Süit
 
-Python 3.11 ve 3.13'te **1877 test geçiyor**, `ruff` temiz.
+Python 3.11 ve 3.13'te **1879 test geçiyor**, `ruff` temiz.
 
 Hiçbir test ağ çağrısı ya da gerçek model çağrısı yapmaz. Ajanlar
 `tests/conftest.py` içindeki sahte istemciye karşı koşar, yani süit
@@ -195,6 +195,7 @@ koruma gerektiren kategoridir, çünkü kendini duyuran hiçbir yanı yoktur.
 | Vekil, denetimden sonra adı yeniden çözüyordu | Doğrulanan adresler atılıyor ve `create_connection` adı baştan çözüyordu — DNS rebinding'in kullandığı ikinci çözümleme tam olarak buydu |
 | Stilsiz bir DOCX paragrafı bütün dosyayı düşürüyordu | `para.style` None olabiliyor; tek bir stilsiz paragraf yüzünden şartnamenin tamamı indekslenemiyordu |
 | Mutlak bir yol çalışma alanının dışına ulaşıyordu | `/api/ingest` ve `/api/run` yalnızca *göreli* yolu çalışma alanına bağlıyor, mutlak yolu olduğu gibi kabul ediyordu. Giriş yapmış herhangi bir kullanıcı konaktaki herhangi bir dizini indeksleyip `/api/search` ile geri okuyabiliyordu. Mevcut kapsama testi yanlış sebeple geçiyordu — göreli bir yol kullanıyor |
+| `deerx user add` sunucunun okuduğundan başka bir veritabanına yazıyordu | Hesaplar platform veritabanına taşındı ama CLI hâlâ proje dosyasını açıyordu: komut satırından açılan bir hesap arayüzde hiç görünmüyor, ve hiçbir şey "hesabın başka bir dosyada" demiyordu |
 | Bir iş akışının hedefini değiştirmek projeyi yeniden hedefliyordu | Danışmanın `update_workflow`'u proje geneli hedefi koşulsuz yazıyordu ve `_skip_reason` "bu faz hangi hedef için tamamlandı?" diye soruyor. *İkinci* bir iş akışını düzenlemek *birincinin* bitmiş fazlarını geçersiz kılıyor, ve bu ancak fazlar baştan koşarken görünür oluyordu |
 | Kabin kapanışta siliniyordu | `sandbox_setup` yalnızca konteyner ilk kurulduğunda koşuyor; her açılışta `apt-get install nodejs npm` gibi şeyler baştan koşuyordu — dakikalar ve ağ trafiği, hiçbir şey değişmemişken. Proje kalıcı bir geliştirme ortamıysa ortam da kalıcı olmalı |
 | Port yoklaması imajda Python olmasını gerektiriyordu | `docker exec … python -c` çalıştırıyordu; node, go ya da php imajında çağrı "komut bulunamadı" ile düşüyor ve sapasağlam çalışan bir servis sessizce "dinlemiyor" diye reddediliyordu |
