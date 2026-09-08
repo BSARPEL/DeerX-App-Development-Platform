@@ -3,7 +3,7 @@
 [← Documentation](README.md) · [Türkçe](tr/tools.md)
 
 Agents do not answer in free text — they act through tools, and their findings
-are recorded as structured data. There are 39 tools; each agent role gets a
+are recorded as structured data. There are 41 tools; each agent role gets a
 narrow subset.
 
 ## The tool sets
@@ -14,12 +14,12 @@ narrow subset.
 | Researcher | 14 | 35 | | | | | ● | ● |
 | Assessor | 11 | 30 | ● | | | | | |
 | Mockup | 10 | 30 | ● | | | | | ● |
-| Architect | 11 | 35 | ● | | | | | |
-| Planner | 8 | 25 | ● | | | | | |
-| Backend | 14 | 45 | ● | ● | ● | ● | | |
-| Frontend | 21 | 45 | ● | ● | ● | ● | ● | |
-| QA | 23 | 45 | ● | ● | ● | ● | ● | |
-| Reviewer | 10 | 35 | ● | | ● | | | |
+| Architect | 13 | 35 | ● | | | | | |
+| Planner | 10 | 25 | ● | | | | | |
+| Backend | 16 | 45 | ● | ● | ● | ● | | |
+| Frontend | 23 | 45 | ● | ● | ● | ● | ● | |
+| QA | 25 | 45 | ● | ● | ● | ● | ● | |
+| Reviewer | 12 | 35 | ● | | ● | | | |
 | Staging | 19 | 40 | ● | ● | ● | ● | ● | |
 | Live | 10 | 30 | ● | | ● | | | |
 | Advisor | 18 | 12 | ● | | | | | |
@@ -246,6 +246,43 @@ in `tools/descriptions_en.py`, and `Tool.spec()` overlays whichever the current
 language calls for. A test asserts every tool and every described parameter has
 both — a new tool cannot ship English-only or Turkish-only. See
 [Bilingual architecture](i18n.md).
+
+## Sub-agents — splitting a job
+
+| Tool | What it does |
+|---|---|
+| `plan_subagents` | Plans the split. Runs nothing |
+| `run_subagent` | Runs one sub-agent and returns its text |
+
+Planning is separate from running on purpose: writing down which part goes
+to whom, and what each is expected to return, also shows whether splitting
+is worth it. If only one part comes out, you did not need a sub-agent.
+
+A sub-agent runs **in the parent's thread, sequentially**. Concurrency is a
+separate problem and not a prerequisite here: running them at the same time
+would mean splitting the browser session (Playwright's sync objects are
+bound to the thread that created them), the sandbox ports, the service
+namespace and the approval queue all at once. The value of a sub-agent is
+not parallelism — it is a **narrow tool set and a clean context**.
+
+Two things are deliberately *not* inherited:
+
+- **Approvals.** When the user approved a dangerous command, they approved
+  *that command*, not a role. Carrying the parent's approval set into the
+  child would be a privilege leak.
+- **The failed-address counter.** Otherwise a sub-agent would refuse an
+  address it never tried, because the parent had.
+
+Recursion stops at one: a sub-agent cannot run sub-agents. And the limit is
+enforced in the **tool set**, not only at call time — a sub-agent never sees
+the tools at all. Offering a tool and then refusing it wastes a turn. The
+constraint follows the *depth*, not the role: `qa` owning a phase may split
+work; `qa` called as a sub-agent may not.
+
+Only the four narrow roles can be sub-agents — `researcher`, `qa`,
+`reviewer`, `summarizer`. The pipeline roles are left out because they own a
+phase and produce its deliverable; a sub-agent does not run a phase, it
+answers a question.
 
 ## Workflow advisor
 

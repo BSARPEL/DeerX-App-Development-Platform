@@ -3,7 +3,7 @@
 [← Dokümantasyon](README.md) · [English](../tools.md)
 
 Ajanlar serbest metinle cevap vermez — araçlarla hareket eder ve bulguları
-yapılandırılmış veri olarak kaydedilir. 39 araç var; her ajan rolü dar bir alt
+yapılandırılmış veri olarak kaydedilir. 41 araç var; her ajan rolü dar bir alt
 küme alır.
 
 ## Araç kümeleri
@@ -16,9 +16,9 @@ küme alır.
 | Mockup | 10 | 30 | ● | | | | | ● |
 | Mimar | 11 | 35 | ● | | | | | |
 | Planlayıcı | 8 | 25 | ● | | | | | |
-| Backend | 14 | 45 | ● | ● | ● | ● | | |
-| Frontend | 21 | 45 | ● | ● | ● | ● | ● | |
-| QA | 23 | 45 | ● | ● | ● | ● | ● | |
+| Backend | 16 | 45 | ● | ● | ● | ● | | |
+| Frontend | 23 | 45 | ● | ● | ● | ● | ● | |
+| QA | 25 | 45 | ● | ● | ● | ● | ● | |
 | İnceleyici | 10 | 35 | ● | | ● | | | |
 | Staging | 19 | 40 | ● | ● | ● | ● | ● | |
 | Canlı | 10 | 30 | ● | | ● | | | |
@@ -239,6 +239,43 @@ sınıfının içinde (davranışın belgelendiği yer), İngilizcesi
 biner. Bir test her aracın ve açıklamalı her parametrenin ikisinde de karşılığı
 olduğunu doğrular — yeni bir araç tek dilli olarak yayımlanamaz. Bkz.
 [İki dilli mimari](i18n.md).
+
+## Alt ajanlar — işi bölmek
+
+| Araç | Ne yapar |
+|---|---|
+| `plan_subagents` | Bölmeyi planlar. Hiçbirini çalıştırmaz |
+| `run_subagent` | Tek bir alt ajanı koşturur ve döndürdüğü metni verir |
+
+Planlamayı çalıştırmaktan ayırmak bilinçli: hangi parçanın kime verileceğini
+ve her birinden ne beklendiğini yazmak, bölmenin gerçekten gerekip
+gerekmediğini de gösterir. Tek parça çıkıyorsa alt ajana gerek yoktu.
+
+Alt ajan **ebeveynin iş parçacığında, sırayla** koşar. Eş zamanlılık ayrı bir
+iş ve buranın ön koşulu değil: aynı anda koşsalardı tarayıcı oturumu
+(Playwright'ın senkron nesneleri onları oluşturan iş parçacığına bağlı),
+kabin portları, servis ad alanı ve onay kuyruğu aynı anda bölünmek zorunda
+kalırdı. Alt ajanın değeri paralellik değil — **dar bir araç kümesi ve temiz
+bir bağlam**.
+
+İki şey bilerek devralınmaz:
+
+- **Onaylar.** Kullanıcı "şu tehlikeli komutu çalıştır" dediğinde *o
+  komuta* onay verdi, bir role değil. Ebeveynin onay kümesini çocuğa
+  taşımak bir yetki sızıntısıdır.
+- **Düşen adres sayacı.** Yoksa alt ajan, hiç denemediği bir adresi
+  "çok denedin" diye reddederdi.
+
+Özyineleme birde durur: alt ajan alt ajan koşturamaz. Sınır **araç
+kümesinde** tutulur, yalnızca çağrı anında değil — alt ajan aracı hiç
+görmez. Bir aracı gösterip sonra reddetmek bir turu boşa harcamaktır. Kısıt
+**derinliğe** bağlı, role değil: bir fazın sahibi olan `qa` işi bölebilir,
+alt ajan olarak çağrılan `qa` bölemez.
+
+Alt ajan olabilecek roller yalnızca dört dar rol: `researcher`, `qa`,
+`reviewer`, `summarizer`. Boru hattı rolleri dışarıda çünkü onlar bir fazın
+sahibi ve çıktısını üretiyorlar; alt ajan bir faz koşturmaz, bir soruyu
+cevaplar.
 
 ## İş akışı danışmanı
 

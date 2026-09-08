@@ -79,6 +79,15 @@ class ToolContext:
     # Kosu boyunca dusen adresler ve kac kez dustukleri. Bir modelin ayni
     # olu adresi on kez denedigi olculdu; harness bunu biliyorsa soylemeli.
     _failed_fetches: dict[str, int] = field(default_factory=dict)
+    # Alt ajan calistirici. Orkestrator baglar; sohbet ve test
+    # baglamlarinda `None` kalir ve `run_subagent` acikca reddeder --
+    # sessizce basarili donmek, modelin isini yaptigini sanmasina yol
+    # acardi.
+    spawn: Callable[[str, str, str], Any] | None = None
+    # Ozyineleme derinligi. Alt ajan alt ajan kosturamaz: sinirsiz
+    # derinlik, tek bir istegin butun butceyi harcayacagi ve nerede
+    # durdugunu kimsenin goremeyecegi bir agac uretir.
+    depth: int = 0
     # Kosuya ait konteyner; `run_command` ilk yalitilmis komutta kurar.
     # Alan BURADA tanimli olmali: `shell.py` ve orkestrator ona disaridan
     # yaziyordu ve bu yalnizca bu veri sinifinda `slots` KAPALI oldugu icin
@@ -86,6 +95,47 @@ class ToolContext:
     # birinin bunu da eklediği gun `execution = "docker"` calisma
     # zamaninda `AttributeError` ile kirilirdi.
     _sandbox: Any = None
+
+    # ------------------------------------------------------------------ #
+    # Turetme
+    # ------------------------------------------------------------------ #
+    def child(
+        self,
+        *,
+        doc_scope: tuple[str, ...] | None = None,
+        workflow_id: str | None = None,
+    ) -> ToolContext:
+        """Alt ajan icin turetilmis baglam.
+
+        Paylasilan kaynaklar (bilgi tabani, durum, tarayici, servisler,
+        kabin) OLDUGU GIBI gecer: alt ajan ayni projede calisiyor ve
+        ikinci bir tarayici acmak ya da ikinci bir konteyner kurmak
+        anlamsiz olurdu.
+
+        Devralinmayan iki sey var ve ikisi de bilincli:
+
+        * `_granted` -- ebeveynin aldigi ONAYLAR. Kullanici "su tehlikeli
+          komutu calistir" dediginde o komuta onay verdi, bir role degil;
+          onayi alt ajana tasimak bir yetki sizintisidir.
+        * `_failed_fetches` -- dusen adres sayaci. Ebeveynin denedigi bir
+          adres alt ajan icin de olu olabilir ama sayaci devralmak, alt
+          ajanin hic denemedigi bir adresi "cok denedin" diye
+          reddetmesine yol acardi.
+        """
+        return ToolContext(
+            settings=self.settings,
+            events=self.events,
+            kb=self.kb,
+            state=self.state,
+            browser=self.browser,
+            services=self.services,
+            workflow_id=self.workflow_id if workflow_id is None else workflow_id,
+            doc_scope=self.doc_scope if doc_scope is None else doc_scope,
+            approval_hook=self.approval_hook,
+            spawn=self.spawn,
+            depth=self.depth + 1,
+            _sandbox=self._sandbox,
+        )
 
     # ------------------------------------------------------------------ #
     # Yol guvenligi

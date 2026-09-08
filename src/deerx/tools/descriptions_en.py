@@ -20,6 +20,40 @@ from ..services import DEFAULT_READY_SECONDS
 
 ENGLISH: dict[str, dict[str, str]] = {
     # ── Is akisi danismani ────────────────────────────────────────────── #
+    "plan_subagents": {
+        "": """
+    PLANS splitting a job across sub-agents; runs none of them.
+
+    Use this first: writing down which part goes to whom, and what each one
+    is expected to return, also shows whether splitting is worth it at all.
+    If only one part comes out, you do not need a sub-agent.
+
+    Give every part a role, a task and an EXPECTED DELIVERABLE. A sub-agent
+    without one returns text whose purpose is unclear.
+    """,
+        # Dizi icindeki `role`/`task`/`deliverable` alanlari UST DUZEY
+        # parametre degil; sema icinde tanimli ve burada karsiliklari
+        # olamaz -- test bunu "boyle bir parametre yok" diye yakaliyor.
+        "tasks": "The parts to hand to sub-agents.",
+    },
+    "run_subagent": {
+        "": """
+    Runs one sub-agent and gives you the text it returns.
+
+    The sub-agent sees a SUBSET of your tools and asks for its own
+    approvals: the ones you were granted do not carry over to it.
+
+    It runs sequentially — the call returns when the sub-agent is done. If
+    you are handing it a long job, do that knowingly.
+
+    Write what you expect into `deliverable`; the sub-agent sees it and
+    shapes its answer accordingly.
+    """,
+        "role": "Which specialist to run.",
+        "task": "The sub-agent's job.",
+        "deliverable": "What it is expected to return.",
+        "context": "Background it needs to know (optional).",
+    },
     "read_workflow": {
         "": """
     Reads the state of the workflow being discussed: its goal, the user's

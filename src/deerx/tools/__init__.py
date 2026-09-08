@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .agents import AGENT_TOOLS, SUBAGENT_ROLES
 from .base import Tool, ToolContext, ToolRegistry, ToolResult, json_block
 from .browser import BROWSER_TOOLS
 from .filesystem import FILESYSTEM_TOOLS
@@ -23,6 +24,7 @@ ALL_TOOLS: list[Tool] = [
     *IMAGE_TOOLS,
     *BROWSER_TOOLS,
     *WORKFLOW_TOOLS,
+    *AGENT_TOOLS,
 ]
 
 
@@ -33,6 +35,11 @@ def build_registry() -> ToolRegistry:
 
 # Rol basina arac kumeleri. Her ajan yalnizca isini yapmak icin gerekli araclari
 # gorur; genis arac listesi hem maliyeti hem de yanlis arac secme olasiligini artirir.
+# Alt ajan araclari: isi bolebilen roller. Butun rollere vermek, her
+# ajanin her isi bolmeye calismasi demek olurdu; bolmek bir maliyettir ve
+# yalnizca genis ve karisik islerde kazandirir.
+_ALT_AJAN = ["plan_subagents", "run_subagent"]
+
 TOOLSETS: dict[str, list[str]] = {
     "analyst": [
         "search_knowledge", "read_document", "list_knowledge", "ingest_source",
@@ -68,11 +75,13 @@ TOOLSETS: dict[str, list[str]] = {
         "search_knowledge", "read_document", "read_project_state",
         "read_file", "list_dir", "glob_files", "grep_files",
         "record_decisions", "record_gaps", "record_questions", "save_artifact",
+        *_ALT_AJAN,
     ],
     "planner": [
         "search_knowledge", "read_project_state",
         "read_file", "list_dir", "glob_files",
         "record_tasks", "record_questions", "save_artifact",
+        *_ALT_AJAN,
     ],
     "backend": [
         "search_knowledge", "read_project_state", "update_task",
@@ -81,6 +90,7 @@ TOOLSETS: dict[str, list[str]] = {
         # Kendi yazdigini ayaga kaldirip ucunu yoklayabilsin: "derleniyor"
         # ile "calisiyor" ayni sey degil.
         "start_service", "service_log", "stop_service",
+        *_ALT_AJAN,
     ],
     "frontend": [
         "search_knowledge", "read_project_state", "update_task",
@@ -91,6 +101,7 @@ TOOLSETS: dict[str, list[str]] = {
         "start_service", "service_log", "stop_service",
         "preview_open", "browser_snapshot", "browser_click", "browser_type",
         "browser_back", "browser_console", "browser_screenshot",
+        *_ALT_AJAN,
     ],
     # QA uygulamayi ACIP BAKABILIR. "Calisiyor" demekle gostermek ayni sey
     # degil: `run_command` ile sunucuyu baslatir, `preview_open` ile acar,
@@ -102,11 +113,13 @@ TOOLSETS: dict[str, list[str]] = {
         "start_service", "service_log", "stop_service", "list_services",
         "preview_open", "browser_snapshot", "browser_click", "browser_type",
         "browser_back", "browser_console", "browser_screenshot",
+        *_ALT_AJAN,
     ],
     "reviewer": [
         "search_knowledge", "read_project_state",
         "read_file", "list_dir", "glob_files", "grep_files",
         "run_command", "record_gaps", "update_task", "save_artifact",
+        *_ALT_AJAN,
     ],
     "staging": [
         "search_knowledge", "read_project_state", "update_task",
@@ -130,6 +143,19 @@ TOOLSETS: dict[str, list[str]] = {
         "record_requirements", "record_gaps", "record_decisions",
         "record_questions", "record_tasks", "update_task",
         "save_artifact",
+    ],
+    # Ozetleyici: uzun bir metni ya da bir dosya yiginini okuyup kisa bir
+    # cevap doner. Yazma araci YOK -- ozet uretmek icin dosyaya dokunmak
+    # gerekmiyor ve dokunabilen bir ozetleyici, "yalnizca okusun" diye
+    # cagrilan bir alt ajan olmaktan cikar.
+    #
+    # `ROLE_TIERS` (config.py) `fast` katmanini tanimliyordu ama
+    # karsiligi olan bir rol YOKTU: ucuz model katmani hicbir zaman
+    # kullanilmiyordu.
+    "summarizer": [
+        "search_knowledge", "read_document", "list_knowledge",
+        "read_file", "list_dir", "glob_files", "grep_files",
+        "read_project_state",
     ],
     # Canli ajan dosya YAZMAZ: incelenmis ve staging'de dogrulanmis olani dagitir.
     "live": [
@@ -166,6 +192,7 @@ __all__ = [
     "IMAGE_TOOLS",
     "WEB_TOOLS",
     "WORKFLOW_TOOLS",
+    "SUBAGENT_ROLES",
     "build_registry",
     "json_block",
 ]

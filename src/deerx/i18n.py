@@ -2259,6 +2259,54 @@ CATALOG: dict[str, dict[str, str]] = {
         "tr": "Bu islem icin en az '{role}' rolu gerekiyor.",
         "en": "This action needs at least the '{role}' role.",
     },
+    "agent.plan_empty": {
+        "tr": "Alt ajan plani bos.",
+        "en": "The sub-agent plan is empty.",
+    },
+    "agent.plan_incomplete": {
+        "tr": "Her parcada bir gorev ve beklenen bir teslim olmali.",
+        "en": "Every part needs a task and an expected deliverable.",
+    },
+    "agent.bad_role": {
+        "tr": "Alt ajan rolu olamaz: {role}. Secenekler: {roles}",
+        "en": "Not a sub-agent role: {role}. Options: {roles}",
+    },
+    "agent.planned": {
+        "tr": "{n} alt ajan planlandi",
+        "en": "{n} sub-agents planned",
+    },
+    "agent.plan_ready": {
+        "tr": "{n} parca planlandi. Her birini `run_subagent` ile calistirin.",
+        "en": "{n} parts planned. Run each one with `run_subagent`.",
+    },
+    "agent.depth_limit": {
+        "tr": "Alt ajan alt ajan calistiramaz (sinir: {limit}).",
+        "en": "A sub-agent cannot run sub-agents (limit: {limit}).",
+    },
+    "agent.no_spawner": {
+        "tr": "Bu baglamda alt ajan calistirilamaz.",
+        "en": "Sub-agents cannot be run in this context.",
+    },
+    "agent.deliverable_line": {
+        "tr": "Beklenen teslim: {text}",
+        "en": "Expected deliverable: {text}",
+    },
+    "agent.subagent_failed": {
+        "tr": "{role} alt ajani basarisiz: {error}",
+        "en": "The {role} sub-agent failed: {error}",
+    },
+    "agent.subagent_done": {
+        "tr": "{role} alt ajani bitirdi ({iterations} tur):",
+        "en": "The {role} sub-agent finished ({iterations} turns):",
+    },
+    "agent.subagent_silent": {
+        "tr": "(alt ajan metin dondurmedi)",
+        "en": "(the sub-agent returned no text)",
+    },
+    "agent.subagent_started": {
+        "tr": "alt ajan basladi: {role}",
+        "en": "sub-agent started: {role}",
+    },
     "auth.migrated": {
         "tr": "{n} hesap platform veritabanina tasindi; acik oturumlar korundu.",
         "en": "{n} accounts moved to the platform database; open sessions kept.",

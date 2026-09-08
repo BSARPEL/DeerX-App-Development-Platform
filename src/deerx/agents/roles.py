@@ -28,6 +28,9 @@ SERVER_TOOLS_BY_ROLE: dict[str, list[dict[str, Any]]] = {
     "staging": [WEB_SEARCH_TOOL],
 }
 
+# Yalnizca derinlik 0'da verilen araclar.
+_ALT_AJAN_ARACLARI = frozenset({"plan_subagents", "run_subagent"})
+
 # Uzun surecek roller icin daha genis iterasyon butcesi.
 ITERATION_BUDGET: dict[str, int] = {
     # Danisman bir sohbet turudur, bir faz degil: okur, cevaplar, belki bir
@@ -46,6 +49,9 @@ ITERATION_BUDGET: dict[str, int] = {
     "reviewer": 35,
     "staging": 40,
     "live": 30,
+    # Ozetleyici okur ve doner; genis butce burada yalnizca bekleme
+    # suresine donusur.
+    "summarizer": 12,
 }
 
 
@@ -65,7 +71,17 @@ def build_agent(
     if role not in TOOLSETS:
         raise KeyError(f"Bilinmeyen rol: {role}. Mevcut: {', '.join(sorted(TOOLSETS))}")
 
-    tools = registry.subset(TOOLSETS[role])
+    # Alt ajan alt ajan CALISTIRAMAZ ve bunu calisma zamaninda ogrenmek
+    # yerine araci hic gormemeli: reddedilen bir arac, modele once bir
+    # secenek gosterip sonra geri almak demektir ve o turu bosa harcar.
+    #
+    # Kisit ROLE degil DERINLIGE bagli: `qa` bir fazin sahibi olarak isi
+    # bolebilmeli, ama bir alt ajan olarak cagrildiginda bolememeli --
+    # ayni rol, farkli baglam.
+    araclar = list(TOOLSETS[role])
+    if context.depth > 0:
+        araclar = [ad for ad in araclar if ad not in _ALT_AJAN_ARACLARI]
+    tools = registry.subset(araclar)
     # Sunucu tarafi web araclari Anthropic altyapisinda calisir; yerel bir
     # modelde karsiligi yoktur, orada yerel `web_search` devreye girer.
     server_tools = (

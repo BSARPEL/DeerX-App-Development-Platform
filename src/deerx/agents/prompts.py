@@ -33,6 +33,8 @@ ROLES = (
     "reviewer",
     "staging",
     "live",
+    # Alt ajan olarak cagrilir: uzun metni okur, kisa cevap doner.
+    "summarizer",
 )
 
 

@@ -237,6 +237,9 @@ class Orchestrator:
             state=self.state,
             browser=self.browser,
             services=self.services,
+            # Alt ajan calistirici. Araclar orkestratoru bilmez; bir
+            # cagrilabilir alarak bagimliligi tek yone ceviriyoruz.
+            spawn=self._spawn_subagent,
         )
         self._client: LLMClient | None = None
         # Onceki surec yarida kesildiyse gorevler `running` kalmis olabilir;
@@ -908,6 +911,30 @@ class Orchestrator:
                 "bulgulari kaydet ve `dogrulama-raporu.md` uret."
             ),
         }[phase]
+
+    def _spawn_subagent(self, role: str, task: str, context: str) -> AgentResult:
+        """Alt ajani EBEVEYNIN is parcaciginda, SIRAYLA kosturur.
+
+        Es zamanli kosmak, tarayici oturumunun (Playwright nesneleri
+        olusturan is parcacigina bagli), kabin portlarinin, servis ad
+        alaninin ve onay kuyrugunun ayni anda bolunmesini gerektirirdi.
+        Sirayla kosmak bunlarin hicbirini gerektirmiyor ve alt ajanin
+        asil degeri zaten esZamanlilik degil, DAR BIR ARAC KUMESI ve
+        temiz bir baglam.
+        """
+        cocuk = self.ctx.child()
+        self.events.emit("agent", role, t("agent.subagent_started", role=role))
+        alt = build_agent(
+            role,
+            settings=self.settings,
+            client=self.client,
+            registry=self.registry,
+            context=cocuk,
+            events=self.events,
+            stream=self.stream,
+            should_stop=self.should_stop,
+        )
+        return alt.run(task, context=context)
 
     def _run_agent_phase(self, phase: Phase) -> PhaseResult:
         role = PHASE_ROLE[phase]
