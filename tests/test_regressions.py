@@ -938,3 +938,63 @@ def test_gomme_yoklamasi_var_olan_bir_metodu_cagirir(monkeypatch, tmp_path: Path
         f"yoklama dustu: {adim.detay} -- `Embedder` uzerinde olmayan bir "
         "metot cagriliyor ve hata yutuluyor"
     )
+
+
+def test_two_threads_can_use_one_store(tmp_path):
+    """Ayni depoya iki is parcacigindan dokunmak istegi kirmamali.
+
+    OLCULDU: tek bir `sqlite3.Connection` iki is parcacigindan
+    kullanildiginda CPython UC ayri sekilde duser --
+      * OperationalError: cannot start a transaction within a transaction
+      * OperationalError: cannot commit - no transaction is active
+      * SystemError: error return without exception set
+    Ucu de bu testle olculdu.
+
+    Bu, arayuzun NORMAL davranisi: kosu arka plan is parcaciginda
+    yazarken `loadOverview` her olayda `/api/overview` yokluyor ve o
+    cagri ayni depoya dokunuyor. `check_same_thread=False` CPython'un
+    korumasini yalnizca KAPATIR, sorunu cozmez; kilit de yetmez, cunku
+    `execute` bir imlec doner ve `fetchall` da baglantiya dokunur.
+    Cozum SQLite'in kendi tasarimi: is parcacigi basina baglanti.
+    """
+    import threading
+
+    import numpy as np
+
+    from deerx.rag.chunker import chunk_text
+    from deerx.rag.loaders import load_text
+    from deerx.rag.store import VectorStore
+
+    store = VectorStore(tmp_path / "vektor.db", dim=8)
+    doc = load_text(
+        "# A\n\nbir iki uc dort bes alti yedi sekiz\n", source="a.md", title="a"
+    )
+    parcalar = chunk_text(doc.text, kind="doc", max_tokens=50, min_tokens=1)
+    vektorler = np.ones((len(parcalar), 8), dtype=np.float32)
+
+    hatalar: list[str] = []
+
+    def yaz() -> None:
+        for _ in range(60):
+            try:
+                store.upsert_document(doc, parcalar, vektorler)
+            except Exception as exc:  # noqa: BLE001 - hepsini topluyoruz
+                hatalar.append(repr(exc))
+
+    def oku() -> None:
+        for _ in range(60):
+            try:
+                store.stats()
+                store.list_documents()
+                store.active_doc_ids()
+            except Exception as exc:  # noqa: BLE001
+                hatalar.append(repr(exc))
+
+    isler = [threading.Thread(target=yaz), threading.Thread(target=oku)]
+    for is_ in isler:
+        is_.start()
+    for is_ in isler:
+        is_.join()
+    store.close()
+
+    assert not hatalar, hatalar[:3]

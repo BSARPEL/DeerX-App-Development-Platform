@@ -27,6 +27,30 @@ log = get_logger("config")
 CONFIG_FILENAME = "deerx.toml"
 DATA_DIRNAME = ".deerx"
 
+# Hesaplarin, oturumlarin ve denetim gunlugunun yasadigi yer. Bunlar
+# PROJELERIN USTUNDEDIR: bir kullanicinin kimligi hangi projede
+# calistigina gore degismez. Proje veritabaninin icinde tutulduklarinda
+# ayni kisi her projede ayri bir hesap, ayri bir parola ve bolunmus bir
+# gecmis demekti.
+#
+# `DEERX_HOME` testler ve cok kurulumlu makineler icin: ayarlanmazsa
+# kullanicinin ev dizini.
+PLATFORM_HOME_ENV = "DEERX_HOME"
+PLATFORM_DIRNAME = ".deerx"
+PLATFORM_DB_NAME = "platform.db"
+
+
+def platform_home() -> Path:
+    """Platform verisinin dizini."""
+    ozel = os.environ.get(PLATFORM_HOME_ENV, "").strip()
+    if ozel:
+        return Path(ozel).expanduser().resolve()
+    return Path.home() / PLATFORM_DIRNAME
+
+
+def platform_db_path() -> Path:
+    return platform_home() / PLATFORM_DB_NAME
+
 # Proje Praxis adiyla baslamisti; mevcut calisma alanlarini kirmamak icin eski
 # adlar okunur ve ilk kullanimda sessizce tasinir.
 LEGACY_CONFIG_FILENAME = "praxis.toml"
@@ -306,6 +330,11 @@ class Settings(BaseSettings):
     @property
     def db_path(self) -> Path:
         return self.data_dir / "deerx.db"
+
+    @property
+    def platform_db_path(self) -> Path:
+        """Hesaplar ve denetim gunlugu; projeden BAGIMSIZ."""
+        return platform_db_path()
 
     @property
     def artifacts_dir(self) -> Path:

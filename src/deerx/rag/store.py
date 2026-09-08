@@ -10,8 +10,10 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -111,9 +113,12 @@ class VectorStore:
         self.db_path = db_path
         self.dim = dim
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
+        # Baglanti PAYLASILMAZ, is parcacigi basina acilir: tek bir
+        # `sqlite3.Connection`i iki is parcacigindan kullanmak CPython'da
+        # uc ayri sekilde duser ve ucu de olculdu.
+        self._yerel = threading.local()
+        self._baglanti_kilidi = threading.Lock()
+        self._baglantilar: list[sqlite3.Connection] = []
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._fts_enabled = True
         self._cache: _Onbellek | None = None
@@ -131,7 +136,7 @@ class VectorStore:
             self._fts_enabled = False
             log.warning(t("setup.no_fts", error=exc))
         self._migrate()
-        self._conn.commit()
+        self._commit()
 
     def _migrate(self) -> None:
         """Var olan bir veritabanini yeni sutunlarla yukseltir.
@@ -153,8 +158,81 @@ class VectorStore:
             if ad not in mevcut:
                 self._conn.execute(f"ALTER TABLE documents ADD COLUMN {ad} {tanim}")
 
+    # ------------------------------------------------------------------ #
+    # Baglanti: is parcacigi basina bir tane
+    # ------------------------------------------------------------------ #
+    @property
+    def _conn(self) -> sqlite3.Connection:
+        """Bu is parcacigina ait baglanti; yoksa acilir.
+
+        Baglantiyi paylasmak yerine cogaltmak, SQLite'in tasarladigi
+        yoldur: WAL kipinde okuyucular yaziciyi engellemez ve her
+        baglantinin kendi islem durumu olur.
+        """
+        conn = getattr(self._yerel, "conn", None)
+        if conn is None:
+            conn = sqlite3.connect(str(self.db_path), isolation_level=None)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
+            # Yazici kilidi tutuyorsa bekle. Bunsuz es zamanli bir yazma
+            # aninda `database is locked` ile duserdi.
+            conn.execute("PRAGMA busy_timeout=5000")
+            self._yerel.conn = conn
+            with self._baglanti_kilidi:
+                self._baglantilar.append(conn)
+        return conn
+
+    def _islem_derinligi_al(self) -> int:
+        return getattr(self._yerel, "derinlik", 0)
+
+    def _islem_derinligi_yaz(self, deger: int) -> None:
+        self._yerel.derinlik = deger
+
+    @contextmanager
+    def _islem(self) -> Iterator[None]:
+        """Cok ifadeli bir yazmayi tek isleme alir; IC ICE GECISI TANIR.
+
+        Ic metotlar kendi `_commit()`lerini cagiriyor. Sarmalayici bunu
+        bilmezse ic cagri disaridaki islemi bitirir ve disaridaki `COMMIT`
+        "no transaction is active" ile duser -- olculdu.
+        """
+        if self._islem_derinligi_al():
+            self._islem_derinligi_yaz(self._islem_derinligi_al() + 1)
+            try:
+                yield
+            finally:
+                self._islem_derinligi_yaz(self._islem_derinligi_al() - 1)
+            return
+
+        conn = self._conn
+        conn.execute("BEGIN IMMEDIATE")
+        self._islem_derinligi_yaz(1)
+        try:
+            yield
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+        else:
+            conn.execute("COMMIT")
+        finally:
+            self._islem_derinligi_yaz(0)
+
+    def _commit(self) -> None:
+        """Acik bir islemin icindeyken hicbir sey yapmaz."""
+        if not self._islem_derinligi_al():
+            self._conn.commit()
+
     def close(self) -> None:
-        self._conn.close()
+        """Butun is parcaciklarinin baglantilarini kapatir."""
+        with self._baglanti_kilidi:
+            for conn in self._baglantilar:
+                try:
+                    conn.close()
+                except sqlite3.Error:  # pragma: no cover - kapanista onemsiz
+                    pass
+            self._baglantilar.clear()
+        self._yerel = threading.local()
 
     def __enter__(self) -> VectorStore:
         return self
@@ -184,7 +262,7 @@ class VectorStore:
                 "DELETE FROM chunks_fts WHERE chunk_id = ?", [(cid,) for cid in chunk_ids]
             )
         self._conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
-        self._conn.commit()
+        self._commit()
         self._cache = None
         return len(chunk_ids)
 
@@ -210,6 +288,20 @@ class VectorStore:
         kim = uploaded_by or (onceki["uploaded_by"] if onceki else "")
         ne_zaman = (onceki["uploaded_at"] if onceki and onceki["uploaded_at"] else 0.0)
 
+        # Sil-ve-yaz TEK bir islem olmali: arada kesilirse belge yok
+        # olur. Otomatik islem modunda bu butunluk kendiliginden gelmiyor,
+        # acikca aliniyor.
+        with self._islem():
+            return self._upsert_govde(doc, chunks, vectors, kim, ne_zaman)
+
+    def _upsert_govde(
+        self,
+        doc: LoadedDoc,
+        chunks: list[Chunk],
+        vectors: np.ndarray,
+        kim: str,
+        ne_zaman: float,
+    ) -> int:
         self.delete_document(doc.source)
         cur = self._conn.execute(
             "INSERT INTO documents "
@@ -257,7 +349,7 @@ class VectorStore:
                     (chunk.text, chunk.heading_path, chunk_id),
                 )
 
-        self._conn.commit()
+        self._commit()
         self._cache = None
         return len(chunks)
 
@@ -510,7 +602,7 @@ class VectorStore:
             "UPDATE documents SET is_active = ? WHERE source = ?",
             (1 if active else 0, str(source)),
         )
-        self._conn.commit()
+        self._commit()
         return cur.rowcount > 0
 
     def stats(self) -> dict[str, Any]:

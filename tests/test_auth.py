@@ -23,6 +23,7 @@ from deerx.web.auth import (
     AuthError,
     AuthStore,
     hash_password,
+    migrate_from_project,
 )
 
 
@@ -344,6 +345,103 @@ class TestUnconfiguredServer:
         assert response.status_code == 200
         assert response.json()["user"]["is_master"] is True
         assert client.get("/api/overview").status_code == 200
+
+
+class TestPlatformMigration:
+    """Hesaplar proje veritabanindan platform veritabanina tasinir.
+
+    Bu bir ALTYAPI degisikligi ve kullaniciya gorunmemeli: ayni hesap,
+    ayni parola, acik oturumlar dusmeden.
+    """
+
+    def _proje_db(self, tmp_path):
+        """Eski duzeni taklit eder: hesaplar PROJE dosyasinda."""
+        eski = AuthStore(tmp_path / "proje.db")
+        yonetici = eski.create_first_admin(
+            eski.issue_setup_token(), "yonetici", "cok-uzun-parola-1"
+        )
+        ekip = eski.create_user("ekip", "ikinci-uzun-parola")
+        jeton = eski.open_session(yonetici, agent="tarayici")
+        eski.close()
+        return yonetici, ekip, jeton
+
+    def test_accounts_move_and_keep_their_identity(self, tmp_path):
+        yonetici, ekip, _ = self._proje_db(tmp_path)
+
+        platform = AuthStore(tmp_path / "platform.db")
+        tasinan = migrate_from_project(tmp_path / "proje.db", platform)
+        assert tasinan == 2
+
+        adlar = {u.username: u for u in platform.list_users()}
+        assert set(adlar) == {"yonetici", "ekip"}
+        # Kimlikler KORUNUR: oturumlar ve denetim gunlugu onlara isaret
+        # ediyor; yeniden numaralandirmak hepsini yetim birakirdi.
+        assert adlar["yonetici"].id == yonetici.id
+        assert adlar["ekip"].id == ekip.id
+        assert adlar["yonetici"].is_master and not adlar["ekip"].is_master
+        platform.close()
+
+    def test_an_open_session_survives_the_move(self, tmp_path):
+        """Bir altyapi degisikligi kimseyi disari atmamali."""
+        yonetici, _, jeton = self._proje_db(tmp_path)
+
+        platform = AuthStore(tmp_path / "platform.db")
+        migrate_from_project(tmp_path / "proje.db", platform)
+
+        kullanici = platform.resolve_session(jeton)
+        assert kullanici is not None and kullanici.id == yonetici.id
+        platform.close()
+
+    def test_the_password_still_works(self, tmp_path):
+        self._proje_db(tmp_path)
+        platform = AuthStore(tmp_path / "platform.db")
+        migrate_from_project(tmp_path / "proje.db", platform)
+        assert platform.authenticate("ekip", "ikinci-uzun-parola") is not None
+        platform.close()
+
+    def test_running_it_twice_changes_nothing(self, tmp_path):
+        """Gocmen idempotent: tasinan tablolar yeniden adlandirildigi icin
+        ikinci cagri gorecek bir sey bulamaz."""
+        self._proje_db(tmp_path)
+        platform = AuthStore(tmp_path / "platform.db")
+        assert migrate_from_project(tmp_path / "proje.db", platform) == 2
+        assert migrate_from_project(tmp_path / "proje.db", platform) == 0
+        assert len(platform.list_users()) == 2
+        platform.close()
+
+    def test_the_project_tables_are_renamed_not_dropped(self, tmp_path):
+        """Geri donusu olmayan bir islem, dogru yaptigindan emin olana
+        kadar yapilmamali."""
+        import sqlite3
+
+        self._proje_db(tmp_path)
+        platform = AuthStore(tmp_path / "platform.db")
+        migrate_from_project(tmp_path / "proje.db", platform)
+        platform.close()
+
+        conn = sqlite3.connect(str(tmp_path / "proje.db"))
+        tablolar = {
+            r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        conn.close()
+        assert "users_tasindi" in tablolar
+        assert "users" not in tablolar
+
+    def test_a_populated_platform_is_never_overwritten(self, tmp_path):
+        """Ikinci bir calisma alani acildiginda BIRLESTIRME YAPILMAZ.
+
+        Ayni kullanici adi iki alanda farkli parolalarla olabilir ve
+        hangisinin dogru oldugunu tahmin etmek, yanlis kisiyi iceri
+        almak demektir.
+        """
+        self._proje_db(tmp_path)
+        platform = AuthStore(tmp_path / "platform.db")
+        platform.create_first_admin(
+            platform.issue_setup_token(), "baskasi", "ucuncu-uzun-parola"
+        )
+        assert migrate_from_project(tmp_path / "proje.db", platform) == 0
+        assert [u.username for u in platform.list_users()] == ["baskasi"]
+        platform.close()
 
 
 class TestRoles:

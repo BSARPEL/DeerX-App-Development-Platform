@@ -13,6 +13,7 @@ from rich.table import Table
 
 from .config import (
     CONFIG_FILENAME,
+    DATA_DIRNAME,
     DEFAULT_PORT,
     Settings,
     browse_host,
@@ -510,7 +511,9 @@ def user_list() -> None:
         store.close()
         return
 
-    table = Table(title=t("cli.users_title", workspace=settings.workspace))
+    # Hesaplar PROJELERIN USTUNDE: basligin calisma alanini yazmasi,
+    # her alanin kendi hesaplari varmis izlenimi verirdi.
+    table = Table(title=t("cli.users_title", home=settings.platform_db_path))
     for column in ("col.username", "col.name", "col.role", "col.status", "col.last_login"):
         table.add_column(t(column))
     for user in users:
@@ -522,6 +525,34 @@ def user_list() -> None:
         durum = t("cli.active") if user.is_active else f"[warn]{t('cli.inactive')}[/warn]"
         table.add_row(user.username, user.display_name or "—", role, durum, last)
     console.print(table)
+    store.close()
+
+
+@user_app.command("import", help=t("cli.user_import"))
+def user_import(
+    kaynak: Annotated[Path, typer.Option("--from", help=t("opt.import_from"))],
+) -> None:
+    """Baska bir calisma alanindaki hesaplari platforma tasir.
+
+    Otomatik tasima yalnizca platform BOSKEN calisir: ayni kullanici adi
+    iki alanda farkli parolalarla olabilir ve hangisinin dogru oldugunu
+    tahmin etmek, yanlis kisiyi iceri almak demektir. Ikinci bir alani
+    getirmek bu yuzden ELLE istenir.
+    """
+    from .web.auth import migrate_from_project
+
+    store, _ = _auth_store()
+    proje = Path(kaynak).expanduser().resolve() / DATA_DIRNAME / "deerx.db"
+    if not proje.is_file():
+        console.print(f"[err]{t('cli.no_project_db', path=proje)}[/err]")
+        store.close()
+        raise typer.Exit(1)
+
+    tasinan = migrate_from_project(proje, store)
+    if tasinan:
+        console.print(t("cli.imported", n=tasinan))
+    else:
+        console.print(t("cli.import_skipped"))
     store.close()
 
 

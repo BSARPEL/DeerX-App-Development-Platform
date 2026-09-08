@@ -162,6 +162,46 @@ class TestKnowledge:
         ).status_code == 400
 
 
+class TestConcurrentReadsDuringARun:
+    """Kosu sururken panoyu yenilemek istegi kirmamali.
+
+    OLCULDU: kosu arka plan is parcaciginda yazarken arayuz
+    `/api/overview` yokluyor ve ikisi ayni SQLite baglantisini
+    paylasiyor. Ortuk islemler ic ice giriyordu ve istek
+    "cannot start a transaction within a transaction" ya da
+    "not an error" ile dusuyordu -- besde ikisi.
+
+    Bu arayuzun NORMAL davranisi: `loadOverview` her olayda cagriliyor.
+    """
+
+    def test_polling_the_overview_while_a_run_writes(self, client):
+        client.post("/api/ingest", json={"path": "docs"})
+        client.post("/api/run", json={"phases": ["ingest"]})
+
+        son = time.time() + 10
+        while time.time() < son:
+            cevap = client.get("/api/overview")
+            assert cevap.status_code == 200, cevap.text
+            if not cevap.json()["run"]["running"]:
+                return
+            time.sleep(0.01)
+        raise AssertionError("kosu zamaninda bitmedi")
+
+    def test_listing_documents_while_a_run_writes(self, client):
+        """Ayni yaris, oteki baglanti uzerinde: `VectorStore`."""
+        client.post("/api/ingest", json={"path": "docs"})
+        client.post("/api/run", json={"phases": ["ingest"], "force": True})
+
+        son = time.time() + 10
+        while time.time() < son:
+            cevap = client.get("/api/documents")
+            assert cevap.status_code == 200, cevap.text
+            if not client.get("/api/run").json()["running"]:
+                return
+            time.sleep(0.01)
+        raise AssertionError("kosu zamaninda bitmedi")
+
+
 class TestDocumentScope:
     """Kosunun okuyabilecegi belgeler kullanicidan gelir.
 

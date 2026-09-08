@@ -142,6 +142,91 @@ AUDIT_KEEP = 5000
 AUDIT_TRIM_EVERY = 256
 
 
+def migrate_from_project(project_db: Path, platform: AuthStore) -> int:
+    """Proje veritabanindaki hesaplari platform veritabanina TASIR.
+
+    Bir kereye mahsus ve idempotent. Kosullar:
+      * platform tarafi BOS olmali (kullanici yoksa),
+      * proje tarafinda gercekten hesap olmali.
+
+    Oturum jetonlari OLDUGU GIBI tasinir: taşıma sirasinda acik olan
+    cerezler gecerli kalir ve kimse yeniden giris yapmak zorunda kalmaz.
+    Bir altyapi degisikliginin kullaniciya gorunmesi icin hicbir sebep
+    yok.
+
+    Tasinan tablolar SILINMEZ, yeniden adlandirilir: geri donusu olmayan
+    bir islem, dogru yaptigindan emin olana kadar yapilmamali. Ayrica
+    yeniden adlandirma gocmeni kendiliginden idempotent yapar -- ikinci
+    cagride `users` tablosu artik yoktur.
+
+    Ikinci bir calisma alani acildiginda BIRLESTIRME YAPILMAZ: ayni
+    kullanici adi iki alanda farkli parolalarla olabilir ve hangisinin
+    dogru oldugunu tahmin etmek, yanlis kisiyi iceri almak demektir.
+    O durumda `deerx user import` elle cagrilir.
+    """
+    if not project_db.is_file():
+        return 0
+    if platform.list_users():
+        return 0
+
+    kaynak = sqlite3.connect(str(project_db))
+    kaynak.row_factory = sqlite3.Row
+    try:
+        tablolar = {
+            row["name"]
+            for row in kaynak.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        if "users" not in tablolar:
+            return 0
+        kullanicilar = kaynak.execute("SELECT * FROM users").fetchall()
+        if not kullanicilar:
+            return 0
+
+        hedef = platform._conn  # noqa: SLF001 - ayni modulun icinden
+        for row in kullanicilar:
+            # Kimlikler KORUNUR: `sessions.user_id` ve `audit.user_id`
+            # onlara isaret ediyor; yeniden numaralandirmak butun
+            # oturumlari ve gecmisi yetim birakirdi.
+            hedef.execute(
+                "INSERT OR IGNORE INTO users "
+                "(id, username, display_name, role, salt, password, "
+                " created_at, last_login, is_master, is_active) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    row["id"], row["username"], row["display_name"], row["role"],
+                    row["salt"], row["password"], row["created_at"],
+                    row["last_login"], row["is_master"], row["is_active"],
+                ),
+            )
+        for ad, sutunlar in (
+            ("sessions", "token, user_id, created_at, seen_at, agent"),
+            ("audit",
+             "id, at, user_id, username, action, detail, detail_key, "
+             "detail_args, ip, agent, ok"),
+        ):
+            if ad not in tablolar:
+                continue
+            isaret = ",".join("?" * len(sutunlar.split(",")))
+            for row in kaynak.execute(f"SELECT {sutunlar} FROM {ad}"):
+                hedef.execute(
+                    f"INSERT OR IGNORE INTO {ad} ({sutunlar}) VALUES ({isaret})",
+                    tuple(row),
+                )
+        hedef.commit()
+
+        for ad in ("users", "sessions", "audit"):
+            if ad in tablolar:
+                kaynak.execute(f"ALTER TABLE {ad} RENAME TO {ad}_tasindi")
+        kaynak.commit()
+    finally:
+        kaynak.close()
+
+    log.info(t("auth.migrated", n=len(kullanicilar)))
+    return len(kullanicilar)
+
+
 class AuthError(Exception):
     """Kimlik dogrulama reddi. Mesaji kullaniciya gosterilebilir."""
 

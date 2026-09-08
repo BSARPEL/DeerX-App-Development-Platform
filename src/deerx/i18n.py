@@ -1163,8 +1163,28 @@ CATALOG: dict[str, dict[str, str]] = {
               "[dim]To create one:[/dim] deerx user add <name> --admin",
     },
     "cli.users_title": {
-        "tr": "Kullanicilar · {workspace}",
-        "en": "Users · {workspace}",
+        "tr": "Kullanicilar · {home}",
+        "en": "Users · {home}",
+    },
+    "cli.user_import": {
+        "tr": "Baska bir calisma alanindaki hesaplari platforma tasir.",
+        "en": "Moves accounts from another workspace into the platform.",
+    },
+    "cli.no_project_db": {
+        "tr": "O calisma alaninda veritabani yok: {path}",
+        "en": "No database in that workspace: {path}",
+    },
+    "cli.imported": {
+        "tr": "{n} hesap tasindi.",
+        "en": "{n} accounts imported.",
+    },
+    "cli.import_skipped": {
+        "tr": "Tasinacak hesap yok (platformda zaten hesap var ya da kaynak bos).",
+        "en": "Nothing to import (the platform already has accounts, or the source is empty).",
+    },
+    "opt.import_from": {
+        "tr": "Hesaplari getirilecek calisma alani.",
+        "en": "Workspace whose accounts should be imported.",
     },
     "cli.master_suffix": {"tr": " (ana)", "en": " (primary)"},
     "cli.active": {"tr": "acik", "en": "active"},
@@ -2186,6 +2206,10 @@ CATALOG: dict[str, dict[str, str]] = {
     "api.doc_activated": {
         "tr": "yeniden etkinlestirildi: {source}",
         "en": "reactivated: {source}",
+    },
+    "auth.migrated": {
+        "tr": "{n} hesap platform veritabanina tasindi; acik oturumlar korundu.",
+        "en": "{n} accounts moved to the platform database; open sessions kept.",
     },
     "kb.skipped_inactive": {
         "tr": "pasiflestirilmis; yeniden indekslenmedi",

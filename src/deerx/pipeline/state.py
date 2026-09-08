@@ -10,7 +10,10 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -269,12 +272,15 @@ class ProjectState:
     def __init__(self, db_path: Path) -> None:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.db_path = db_path
-        self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
+        # Baglanti PAYLASILMAZ, is parcacigi basina acilir: tek bir
+        # `sqlite3.Connection`i iki is parcacigindan kullanmak CPython'da
+        # uc ayri sekilde duser ve ucu de olculdu.
+        self._yerel = threading.local()
+        self._baglanti_kilidi = threading.Lock()
+        self._baglantilar: list[sqlite3.Connection] = []
         self._conn.executescript(_SCHEMA)
         self._migrate()
-        self._conn.commit()
+        self._commit()
 
     def _migrate(self) -> None:
         """Eski veritabanlarini gunceller.
@@ -357,13 +363,86 @@ class ProjectState:
             self._conn.execute(
                 "UPDATE runs SET workflow_id = ? WHERE id = ?", (workflow_id, row["id"])
             )
-        self._conn.commit()
+        self._commit()
         log.info(
             t("run.workflow_migration", runs=len(rows), workflows=len(by_goal))
         )
 
+    # ------------------------------------------------------------------ #
+    # Baglanti: is parcacigi basina bir tane
+    # ------------------------------------------------------------------ #
+    @property
+    def _conn(self) -> sqlite3.Connection:
+        """Bu is parcacigina ait baglanti; yoksa acilir.
+
+        Baglantiyi paylasmak yerine cogaltmak, SQLite'in tasarladigi
+        yoldur: WAL kipinde okuyucular yaziciyi engellemez ve her
+        baglantinin kendi islem durumu olur.
+        """
+        conn = getattr(self._yerel, "conn", None)
+        if conn is None:
+            conn = sqlite3.connect(str(self.db_path), isolation_level=None)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
+            # Yazici kilidi tutuyorsa bekle. Bunsuz es zamanli bir yazma
+            # aninda `database is locked` ile duserdi.
+            conn.execute("PRAGMA busy_timeout=5000")
+            self._yerel.conn = conn
+            with self._baglanti_kilidi:
+                self._baglantilar.append(conn)
+        return conn
+
+    def _islem_derinligi_al(self) -> int:
+        return getattr(self._yerel, "derinlik", 0)
+
+    def _islem_derinligi_yaz(self, deger: int) -> None:
+        self._yerel.derinlik = deger
+
+    @contextmanager
+    def _islem(self) -> Iterator[None]:
+        """Cok ifadeli bir yazmayi tek isleme alir; IC ICE GECISI TANIR.
+
+        Ic metotlar kendi `_commit()`lerini cagiriyor. Sarmalayici bunu
+        bilmezse ic cagri disaridaki islemi bitirir ve disaridaki `COMMIT`
+        "no transaction is active" ile duser -- olculdu.
+        """
+        if self._islem_derinligi_al():
+            self._islem_derinligi_yaz(self._islem_derinligi_al() + 1)
+            try:
+                yield
+            finally:
+                self._islem_derinligi_yaz(self._islem_derinligi_al() - 1)
+            return
+
+        conn = self._conn
+        conn.execute("BEGIN IMMEDIATE")
+        self._islem_derinligi_yaz(1)
+        try:
+            yield
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+        else:
+            conn.execute("COMMIT")
+        finally:
+            self._islem_derinligi_yaz(0)
+
+    def _commit(self) -> None:
+        """Acik bir islemin icindeyken hicbir sey yapmaz."""
+        if not self._islem_derinligi_al():
+            self._conn.commit()
+
     def close(self) -> None:
-        self._conn.close()
+        """Butun is parcaciklarinin baglantilarini kapatir."""
+        with self._baglanti_kilidi:
+            for conn in self._baglantilar:
+                try:
+                    conn.close()
+                except sqlite3.Error:  # pragma: no cover - kapanista onemsiz
+                    pass
+            self._baglantilar.clear()
+        self._yerel = threading.local()
 
     def __enter__(self) -> ProjectState:
         return self
@@ -380,7 +459,7 @@ class ProjectState:
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (key, json.dumps(value, ensure_ascii=False, default=str)),
         )
-        self._conn.commit()
+        self._commit()
 
     def get_meta(self, key: str, default: Any = None) -> Any:
         row = self._conn.execute("SELECT value FROM project WHERE key = ?", (key,)).fetchone()
@@ -411,7 +490,7 @@ class ProjectState:
             "finished_at=NULL",
             (str(phase), time.time()),
         )
-        self._conn.commit()
+        self._commit()
 
     def finish_phase(
         self,
@@ -434,7 +513,7 @@ class ProjectState:
                 self.get_meta("goal", ""),
             ),
         )
-        self._conn.commit()
+        self._commit()
 
     def all_phases(self) -> list[PhaseState]:
         return [self.phase_status(p) for p in Phase.ordered()]
@@ -455,7 +534,7 @@ class ProjectState:
                 req.priority, req.source_ref, req.status, time.time(),
             ),
         )
-        self._conn.commit()
+        self._commit()
         return req
 
     def list_requirements(self) -> list[Requirement]:
@@ -489,7 +568,7 @@ class ProjectState:
                 gap.recommendation, gap.evidence, gap.status, time.time(),
             ),
         )
-        self._conn.commit()
+        self._commit()
         return gap
 
     def list_gaps(self) -> list[Gap]:
@@ -522,7 +601,7 @@ class ProjectState:
                 decision.alternatives, decision.tradeoffs, time.time(),
             ),
         )
-        self._conn.commit()
+        self._commit()
         return decision
 
     def list_decisions(self) -> list[Decision]:
@@ -541,7 +620,7 @@ class ProjectState:
             "VALUES (?, ?, ?, ?, ?)",
             (note.topic, note.finding, note.url, note.confidence, time.time()),
         )
-        self._conn.commit()
+        self._commit()
         return note
 
     def list_research_notes(self) -> list[ResearchNote]:
@@ -579,7 +658,7 @@ class ProjectState:
                 question.answer, time.time(),
             ),
         )
-        self._conn.commit()
+        self._commit()
         return question
 
     @staticmethod
@@ -623,7 +702,7 @@ class ProjectState:
             "UPDATE questions SET status='answered', answer=?, answered_at=? WHERE key=?",
             (answer, time.time(), key),
         )
-        self._conn.commit()
+        self._commit()
         return self.get_question(key)
 
     def skip_question(self, key: str, assumption: str = "") -> Question | None:
@@ -636,7 +715,7 @@ class ProjectState:
             "UPDATE questions SET status='skipped', suggestion=?, answered_at=? WHERE key=?",
             (assumption or current.suggestion, time.time(), key),
         )
-        self._conn.commit()
+        self._commit()
         return self.get_question(key)
 
     # ------------------------------------------------------------------ #
@@ -662,7 +741,7 @@ class ProjectState:
             "VALUES (?, ?, ?, ?, 'active', ?)",
             (plan_id, seq, name.strip() or f"Plan {seq}", description.strip(), time.time()),
         )
-        self._conn.commit()
+        self._commit()
         created = self.get_plan(plan_id)
         assert created is not None
         return created
@@ -706,7 +785,7 @@ class ProjectState:
         if sets:
             params.append(plan_id)
             self._conn.execute(f"UPDATE plans SET {', '.join(sets)} WHERE id = ?", params)
-            self._conn.commit()
+            self._commit()
         return self.get_plan(plan_id)
 
     def delete_plan(self, plan_id: str) -> int:
@@ -718,7 +797,7 @@ class ProjectState:
         )
         self._conn.execute("DELETE FROM tasks WHERE plan_id = ?", (plan_id,))
         self._conn.execute("DELETE FROM plans WHERE id = ?", (plan_id,))
-        self._conn.commit()
+        self._commit()
         if self.get_meta("active_plan") == plan_id:
             self.set_meta("active_plan", None)
         return count
@@ -742,7 +821,7 @@ class ProjectState:
 
         plan = self.create_plan(self.DEFAULT_PLAN_NAME)
         self._conn.execute("UPDATE tasks SET plan_id = ? WHERE plan_id = ''", (plan["id"],))
-        self._conn.commit()
+        self._commit()
         self.set_meta("active_plan", plan["id"])
         return str(plan["id"])
 
@@ -779,7 +858,7 @@ class ProjectState:
                 task.order_index, plan, now, now,
             ),
         )
-        self._conn.commit()
+        self._commit()
         return task
 
     @staticmethod
@@ -833,7 +912,7 @@ class ProjectState:
             params.append(result)
         params.append(key)
         self._conn.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE key = ?", params)
-        self._conn.commit()
+        self._commit()
 
 # ------------------------------------------------------------------ #
     # Is akislari
@@ -856,7 +935,7 @@ class ProjectState:
                 self._conn.execute(
                     "UPDATE workflows SET brief = ? WHERE id = ?", (brief, row["id"])
                 )
-                self._conn.commit()
+                self._commit()
                 row = self._conn.execute(
                     "SELECT * FROM workflows WHERE id = ?", (row["id"],)
                 ).fetchone()
@@ -876,7 +955,7 @@ class ProjectState:
             "VALUES (?, ?, ?, ?, ?, 'running', ?)",
             (workflow_id, seq, title or goal.strip(), goal, brief, time.time()),
         )
-        self._conn.commit()
+        self._commit()
         log.info("Yeni is akisi #%d: %s", seq, (title or goal)[:60])
         return self.get_workflow(workflow_id) or {}
 
@@ -903,7 +982,7 @@ class ProjectState:
             "UPDATE workflows SET status = ?, finished_at = ? WHERE id = ?",
             (str(status), time.time(), workflow_id),
         )
-        self._conn.commit()
+        self._commit()
 
     def workflow_runs(self, workflow_id: str) -> list[dict[str, Any]]:
         """Is akisinin adimlari: kosular, baslatildiklari sirayla."""
@@ -960,7 +1039,7 @@ class ProjectState:
             self.set_meta("goal", goal)
         if brief is not None:
             self.set_meta("brief", brief)
-        self._conn.commit()
+        self._commit()
         return self.get_workflow(workflow_id)
 
     def add_chat_message(
@@ -983,7 +1062,7 @@ class ProjectState:
                 time.time(),
             ),
         )
-        self._conn.commit()
+        self._commit()
 
     def chat_history(self, workflow_id: str, *, limit: int = 40) -> list[dict[str, Any]]:
         """Is akisinin sohbeti, eskiden yeniye.
@@ -1015,7 +1094,7 @@ class ProjectState:
         self._conn.execute(
             "DELETE FROM workflow_chat WHERE workflow_id = ?", (workflow_id,)
         )
-        self._conn.commit()
+        self._commit()
         return int(satir)
 
     def workflow_context(self, workflow_id: str, *, max_items: int = 40) -> str:
@@ -1120,7 +1199,7 @@ class ProjectState:
                     "WHERE run_id = ? AND status = ?",
                     (Status.CANCELLED, now, row["id"], Status.RUNNING),
                 )
-            self._conn.commit()
+            self._commit()
         return seqs
 
     def reclaim_orphaned_tasks(self) -> list[str]:
@@ -1150,7 +1229,7 @@ class ProjectState:
                     "UPDATE tasks SET status = ?, updated_at = ? WHERE key = ?",
                     (Status.PENDING, simdi, key),
                 )
-            self._conn.commit()
+            self._commit()
         return keys
 
     def ready_tasks(self, *, plan_id: str | None = None) -> list[Task]:
@@ -1235,7 +1314,7 @@ class ProjectState:
                 time.time(), os.getpid(),
             ),
         )
-        self._conn.commit()
+        self._commit()
         return seq
 
     def finish_run(
@@ -1245,7 +1324,7 @@ class ProjectState:
             "UPDATE runs SET status=?, cost_usd=?, error=?, finished_at=? WHERE id=?",
             (str(status), cost_usd, error or "", time.time(), run_id),
         )
-        self._conn.commit()
+        self._commit()
 
     def start_run_step(self, run_id: str, phase: Phase | str, ordinal: int) -> None:
         self._conn.execute(
@@ -1255,7 +1334,7 @@ class ProjectState:
             "ordinal=excluded.ordinal, started_at=excluded.started_at, finished_at=NULL",
             (run_id, ordinal, str(phase), time.time()),
         )
-        self._conn.commit()
+        self._commit()
 
     def finish_run_step(
         self,
@@ -1272,7 +1351,7 @@ class ProjectState:
             "WHERE run_id=? AND phase=?",
             (str(status), summary, cost_usd, error or "", time.time(), run_id, str(phase)),
         )
-        self._conn.commit()
+        self._commit()
 
     def list_runs(self, limit: int = 50) -> list[dict[str, Any]]:
         """Kosular, en yenisi basta."""
@@ -1362,7 +1441,7 @@ class ProjectState:
                 artifact.run_id, artifact.phase, time.time(),
             ),
         )
-        self._conn.commit()
+        self._commit()
         return artifact
 
     def list_artifacts(self, *, run_id: str | None = None) -> list[Artifact]:

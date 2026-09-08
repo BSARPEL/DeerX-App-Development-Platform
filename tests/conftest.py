@@ -100,6 +100,21 @@ def _sabitlenmis_alani_unut(monkeypatch):
         monkeypatch.delenv(ad, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _platform_evi_yalit(tmp_path_factory, monkeypatch):
+    """Suit kullanicinin GERCEK `~/.deerx` dosyasina dokunmamali.
+
+    Hesaplar artik proje veritabaninda degil, platform veritabaninda
+    duruyor ve onun varsayilan yeri ev dizini. Yalitim olmasaydi her
+    `pytest` kosusu gelistiricinin kendi hesaplarina yazar, parolasini
+    sifirlar ve butun oturumlarini dusururdu -- `set_password` bunu
+    yapiyor. Ayni tuzagin calisma alani surumu icin yukaridaki nota
+    bakin; koruma orada da testin icinde degil, burada.
+    """
+    ev = tmp_path_factory.mktemp("deerx-home")
+    monkeypatch.setenv("DEERX_HOME", str(ev))
+
+
 @pytest.fixture
 def workspace(tmp_path: Path) -> Path:
     (tmp_path / "docs").mkdir()

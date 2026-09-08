@@ -44,6 +44,7 @@ from .auth import (
     AuthError,
     AuthStore,
     User,
+    migrate_from_project,
 )
 from .runner import (
     RunBusy,
@@ -188,9 +189,16 @@ class AppState:
         # boylece tarayici da gorur.
         self.orchestrator = Orchestrator(settings, events=self.events, stream=False)
         self.runner = RunManager(settings, self.orchestrator)
-        # Kullanicilar proje veritabaniyla ayni dosyada: her calisma alani
-        # kendi hesaplarini tasir, tek bir kurulum baskasininkini acmaz.
-        self.auth = AuthStore(settings.db_path)
+        # Hesaplar PROJELERIN USTUNDE durur. Proje veritabaninin icinde
+        # tutulduklarinda ayni kisi her projede ayri bir hesap, ayri bir
+        # parola ve bolunmus bir gecmis demekti; oturum cerezi de bir
+        # projeden otekine tasinmiyordu.
+        settings.platform_db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.auth = AuthStore(settings.platform_db_path)
+        # Bir kereye mahsus: eski kurulumlar hesaplarini proje dosyasinda
+        # tasiyor. Tasima acik oturumlari korur, yani kullanici hicbir
+        # fark gormez.
+        migrate_from_project(settings.db_path, self.auth)
         self.auth.purge_expired()
 
     def close(self) -> None:

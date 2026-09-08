@@ -232,7 +232,8 @@ Four decisions worth stating:
 | Refused sign-ins are recorded, under the name that was tried | "Ten attempts on an unknown account" is the most useful line in a security log, and the one easiest to leave out — there is no `User` object to hang it on |
 | Settings changes record field names, never values | The values include API keys. A log that leaks what it is meant to protect works against itself |
 | A deleted account keeps its trail; only the link is cut | Otherwise deleting a user would be the way to clear the history |
-| The log is capped, and the cap is periodic | It shares the project database. Trimming on every write would spend a 5000-row scan per sign-in, so it runs every 256 rows — the row count stops growing, it just does not stop exactly on the line |
+| The log is capped, and the cap is periodic | Trimming on every write would spend a 5000-row scan per sign-in, so it runs every 256 rows — the row count stops growing, it just does not stop exactly on the line |
+| Accounts live above projects, not inside one | Sessions, users and the audit log sit in a **platform database** (`$DEERX_HOME/platform.db`, `~/.deerx` by default), not in the project's `deerx.db`. Inside a project, the same person would be a different account in every project — different password, split history, and a session cookie that does not survive switching. Existing installs are migrated on first open, keeping open sessions valid |
 
 The log holds addresses and user-agent strings. That is what makes it useful and
 also what makes it worth restricting: it is one of the few places in DeerX where

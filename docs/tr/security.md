@@ -233,7 +233,8 @@ Söylenmeye değer dört karar:
 | Reddedilen girişler, denenen adla birlikte yazılır | "Bilinmeyen bir hesaba on deneme" bir güvenlik günlüğünün en çok işe yarayan satırıdır, ve atlanması en kolay olanıdır — tutunacak bir `User` nesnesi yok |
 | Ayar değişikliğinde alan adları yazılır, değerler asla | Değerlerin arasında API anahtarları var. Koruduğu şeyi sızdıran bir günlük kendi amacının karşısına geçer |
 | Silinen hesabın izi kalır, yalnızca bağı kopar | Aksi halde hesabı silmek, geçmişi temizlemenin yolu olurdu |
-| Günlüğün bir tavanı var, ve budama aralıklı | Proje veritabanıyla aynı dosyayı paylaşıyor. Her yazmada budamak her girişe 5000 satırlık bir tarama yüklerdi; bu yüzden 256 satırda bir çalışır — satır sayısı büyümeyi durdurur, sadece tam çizgide durmaz |
+| Günlüğün bir tavanı var, ve budama aralıklı | Her yazmada budamak her girişe 5000 satırlık bir tarama yüklerdi; bu yüzden 256 satırda bir çalışır — satır sayısı büyümeyi durdurur, sadece tam çizgide durmaz |
+| Hesaplar projelerin İÇİNDE değil ÜSTÜNDE yaşar | Oturumlar, kullanıcılar ve denetim günlüğü bir **platform veritabanında** (`$DEERX_HOME/platform.db`, varsayılan `~/.deerx`) durur, projenin `deerx.db` dosyasında değil. Projenin içinde tutulduklarında aynı kişi her projede ayrı bir hesap demekti: ayrı parola, bölünmüş geçmiş ve proje değiştirince taşınmayan bir oturum çerezi. Mevcut kurulumlar ilk açılışta taşınır ve açık oturumlar geçerli kalır |
 
 Günlük adresleri ve tarayıcı bilgilerini tutuyor. Onu faydalı kılan da bu,
 kısıtlanmaya değer kılan da: DeerX'te okumanın kendisinin bir ayrıcalık olduğu
