@@ -211,6 +211,13 @@ class ProjectRuntime:
     def __init__(self, project: Project, settings: Settings) -> None:
         self.project = project
         self.settings = settings
+        # Port dilimi PROJENIN kaydindan gelir, ayar dosyasindan degil:
+        # iki proje ayni araligi yayinlamaya calisirsa ikincisinin
+        # konteyneri hic kurulamaz. Dilim proje olusturulurken tahsis
+        # edilir ve proje silinene kadar degismez.
+        if project.port_base:
+            settings.sandbox_port_base = project.port_base
+            settings.sandbox_port_count = project.port_count or 10
         settings.ensure_dirs()
         self.events = EventLog(settings.events_path, echo=True)
         self.orchestrator = Orchestrator(settings, events=self.events, stream=False)
@@ -335,7 +342,9 @@ class AppState:
         ]
         sahip = next((uid for uid, rol in uyeler if rol == "owner"), None)
         return self.projects.create(
-            self.boot_settings.workspace, owner_id=sahip, members=uyeler
+            self.boot_settings.workspace, owner_id=sahip, members=uyeler,
+            port_base=self.boot_settings.sandbox_port_base,
+            port_count=self.boot_settings.sandbox_port_count,
         )
 
     def close(self) -> None:
@@ -1229,6 +1238,72 @@ def build_app(settings: Settings) -> Starlette:
             return True
         return state.projects.role_of(proje.id, user.id) == "owner"
 
+    async def environment(request: Request) -> Response:
+        """Bu projenin gelistirme ortami: kabin, portlar, servisler."""
+        calisan = state.runtime()
+        ayar = calisan.settings
+        proje = state.project
+
+        kabin: dict[str, Any] = {
+            "execution": ayar.execution,
+            "image": ayar.sandbox_image,
+            "memory": ayar.sandbox_memory,
+            "cpus": ayar.sandbox_cpus,
+            "status": "off",
+            "name": "",
+        }
+        if ayar.execution == "docker":
+            from ..sandbox import Sandbox
+
+            olcek = Sandbox(
+                workspace=ayar.workspace, image=ayar.sandbox_image,
+                port_base=ayar.sandbox_port_base,
+                port_count=ayar.sandbox_port_count,
+            )
+            kabin["name"] = olcek.name
+            # `_durum` docker'a soruyor; docker yoksa None doner ve
+            # "kurulu degil" demek dogru cevaptir.
+            kabin["status"] = olcek._durum() or "absent"  # noqa: SLF001
+
+        servisler = calisan.orchestrator.services.describe_all()
+        return _json({
+            "project": proje.to_dict(),
+            "ports": {
+                "base": ayar.sandbox_port_base,
+                "count": ayar.sandbox_port_count,
+                "last": ayar.sandbox_port_base + ayar.sandbox_port_count - 1,
+            },
+            "sandbox": kabin,
+            "services": servisler,
+        })
+
+    async def environment_rebuild(request: Request) -> Response:
+        """Konteyneri siler; bir sonraki komut onu bastan kurar.
+
+        Kurulum betigi yalnizca konteyner ILK kuruldugunda kosuyor, yani
+        `sandbox_setup` degistiginde ortamin yenilenmesi icin acik bir
+        yol gerekiyor. Sahiplik istenir: ortami yeniden kurmak, o anda
+        calisan servisleri de goturur.
+        """
+        denied = _require_role(request, "owner")
+        if denied is not None:
+            return denied
+        calisan = state.runtime()
+        if calisan.runner.is_running:
+            return _error(t("api.run_busy"), 409)
+
+        from ..sandbox import Sandbox
+
+        ayar = calisan.settings
+        Sandbox(
+            workspace=ayar.workspace, image=ayar.sandbox_image,
+            port_base=ayar.sandbox_port_base,
+            port_count=ayar.sandbox_port_count,
+        ).destroy()
+        calisan.orchestrator.reset_sandbox()
+        _audit(request, "env.rebuild", detail=state.project.name)
+        return _json({"ok": True})
+
     async def projects_list(request: Request) -> Response:
         user = getattr(request.state, "user", None)
         arsiv = request.query_params.get("archived") == "1"
@@ -1273,6 +1348,8 @@ def build_app(settings: Settings) -> Starlette:
             proje = state.projects.create(
                 yol, name=str(body.get("name", "")).strip(),
                 owner_id=user.id if user else None,
+                port_base=state.boot_settings.sandbox_port_base,
+                port_count=state.boot_settings.sandbox_port_count,
             )
         except ProjectError as exc:
             return _error(str(exc))
@@ -2476,6 +2553,8 @@ def build_app(settings: Settings) -> Starlette:
         Route("/api/auth/login", auth_login, methods=["POST"]),
         Route("/api/auth/logout", auth_logout, methods=["POST"]),
         Route("/api/auth/password", auth_password, methods=["POST"]),
+        Route("/api/environment", environment),
+        Route("/api/environment/rebuild", environment_rebuild, methods=["POST"]),
         Route("/api/projects", projects_list),
         Route("/api/projects", projects_create, methods=["POST"]),
         Route("/api/projects/{project_id}", projects_update, methods=["POST"]),

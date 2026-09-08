@@ -87,6 +87,9 @@
       <span class="rail-icon">≋</span><span class="rail-text" data-i18n="nav.stream">Canlı akış</span>
       <span class="rail-live" id="rail-live" hidden></span>
     </button>
+    <button class="rail-item" data-view="env" type="button" data-i18n-label="nav.env" aria-label="Ortam">
+      <span class="rail-icon">⬢</span><span class="rail-text" data-i18n="nav.env">Ortam</span>
+    </button>
     <button class="rail-item" data-view="projects" type="button" data-i18n-label="nav.projects" aria-label="Projeler">
       <span class="rail-icon">▤</span><span class="rail-text" data-i18n="nav.projects">Projeler</span>
     </button>
@@ -472,6 +475,19 @@
       </div>
       <div class="feed feed-full" id="feed"><p class="empty" data-i18n="stream.connecting"></p></div>
       <nav class="pager" id="stream-pager" data-i18n-label="pager.aria" aria-label="Sayfalama" hidden></nav>
+    </section>
+
+    <!-- Ortam -->
+    <section class="view" id="view-env">
+      <div class="view-head view-head-row">
+        <div>
+          <h1 data-i18n="env.title">Ortam</h1>
+          <p class="view-sub" id="env-scope">—</p>
+        </div>
+        <button class="btn btn-danger" id="env-rebuild" type="button"
+                data-i18n="env.rebuild">Ortamı yeniden kur</button>
+      </div>
+      <div id="env-body"></div>
     </section>
 
     <!-- Projeler -->

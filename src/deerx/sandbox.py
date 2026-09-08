@@ -150,14 +150,40 @@ class Sandbox:
                       error=(sonuc.stderr or sonuc.stdout).strip()[:300])
                 )
 
-    def close(self) -> None:
-        """Konteyneri siler. Icindeki her sey gider; kasit budur."""
+    def stop(self) -> None:
+        """Konteyneri DURDURUR; silmez.
+
+        Kurulum (`sandbox_setup`) yalnizca konteyner ilk kuruldugunda
+        kosuyor. Kapanista silmek, her sunucu acilisinda `apt-get install
+        nodejs npm` gibi bir kurulumun bastan kosmasi demekti: dakikalar
+        ve ag trafigi, hicbir sey degismemis olsa bile. Proje kalici bir
+        gelistirme ortamiysa ortami da kalici olmali.
+
+        Diskte kalan durdurulmus bir konteyner ihmal edilebilir yer
+        tutar; hicbir sey de calistirmaz.
+        """
+        if shutil.which("docker") is None:
+            return
+        subprocess.run(
+            ["docker", "stop", "-t", "5", self.name],
+            capture_output=True, text=True, check=False, timeout=60,
+        )
+
+    def destroy(self) -> None:
+        """Konteyneri SILER. Icindeki her sey gider; kasit budur.
+
+        Yalnizca proje silindiginde ya da kullanici acikca "ortami
+        yeniden kur" dediginde cagrilir.
+        """
         if shutil.which("docker") is None:
             return
         subprocess.run(
             ["docker", "rm", "-f", self.name],
             capture_output=True, text=True, check=False, timeout=60,
         )
+
+    # Eski ad: kapanista SILMEK yerine DURDURMAK dogru davranis.
+    close = stop
 
     def __enter__(self) -> Sandbox:
         self.ensure()
@@ -208,15 +234,32 @@ class Sandbox:
         donuyordu. "Dolu mu" denetimi her zaman tetiklenir, daha kotusu
         "hazir mi" denetimi servis hic baslamamisken bile hazir derdi.
         """
-        kod = (
-            f"import socket,sys;s=socket.socket();s.settimeout({float(timeout)!r});"
-            f"sys.exit(0 if s.connect_ex(('127.0.0.1',{int(port)}))==0 else 1)"
+        # Uc yol sirayla denenir. Ilki calisan imajlarda oteki ikisi hic
+        # kosmaz; ama `python`u OLMAYAN bir imajda (node, go, php) o cagri
+        # "komut bulunamadi" ile duser ve saglam calisan bir servis
+        # sessizce `service.not_listening` diye reddedilirdi.
+        deneme = (
+            ["python", "-c",
+             f"import socket,sys;s=socket.socket();s.settimeout({float(timeout)!r});"
+             f"sys.exit(0 if s.connect_ex(('127.0.0.1',{int(port)}))==0 else 1)"],
+            # `/dev/tcp` bash'e ozgu; node ve go imajlarinda bash var.
+            ["bash", "-c", f"exec 3<>/dev/tcp/127.0.0.1/{int(port)}"],
+            # Alpine'da `nc` var ama bash yok.
+            ["sh", "-c", f"nc -z 127.0.0.1 {int(port)}"],
         )
-        p = subprocess.run(
-            ["docker", "exec", self.name, "python", "-c", kod],
-            capture_output=True, text=True, check=False, timeout=30,
-        )
-        return p.returncode == 0
+        for argv in deneme:
+            p = subprocess.run(
+                ["docker", "exec", self.name, *argv],
+                capture_output=True, text=True, check=False, timeout=30,
+            )
+            if p.returncode == 0:
+                return True
+            # Arac YOKSA sonraki yola gec; arac var ve port kapaliysa
+            # cevap "kapali"dir ve aramaya devam etmek yanlis olurdu.
+            hata = (p.stderr or "").lower()
+            if not any(x in hata for x in ("not found", "no such file", "executable")):
+                return False
+        return False
 
     def ic_oldur(self, pid_yolu: str) -> None:
         """PID dosyasindaki sureci konteyner icinde oldurur.

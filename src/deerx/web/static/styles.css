@@ -2930,3 +2930,23 @@ tr[data-inactive="1"] .doc-row-source { opacity: .6; }
 .member { display: flex; align-items: center; gap: 12px; }
 .member-name { flex: 1; min-width: 0; font-size: 13px; }
 .member select { width: auto; min-width: 140px; }
+
+/* ─── Ortam ekranı ─────────────────────────────────────────────────────── */
+/* Ajanın başlattığı uygulamanın adresi hiçbir ekranda yazmıyordu:
+   kullanıcı olay akışında geçen bir port numarasını yakalayıp adresi
+   kendi kurmak zorundaydı. */
+
+.service-list { display: flex; flex-direction: column; list-style: none; }
+.service {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.service:last-child { border-bottom: none; }
+.service-name { font-weight: 500; min-width: 120px; }
+.service-link { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+.service-cmd {
+  flex: 1; min-width: 0;
+  font-family: var(--mono); font-size: 12px; color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}

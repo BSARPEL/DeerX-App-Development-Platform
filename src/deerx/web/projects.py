@@ -63,7 +63,15 @@ CREATE TABLE IF NOT EXISTS projects (
     -- Arsivlenen proje SILINMEZ: dizin diskte durur ve kayit geri
     -- alinabilir. Bir projeyi silmek, o projede yapilmis her seyin
     -- gecmisini de silmek olurdu.
-    archived   INTEGER NOT NULL DEFAULT 0
+    archived   INTEGER NOT NULL DEFAULT 0,
+    -- Bu projenin konteynerine ayrilan port dilimi. Docker yayinlanan
+    -- portlari konteyner YARATILIRKEN ayirir ve sonradan ekleyemez, yani
+    -- dilim kap kurulmadan ONCE ve kalici olarak belli olmali. Proje
+    -- silinene kadar degismez: bir ajanin "uygulaman 8103'te" diye
+    -- verdigi adres, sunucu yeniden baslayinca baska bir projeye
+    -- gitmemeli.
+    port_base  INTEGER NOT NULL DEFAULT 0,
+    port_count INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS project_members (
@@ -91,6 +99,8 @@ class Project:
     owner_id: int | None
     created_at: float
     archived: bool
+    port_base: int = 0
+    port_count: int = 0
     # Cagiran kullanicinin bu projedeki rolu; listeleme sirasinda doldurulur.
     role: str = ""
 
@@ -103,6 +113,8 @@ class Project:
             "owner_id": self.owner_id,
             "created_at": self.created_at,
             "archived": self.archived,
+            "port_base": self.port_base,
+            "port_count": self.port_count,
             "role": self.role,
         }
 
@@ -142,7 +154,21 @@ class ProjectStore:
         self._baglanti_kilidi = threading.Lock()
         self._baglantilar: list[sqlite3.Connection] = []
         self._conn.executescript(_SCHEMA)
+        self._migrate()
         self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Var olan bir kaydi yeni sutunlarla yukseltir.
+
+        `CREATE TABLE IF NOT EXISTS` var olan tabloyu degistirmez.
+        """
+        mevcut = {r["name"] for r in self._conn.execute("PRAGMA table_info(projects)")}
+        for ad, tanim in (
+            ("port_base", "INTEGER NOT NULL DEFAULT 0"),
+            ("port_count", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if ad not in mevcut:
+                self._conn.execute(f"ALTER TABLE projects ADD COLUMN {ad} {tanim}")
 
     @property
     def _conn(self) -> sqlite3.Connection:
@@ -192,6 +218,8 @@ class ProjectStore:
             owner_id=row["owner_id"],
             created_at=float(row["created_at"]),
             archived=bool(row["archived"]),
+            port_base=int(row["port_base"] or 0),
+            port_count=int(row["port_count"] or 0),
             role=role or (row["role"] if "role" in row.keys() else ""),
         )
 
@@ -237,7 +265,8 @@ class ProjectStore:
                 Project(
                     id=p.id, slug=p.slug, name=p.name, path=p.path,
                     owner_id=p.owner_id, created_at=p.created_at,
-                    archived=p.archived, role=uyelik.get(p.id, "owner"),
+                    archived=p.archived, port_base=p.port_base,
+                    port_count=p.port_count, role=uyelik.get(p.id, "owner"),
                 )
                 for p in projeler
             ]
@@ -280,6 +309,25 @@ class ProjectStore:
             slug = f"{slugify(taban)}-{n}"
         return slug
 
+    def _bos_dilim(self, taban: int, adet: int) -> int:
+        """Kullanilmayan ilk port dilimini bulur.
+
+        Dilimler bitisiktir ve ARALARINDAKI BOSLUK YENIDEN KULLANILIR:
+        proje silindiginde dilimi bosalir ve bir sonraki proje onu alir.
+        Yoksa uzun omurlu bir kurulumda taban surekli yukselir ve bir gun
+        ayricalikli olmayan port araligini asardi.
+        """
+        alinan = {
+            int(r["port_base"])
+            for r in self._conn.execute(
+                "SELECT port_base FROM projects WHERE port_base > 0"
+            )
+        }
+        aday = taban
+        while aday in alinan:
+            aday += adet
+        return aday
+
     def create(
         self,
         path: Path,
@@ -287,6 +335,8 @@ class ProjectStore:
         name: str = "",
         owner_id: int | None = None,
         members: list[tuple[int, str]] | None = None,
+        port_base: int = 8100,
+        port_count: int = 10,
     ) -> Project:
         """Bir dizini proje olarak kaydeder.
 
@@ -301,10 +351,14 @@ class ProjectStore:
 
         etiket = (name or cozulen.name).strip() or cozulen.name
         with self._islem():
+            dilim = self._bos_dilim(port_base, port_count)
             cur = self._conn.execute(
-                "INSERT INTO projects (slug, name, path, owner_id, created_at, archived) "
-                "VALUES (?, ?, ?, ?, ?, 0)",
-                (self._free_slug(etiket), etiket, str(cozulen), owner_id, time.time()),
+                "INSERT INTO projects "
+                "(slug, name, path, owner_id, created_at, archived, "
+                " port_base, port_count) "
+                "VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
+                (self._free_slug(etiket), etiket, str(cozulen), owner_id,
+                 time.time(), dilim, port_count),
             )
             pid = int(cur.lastrowid or 0)
             hepsi = list(members or [])

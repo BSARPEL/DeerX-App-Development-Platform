@@ -211,7 +211,7 @@ async function changeLanguage(lang) {
 
 // ─── Yonlendirme ──────────────────────────────────────────────────────────
 const VIEWS = ["overview", "develop", "workflow", "knowledge", "analysis",
-               "plan", "artifacts", "stream", "projects", "settings"];
+               "plan", "artifacts", "stream", "env", "projects", "settings"];
 
 function showView(name) {
   if (!VIEWS.includes(name)) name = "overview";
@@ -228,6 +228,7 @@ function showView(name) {
   if (name === "artifacts") { loadArtifacts(); loadDelivery(); }
   if (name === "stream")    renderFeed();
   if (name === "projects")  loadProjects();
+  if (name === "env")       loadEnvironment();
   // Form `state.overview.settings`ten dolar, ama bu sekme genel durumu HIC
   // yuklemiyordu. Yoklama henuz gelmediyse `renderSettings` sessizce cikip
   // formu bos birakiyor ve bir daha denemiyordu -- yorumunun soyledigi gibi
@@ -938,6 +939,78 @@ function initDocPicker() {
   $("#doc-pick-filter").addEventListener("input", (event) => {
     state.docPickFilter = event.target.value.trim();
     renderUploadedDocs(state.docItems || []);
+  });
+}
+
+// ─── Ortam ────────────────────────────────────────────────────────────────
+// Ajanin baslattigi uygulamanin adresi hicbir ekranda yazmiyordu:
+// kullanici olay akisinda gecen bir port numarasini yakalayip adresi
+// kendi kurmak zorundaydi.
+
+function renderEnvironment(data) {
+  const k = data.sandbox;
+  const p = data.ports;
+  const servisler = data.services || [];
+
+  $("#env-scope").textContent = t("env.scope", { name: data.project.name });
+  $("#env-rebuild").hidden = k.execution !== "docker" || data.project.role !== "owner";
+
+  $("#env-body").innerHTML = `
+    <section class="panel">
+      <header class="panel-head">
+        <h2 data-i18n-skip>${esc(t("env.container"))}</h2>
+        <span class="badge" data-v="${esc(k.status === "running" ? "done" : "blocked")}">${
+          esc(tv("envStatus", k.status))
+        }</span>
+      </header>
+      <div class="panel-body">
+        <dl class="detail-grid">
+          <dt>${esc(t("env.mode"))}</dt><dd>${esc(tv("execution", k.execution))}</dd>
+          ${k.execution === "docker" ? `
+            <dt>${esc(t("env.image"))}</dt><dd>${esc(k.image)}</dd>
+            <dt>${esc(t("env.name"))}</dt><dd>${esc(k.name)}</dd>
+            <dt>${esc(t("env.limits"))}</dt><dd>${esc(k.memory)} · ${esc(String(k.cpus))} CPU</dd>` : ""}
+          <dt>${esc(t("env.ports"))}</dt><dd>${p.base}–${p.last}</dd>
+        </dl>
+        <p class="note">${esc(t("env.portsHint"))}</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <header class="panel-head"><h2>${esc(t("env.services"))}</h2></header>
+      <div class="panel-body">
+        ${servisler.length ? `
+          <ul class="service-list">${servisler.map((s) => `
+            <li class="service">
+              <span class="service-name">${esc(s.name)}</span>
+              <span class="badge" data-v="${esc(s.alive ? "running" : "failed")}">${
+                esc(tv("envStatus", s.alive ? "running" : "stopped"))
+              }</span>
+              ${s.port ? `<a class="service-link" href="http://127.0.0.1:${s.port}"
+                             target="_blank" rel="noopener">127.0.0.1:${s.port}</a>` : ""}
+              <span class="service-cmd">${esc(s.command || "")}</span>
+            </li>`).join("")}</ul>`
+          : emptyState(t("env.noServices"), t("env.noServicesHint"))}
+      </div>
+    </section>`;
+}
+
+async function loadEnvironment() {
+  try {
+    renderEnvironment(await api("/api/environment"));
+  } catch (error) {
+    $("#env-body").innerHTML = emptyState(t("app.failed"), error.message);
+  }
+}
+
+function initEnvironment() {
+  $("#env-rebuild").addEventListener("click", async () => {
+    if (!confirm(t("env.rebuildConfirm"))) return;
+    try {
+      await post("/api/environment/rebuild");
+      toast(t("env.rebuilt"), "ok");
+      loadEnvironment();
+    } catch (error) { toast(error.message, "err"); }
   });
 }
 
@@ -3525,6 +3598,7 @@ async function init() {
 function boot() {
   initRouting();
   initRunControls();
+  initEnvironment();
   initProjects();
   initDocPicker();
   initKnowledge();

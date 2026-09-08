@@ -392,3 +392,76 @@ class TestProjeYalitimi:
             assert client.post(
                 f"/api/projects/{gizli['id']}/activate"
             ).status_code == 403
+
+
+class TestPortDilimi:
+    """Her projenin kendi port araligi olmali.
+
+    Docker yayinlanan portlari konteyner YARATILIRKEN ayirir ve sonradan
+    ekleyemez. Iki proje ayni araligi yayinlamaya calisirsa ikincisinin
+    konteyneri hic kurulamaz -- yani dilim, kap kurulmadan ONCE ve kalici
+    olarak belli olmali.
+    """
+
+    def test_each_project_gets_its_own_slice(self, store, alan):
+        bir = store.create(alan("bir"), owner_id=1, port_base=8100, port_count=10)
+        iki = store.create(alan("iki"), owner_id=1, port_base=8100, port_count=10)
+        uc = store.create(alan("uc"), owner_id=1, port_base=8100, port_count=10)
+
+        assert [bir.port_base, iki.port_base, uc.port_base] == [8100, 8110, 8120]
+        assert {p.port_count for p in (bir, iki, uc)} == {10}
+
+    def test_slices_never_overlap(self, store, alan):
+        dilimler = []
+        for i in range(5):
+            p = store.create(alan(f"p{i}"), owner_id=1, port_base=8100, port_count=10)
+            dilimler.append(range(p.port_base, p.port_base + p.port_count))
+        for a in range(len(dilimler)):
+            for b in range(a + 1, len(dilimler)):
+                assert not set(dilimler[a]) & set(dilimler[b])
+
+    def test_a_freed_slice_is_reused(self, store, alan, tmp_path):
+        """Yoksa uzun omurlu bir kurulumda taban surekli yukselir ve bir
+        gun ayricalikli olmayan port araligini asardi."""
+        bir = store.create(alan("bir"), owner_id=1, port_base=8100, port_count=10)
+        store.create(alan("iki"), owner_id=1, port_base=8100, port_count=10)
+
+        store._conn.execute("DELETE FROM projects WHERE id = ?", (bir.id,))
+        store._conn.commit()
+
+        yeni = store.create(alan("uc"), owner_id=1, port_base=8100, port_count=10)
+        assert yeni.port_base == 8100
+
+    def test_the_runtime_uses_the_projects_slice(self, settings, tmp_path):
+        """Ayar dosyasindaki taban degil, PROJENIN kaydindaki dilim
+        kullanilmali."""
+        from starlette.testclient import TestClient
+
+        from deerx.web.app import build_app
+
+        with TestClient(build_app(settings)) as client:
+            durum = client.app.state.deerx
+            ikinci_yol = tmp_path / "ikinci"
+            ikinci_yol.mkdir()
+            ikinci = client.post(
+                "/api/projects", json={"path": str(ikinci_yol)}
+            ).json()["project"]
+
+            birinci_rt = durum.runtime(durum.default_project)
+            ikinci_rt = durum.runtime(durum.projects.get(ikinci["id"]))
+
+            assert birinci_rt.settings.sandbox_port_base !=                 ikinci_rt.settings.sandbox_port_base
+            assert ikinci_rt.settings.sandbox_port_base == ikinci["port_base"]
+
+    def test_the_environment_endpoint_reports_the_slice(self, settings):
+        from starlette.testclient import TestClient
+
+        from deerx.web.app import build_app
+
+        with TestClient(build_app(settings)) as client:
+            veri = client.get("/api/environment").json()
+            assert veri["ports"]["base"] == veri["project"]["port_base"]
+            assert veri["ports"]["last"] == (
+                veri["ports"]["base"] + veri["ports"]["count"] - 1
+            )
+            assert "sandbox" in veri and "services" in veri
