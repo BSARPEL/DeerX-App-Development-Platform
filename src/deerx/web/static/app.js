@@ -3528,10 +3528,27 @@ async function loadArtifacts() {
     // DIZESINI yaziyordu ve ekranda her yoklamada bir tane birikiyordu.
     $("#artifact-layout").append(detayKutusu());
 
+    /* Varsayilan acilis SATIR BUTCESINE gore, grup sirasina gore degil.
+
+       Once yalnizca `index === 0` aciliyordu. Gerekcesi dogruydu -- yirmi
+       kosuluk bir listede hepsi acik olsa asil aradiginiz gorunmez -- ama
+       IKI gruplu bir listede saf kayipti: on bir ciktinin onu ikinci
+       grupta ve kapali kaliyordu. Kullanici ekrani acip "1 tane var"
+       diyordu; yuk ve altbaslik dogruydu, GORDUGU sey degildi.
+
+       Butce, en yeniden baslayarak doldurulur; ilk grup her zaman acilir. */
+    const ACIK_SATIR_BUTCESI = 30;
+    let butce = ACIK_SATIR_BUTCESI;
+    const varsayilanAcik = data.groups.map((group, index) => {
+      if (index > 0 && butce <= 0) return false;
+      butce -= group.items.length;
+      return true;
+    });
+
     list.innerHTML = data.groups.map((group, index) => {
       const open = state.openArtifactRuns.size
         ? state.openArtifactRuns.has(group.run_id)
-        : index === 0;
+        : varsayilanAcik[index];
       const attachments = group.items.filter((i) => i.format === "archive").length;
       // Koşu bir İŞ AKIŞININ adımı; çıktı da o iş akışına ait. Numarası
       // başlıkta yazar ve tıklanınca o akışa götürür -- "bu mockup hangi

@@ -980,3 +980,56 @@ class TestGorunenAdKendiKosusunuGizlemez:
             {"current": {"started_by": ""}},
             {"username": "sarpel", "display_name": "Sarpel B."},
         ) == "true"
+
+
+class TestCiktiGruplariGorunurAciliyor:
+    """Listede DURMAK yetmez; GORUNMESI gerekir.
+
+    Ilk duzeltmede kosusuz ciktilar listeye alindi ve yuk dogru oldu
+    (`total` 11, iki grup) -- ama ikinci grup KAPALI aciliyordu ve
+    kullanici ekrani acip yine "1 tane goruyorum" dedi. Yuku ve
+    altbasligi olcup insanin gordugunu olcmemek, duzeltmeyi yarim
+    birakmakti.
+
+    Eski kural `index === 0` idi ve gerekcesi dogruydu: yirmi kosuluk bir
+    listede hepsi acik olsa asil aradiginiz gorunmez. Yeni kural o
+    gerekceyi korur ama SATIR BUTCESIYLE calisir.
+    """
+
+    @staticmethod
+    def _acilis(gruplar: list[int]) -> list[bool]:
+        """`renderArtifacts`in varsayilan acilis mantigini KOSTURUR."""
+        _node()
+        src = _asset("app.js")
+        bas = src.index("const ACIK_SATIR_BUTCESI")
+        son = src.index("list.innerHTML = data.groups.map(", bas)
+        parca = src[bas:son]
+        veri = {"groups": [{"items": [0] * n} for n in gruplar]}
+        betik = (
+            "const data = " + json.dumps(veri) + ";\n"
+            + parca
+            + "process.stdout.write(JSON.stringify(varsayilanAcik));"
+        )
+        out = subprocess.run(
+            ["node", "-e", betik], capture_output=True, text=True, encoding="utf-8"
+        )
+        assert out.returncode == 0, out.stderr
+        return json.loads(out.stdout)
+
+    def test_a_short_list_opens_every_group(self):
+        """Bildirilen durum: 1 + 10 cikti, iki grup. Ikisi de acilmali."""
+        assert self._acilis([1, 10]) == [True, True]
+
+    def test_a_long_list_still_collapses_the_tail(self):
+        """Eski kuralin gerekcesi korunur: yirmi kosuluk bir listede
+        hepsi acik olsa asil aradiginiz gorunmez."""
+        acik = self._acilis([12, 12, 12, 12, 12])
+        assert acik[0] is True
+        assert acik[-1] is False, "uzun listenin kuyrugu hala kapali olmali"
+        assert sum(acik) < 5
+
+    def test_the_first_group_always_opens(self):
+        """Butceyi tek basina asan bir grup bile acilir: hicbir sey
+        gorunmeyen bir ekran, cok sey gorunen ekrandan kotudur."""
+        assert self._acilis([500])[0] is True
+        assert self._acilis([500, 3])[0] is True
