@@ -3403,9 +3403,14 @@ function renderTaskPage() {
           <span class="task-key">${esc(task.key)}</span>
           <span class="task-title">${esc(task.title)}</span>
           ${task.deps.length ? `<span class="task-deps">← ${esc(task.deps.join(", "))}</span>` : ""}
-          ${task.ready ? `<span class="badge" data-v="ready">${esc(t("status.ready"))}</span>` : ""}
-          <span class="badge" data-v="${esc(task.status)}">${esc(tv("status", task.status))}</span>
-          <span class="badge lane" data-lane="${esc(task.lane)}">${esc(tv("lane", task.lane))}</span>
+          <!-- Satirin sol kenari durumun rengini ZATEN tasiyor; ayrica
+               renkli bir rozet basmak ayni bilgiyi ikinci kez kodlar.
+               Geriye kelime kaliyor, duz meta olarak. "Hazir" da ucuncu
+               tekrardi: data-ready ile seritte zaten var. Serit (lane) bir
+               durum degil siniflandirma: hap olmasi gerekmiyor. -->
+          <span class="task-state" data-v="${esc(task.status)}">${
+            esc(tv("status", task.status))}</span>
+          <span class="task-lane">${esc(tv("lane", task.lane))}</span>
         </button>
         <div class="task-body" data-body="${id}" hidden>
           ${task.description ? `<p>${esc(task.description)}</p>` : ""}
