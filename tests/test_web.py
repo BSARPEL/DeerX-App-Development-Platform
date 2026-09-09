@@ -3699,3 +3699,61 @@ class TestKapanisTemizligi:
         assert "takili" not in kapanan, (
             "asili kosu suren projenin veritabani kapatilirsa surec coker"
         )
+
+
+class TestCiktiDetayiNullYazmaz:
+    """Ciktilar ekrani her yoklamada DOM'a bir "null" dusuruyordu.
+
+    OLCULDU: calisan uygulamada, Ciktilar ekrani acikken DOM'da icerigi
+    tam olarak "null" olan metin dugumleri birikiyor. Yoklama iki bucuk
+    saniyede bir kostugu icin bir dakikada yirmi dorde ulasiyor.
+
+    Sebep: detay kutusu secilen satirin ALTINA, yani listenin icine
+    tasiniyor; liste `innerHTML` ile yeniden cizilince kutu siliniyor ve
+    sonraki `append($("#artifact-view"))` cagrisi `null` aliyor.
+    `Element.append` Node olmayan her argumani METNE cevirir -- ekrana
+    "null" yazan sey bu.
+    """
+
+    @staticmethod
+    def _js() -> str:
+        """Kaynak, YORUMLARI CIKARILMIS halde.
+
+        Yorumlar hatanin kendisini anlatiyor ve icinde hatali cagrinin
+        metni geciyor; ham metinde aramak kendi aciklamamiza takilmak
+        olurdu.
+        """
+        from deerx.web.app import STATIC_DIR
+
+        js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+        js = re.sub(r"/\*.*?\*/", "", js, flags=re.S)
+        return re.sub(r"//.*", "", js)
+
+    def test_the_detail_box_is_never_appended_as_null(self):
+        """`append`/`after` cagrilarina dogrudan bir sorgu sonucu
+        verilemez: sorgu null donerse DOM'a "null" yazilir."""
+        js = self._js()
+        assert 'append($("#artifact-view"))' not in js, (
+            "null donebilecek bir sorgu dogrudan append'e veriliyor"
+        )
+        assert 'after($("#artifact-view"))' not in js
+        assert "function detayKutusu()" in js, "kutuyu yeniden kuran yardimci yok"
+
+    def test_the_helper_rebuilds_the_box_when_it_is_gone(self):
+        """Yardimci yalnizca sorgulamamali; kutu gitmisse YENIDEN
+        KURMALI. Yoksa detay bir daha hic acilmaz."""
+        js = self._js()
+        govde = js.split("function detayKutusu()", 1)[1].split("\n}", 1)[0]
+        assert "createElement" in govde, "kutu gitmisse yenisi kurulmuyor"
+        assert 'id = "artifact-view"' in govde
+        assert 'className = "artifact-view"' in govde
+
+    def test_every_use_goes_through_the_helper(self):
+        """Tek bir dogrudan sorgu kalirsa hata geri gelir."""
+        js = self._js()
+        # Yardimcinin KENDI icindeki sorgu mesru; disarida kalmamali.
+        govdesiz = js.split("function detayKutusu()", 1)
+        kalan = govdesiz[0] + govdesiz[1].split("\n}", 1)[1]
+        assert '$("#artifact-view")' not in kalan, (
+            "detay kutusuna yardimci disindan erisiliyor"
+        )

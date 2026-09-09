@@ -3499,7 +3499,7 @@ async function loadArtifacts() {
         data.orphans
           ? t("artifacts.hiddenOrphans", { n: data.orphans })
           : t("artifacts.emptyHint"));
-      $("#artifact-view").innerHTML = emptyState(t("artifacts.empty"));
+      detayKutusu().innerHTML = emptyState(t("artifacts.empty"));
       return;
     }
 
@@ -3507,9 +3507,10 @@ async function loadArtifacts() {
     // kosu acik gelir, digerleri kapali -- yirmi kosuluk bir listede hepsi
     // acik olsa asil aradiginiz gorunmez.
     // Detay kutusu bir satirin altina tasinmis olabilir; listeyi yeniden
-    // cizmeden once kendi yuvasina alinir, yoksa `innerHTML` onu siler ve
-    // bir dahaki acilista `$("#artifact-view")` null doner.
-    $("#artifact-layout").append($("#artifact-view"));
+    // cizmeden once kendi yuvasina alinir, yoksa `innerHTML` onu siler.
+    // `detayKutusu()` gitmisse yenisini kurar: `append(null)` DOM'a "null"
+    // DIZESINI yaziyordu ve ekranda her yoklamada bir tane birikiyordu.
+    $("#artifact-layout").append(detayKutusu());
 
     list.innerHTML = data.groups.map((group, index) => {
       const open = state.openArtifactRuns.size
@@ -3602,15 +3603,33 @@ async function loadArtifacts() {
   }
 }
 
+/* Detay kutusunu DONER; yoksa yeniden kurar.
+
+   Kutu secilen satirin altina, yani listenin ICINE tasiniyor ve liste
+   `innerHTML` ile yeniden ciziliyor. Iki yukleme cakistiginda kutu
+   siliniyordu; ondan sonra `append($("#artifact-view"))` ve
+   `satir.after(target)` cagrilari null aliyor ve DOM'a "null" DIZESINI
+   metin olarak yaziyorlardi -- yoklama iki bucuk saniyede bir kostugu
+   icin ekran dakikada yirmi dort "null" biriktiriyordu. */
+function detayKutusu() {
+  let kutu = $("#artifact-view");
+  if (!kutu) {
+    kutu = document.createElement("article");
+    kutu.className = "artifact-view";
+    kutu.id = "artifact-view";
+  }
+  return kutu;
+}
+
 function closeArtifact() {
   state.activeArtifact = null;
   $("#artifact-layout").dataset.detail = "closed";
   // Detay kutusu listenin icine tasinmis olabilir; kendi yerine doner ki
   // bir sonraki liste cizimi onu silmesin.
   const yuva = $("#artifact-layout");
-  if (yuva) yuva.append($("#artifact-view"));
-  $("#artifact-view").innerHTML = emptyState(
-    t("artifacts.closed"), t("artifacts.closedHint"));
+  const kutu = detayKutusu();
+  if (yuva) yuva.append(kutu);
+  kutu.innerHTML = emptyState(t("artifacts.closed"), t("artifacts.closedHint"));
   $$("[data-artifact]").forEach((node) => node.classList.remove("is-active"));
 }
 
@@ -3619,7 +3638,7 @@ async function openArtifact(name) {
   $("#artifact-layout").dataset.detail = "open";
   $$("[data-artifact]").forEach((node) => node.classList.toggle("is-active", node.dataset.artifact === name));
 
-  const target = $("#artifact-view");
+  const target = detayKutusu();
   // Detay, listenin YANINDA degil, secilen satirin ALTINDA acilir. Yan
   // panel ekran boyuydu ve tek bir dosya adi icin yarim ekran harcıyordu;
   // ayrica hangi satira ait oldugu ancak vurgudan anlasiliyordu.
