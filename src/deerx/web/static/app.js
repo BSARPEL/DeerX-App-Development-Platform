@@ -545,10 +545,19 @@ async function loadOverview() {
    cizilmesi gerekiyor: "Hedef: ..." oneki sozlukten geliyor ve yalnizca
    `loadOverview` icinde yazilsaydi, dil degistirdikten sonra bir sonraki
    yoklamaya kadar eski dilde kalirdi -- Ingilizce ekranda "Hedef:". */
+/* Hedef, sayfanin BASLIGI. "Hedef:" oneki gitti: bir baslik ne oldugunu
+   kendi soyler, etiketle tanitilmaz. Hedef yoksa yuva bos kalmaz --
+   kullaniciyi bir sonraki adima yollar. */
 function renderGoalLine(goal) {
-  $("#goal-line").textContent = goal
-    ? t("overview.goalPrefix", { goal })
-    : t("overview.noGoal");
+  const bas = $("#goal-line");
+  bas.textContent = goal || t("overview.noGoal");
+  bas.dataset.empty = goal ? "" : "1";
+  const alt = $("#goal-brief");
+  if (alt) {
+    const brief = (state.overview?.brief || "").trim();
+    alt.textContent = brief;
+    alt.hidden = !brief;
+  }
 }
 
 /* Sol alt köşe: hangi çalışma alanındayız.
@@ -632,15 +641,21 @@ function renderPhaseRail(steps, workflow) {
     const ipucu = step.unit === "task"
       ? t("overview.waitingTasks", { n: step.waiting, blocked: step.blocked })
       : (step.terminal ? t("overview.stepDone") : t("overview.stepPending"));
+    const ad = t("phase." + step.phase);
+    /* Faz basina sayi GITTI: asama basligi zaten "4 bekliyor" diyor ve
+       ikisi ayni isi sayiyordu. Engellenen is ayri bir sey, o kaliyor.
+
+       Serit klavyede TEK durak: `tabindex` yalnizca etkin segmentte
+       (roving). On uc Tab duragi Genel bakis'a eklemek gercek bir
+       gerileme olurdu. */
     return `
       <li class="phase" data-status="${esc(step.status)}"
-          data-waiting="${step.waiting > 0 ? 1 : 0}"
-          title="${esc(t("phase." + step.phase))} — ${esc(ipucu)}">
-        <span class="phase-dot">${step.terminal ? "✓" : step.index + 1}</span>
-        <span class="phase-label">${esc(t("phase." + step.phase))}</span>
-        <span class="phase-count" data-unit="${esc(step.unit)}">${
-          step.terminal ? "" : step.waiting
-        }</span>
+          data-waiting="${step.waiting > 0 ? 1 : 0}">
+        <button class="phase-seg" type="button" data-phase="${esc(step.phase)}"
+                tabindex="${step.index === 0 ? 0 : -1}"
+                title="${esc(ad)} — ${esc(ipucu)}"
+                aria-label="${esc(ad)} — ${esc(ipucu)}"></button>
+        <span class="phase-label">${esc(ad)}</span>
         ${step.blocked
           ? `<span class="phase-blocked">${step.blocked}</span>`
           : ""}
@@ -653,30 +668,35 @@ function renderPhaseRail(steps, workflow) {
 function renderStats(data) {
   const c = data.counts;
   const kb = data.knowledge_base;
-  const criticalHint = c.gaps ? t("stat.gapsHint") : "";
+  /* UC sayac, sekiz degil.
+
+     OLCULDU: sekiz kartin BESI ayni anda ekranda duran bir sayiyi tekrar
+     ediyordu -- Dokuman, Gereksinim, Soru, Gorev ve Cikti rayda rozet
+     olarak zaten yaziyor (#badge-docs, #badge-analysis, #badge-questions,
+     #badge-tasks, #badge-artifacts). "Maliyet" ise ayni ekranda iki kez:
+     ust barda ve kartta; ust bar her ekranda gorundugu icin karttaki
+     gitti.
+
+     Geriye rayda karsiligi OLMAYANLAR kaldi. Ikisi de bir karar
+     degistiriyor: acik bosluk analiz bekliyor demek, karar sayisi
+     mimarinin yazili olup olmadigini soyluyor. */
   const cards = [
-    { label: t("stat.documents"), value: kb.documents, hint: t(kb.chunks === 1 ? "stat.chunkOne" : "stat.chunks", { n: kb.chunks }) },
-    { label: t("stat.requirements"), value: c.requirements, hint: t("stat.requirementsHint") },
-    { label: t("stat.gaps"), value: c.gaps, hint: criticalHint, tone: c.gaps ? "warn" : "" },
-    {
-      label: t("stat.questions"),
-      value: `${c.questions_open}/${c.questions}`,
-      hint: c.questions_blocking
-        ? t("stat.questionsBlocking", { n: c.questions_blocking })
-        : t("stat.questionsHint"),
-      tone: c.questions_blocking ? "err" : "",
-    },
-    { label: t("stat.decisions"), value: c.decisions, hint: t("stat.decisionsHint") },
-    { label: t("stat.tasks"), value: `${c.tasks_done}/${c.tasks}`, hint: t("stat.tasksHint"), tone: c.tasks && c.tasks_done === c.tasks ? "ok" : "" },
-    { label: t("stat.artifacts"), value: c.artifacts, hint: t("stat.artifactsHint") },
-    { label: t("stat.cost"), value: fmtMoney(data.total_cost), hint: data.settings.cost_limit_usd ? t("stat.costCap", { n: fmtMoney(data.settings.cost_limit_usd) }) : t("stat.noCap") },
+    { label: t("stat.gaps"), value: c.gaps, hint: c.gaps ? t("stat.gapsHint") : "",
+      tone: c.gaps ? "warn" : "", view: "analysis" },
+    { label: t("stat.decisions"), value: c.decisions, hint: t("stat.decisionsHint"),
+      view: "analysis" },
+    { label: t("stat.tasks"), value: `${c.tasks_done}/${c.tasks}`,
+      hint: t("stat.tasksHint"),
+      tone: c.tasks && c.tasks_done === c.tasks ? "ok" : "", view: "plan" },
   ];
+  void kb;
   $("#stat-grid").innerHTML = cards.map((card) => `
-    <div class="stat"${card.tone ? ` data-tone="${card.tone}"` : ""}>
-      <div class="stat-label">${esc(card.label)}</div>
-      <div class="stat-value">${esc(card.value)}</div>
-      <div class="stat-hint">${esc(card.hint)}</div>
-    </div>`).join("");
+    <button class="stat" type="button" data-view="${esc(card.view)}"${
+      card.tone ? ` data-tone="${card.tone}"` : ""}>
+      <span class="stat-value">${esc(card.value)}</span>
+      <span class="stat-label">${esc(card.label)}</span>
+      ${card.hint ? `<span class="stat-hint">${esc(card.hint)}</span>` : ""}
+    </button>`).join("");
 }
 
 // Genel bakis bir ozet panosudur: her fazin kendi ozetini burada okursunuz.

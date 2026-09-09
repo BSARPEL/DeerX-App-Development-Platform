@@ -64,56 +64,55 @@
 
   <!-- ── Sol ray ──────────────────────────────────────────────── -->
   <nav class="rail" data-i18n-label="nav.sections" aria-label="Bölümler">
-    <!-- Kapsam etiketleri: "bu ayari degistirirsem kimi etkiler?"
-         sorusu on bir maddenin ayni duzlemde durmasiyla cevapsiz
-         kaliyordu. Ray BOLUNMUYOR -- on bir maddelik bir ray taranabilir,
-         iki menu + dokuz madde taranamaz. -->
-    <p class="rail-scope-label" data-i18n="nav.scopeProject">Bu proje</p>
+    <!-- Ray BOLUNMUYOR. Once uc buyuk harfli baslik vardi ve dagilim
+         8/1/1 idi: iki baslik tek bir maddeyi "gruplamak" icin duruyordu.
+         Kapsami KONUM anlatiyor -- proje disi maddeler ayakta, ayirici
+         cizginin altinda. -->
     <button class="rail-item is-active" data-view="overview" type="button" data-i18n-label="nav.overview" aria-label="Genel bakış">
-      <span class="rail-icon">▤</span><span class="rail-text" data-i18n="nav.overview">Genel bakış</span>
+      <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.6" y="4.6" width="16.8" height="14.8" rx="2"/><path d="M3.6 9.6h16.8"/></svg><span class="rail-text" data-i18n="nav.overview">Genel bakış</span>
     </button>
     <button class="rail-item" data-view="develop" type="button" data-i18n-label="nav.develop" aria-label="Geliştirme">
-      <span class="rail-icon">▶</span><span class="rail-text" data-i18n="nav.develop">Geliştirme</span>
+      <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5.6 18.4 12 8 18.4Z"/></svg><span class="rail-text" data-i18n="nav.develop">Geliştirme</span>
       <span class="rail-live" id="rail-running" hidden></span>
     </button>
     <button class="rail-item" data-view="workflow" type="button" data-i18n-label="nav.workflow" aria-label="İş akışı">
-      <span class="rail-icon">⛓</span><span class="rail-text" data-i18n="nav.workflow">İş akışı</span>
+      <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.2" cy="6.6" r="2.4"/><circle cx="17.8" cy="17.4" r="2.4"/><path d="M6.2 9v6.2a2.6 2.6 0 0 0 2.6 2.6h6.6"/></svg><span class="rail-text" data-i18n="nav.workflow">İş akışı</span>
       <span class="rail-live" id="rail-workflow" hidden></span>
     </button>
     <button class="rail-item" data-view="knowledge" type="button" data-i18n-label="nav.knowledge" aria-label="Bilgi tabanı">
-      <span class="rail-icon">◫</span><span class="rail-text" data-i18n="nav.knowledge">Bilgi tabanı</span>
+      <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.6" y="4.6" width="14.8" height="14.8" rx="2"/><path d="M9.2 4.6v14.8"/></svg><span class="rail-text" data-i18n="nav.knowledge">Bilgi tabanı</span>
       <span class="rail-badge" id="badge-docs"></span>
     </button>
     <button class="rail-item" data-view="analysis" type="button" data-i18n-label="nav.analysis" aria-label="Analiz">
-      <span class="rail-icon">◇</span><span class="rail-text" data-i18n="nav.analysis">Analiz</span>
+      <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.8" cy="10.8" r="5.8"/><path d="m15.2 15.2 4.2 4.2"/></svg><span class="rail-text" data-i18n="nav.analysis">Analiz</span>
       <span class="rail-badge" id="badge-analysis"></span>
       <span class="rail-badge rail-badge-alert" id="badge-questions"></span>
     </button>
     <button class="rail-item" data-view="plan" type="button" data-i18n-label="nav.plan" aria-label="Plan">
-      <span class="rail-icon">☰</span><span class="rail-text" data-i18n="nav.plan">Plan</span>
+      <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.6 7.2h14.8M4.6 12h14.8M4.6 16.8h8.8"/></svg><span class="rail-text" data-i18n="nav.plan">Plan</span>
       <span class="rail-badge" id="badge-tasks"></span>
     </button>
     <button class="rail-item" data-view="artifacts" type="button" data-i18n-label="nav.artifacts" aria-label="Çıktılar">
-      <span class="rail-icon">▧</span><span class="rail-text" data-i18n="nav.artifacts">Çıktılar</span>
+      <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13.4 4.6H7a1.6 1.6 0 0 0-1.6 1.6v11.6A1.6 1.6 0 0 0 7 19.4h10a1.6 1.6 0 0 0 1.6-1.6V9.8l-5.2-5.2Z"/><path d="M13.4 4.6v5.2h5.2"/></svg><span class="rail-text" data-i18n="nav.artifacts">Çıktılar</span>
       <span class="rail-badge" id="badge-artifacts"></span>
     </button>
     <button class="rail-item" data-view="stream" type="button" data-i18n-label="nav.stream" aria-label="Canlı akış">
-      <span class="rail-icon">≋</span><span class="rail-text" data-i18n="nav.stream">Canlı akış</span>
+      <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.6 12h2.8l2.4-6.2 3 12.4 2.4-8 1.8 4h4"/></svg><span class="rail-text" data-i18n="nav.stream">Canlı akış</span>
       <span class="rail-live" id="rail-live" hidden></span>
     </button>
     <button class="rail-item" data-view="env" type="button" data-i18n-label="nav.env" aria-label="Ortam">
-      <span class="rail-icon">⬢</span><span class="rail-text" data-i18n="nav.env">Ortam</span>
-    </button>
-    <p class="rail-scope-label" data-i18n="nav.scopePlatform">Platform</p>
-    <button class="rail-item" data-view="projects" type="button" data-i18n-label="nav.projects" aria-label="Projeler">
-      <span class="rail-icon">▤</span><span class="rail-text" data-i18n="nav.projects">Projeler</span>
-    </button>
-    <p class="rail-scope-label" data-i18n="nav.scopeAccount">Hesabım ve yönetim</p>
-    <button class="rail-item" data-view="settings" type="button" data-i18n-label="nav.settings" aria-label="Ayarlar">
-      <span class="rail-icon">⚙</span><span class="rail-text" data-i18n="nav.settings">Ayarlar</span>
+      <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.6 19.8 8v8L12 20.4 4.2 16V8L12 3.6Z"/><path d="m4.2 8 7.8 4.4L19.8 8M12 12.4v8"/></svg><span class="rail-text" data-i18n="nav.env">Ortam</span>
     </button>
 
     <div class="rail-foot">
+      <!-- Bu iki madde projeye degil, platforma ve hesaba ait. -->
+    <button class="rail-item" data-view="projects" type="button" data-i18n-label="nav.projects" aria-label="Projeler">
+      <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.6 6.6A1.6 1.6 0 0 1 5.2 5h3.9l2 2.6h9.3v10.8a1.6 1.6 0 0 1-1.6 1.6H5.2a1.6 1.6 0 0 1-1.6-1.6V6.6Z"/></svg><span class="rail-text" data-i18n="nav.projects">Projeler</span>
+    </button>
+    <button class="rail-item" data-view="settings" type="button" data-i18n-label="nav.settings" aria-label="Ayarlar">
+      <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.1"/><path d="M12 3.6v2.6M12 17.8v2.6M3.6 12h2.6M17.8 12h2.6M6 6l1.9 1.9M16.1 16.1 18 18M18 6l-1.9 1.9M7.9 16.1 6 18"/></svg><span class="rail-text" data-i18n="nav.settings">Ayarlar</span>
+    </button>
+
       <div class="rail-setting">
         <label for="approval-mode" data-i18n="nav.approvalMode">Onay modu</label>
         <select id="approval-mode" data-needs-role="developer">
@@ -157,8 +156,12 @@
     <section class="view is-active" id="view-overview">
       <div class="view-head view-head-row">
         <div>
-          <h1 data-i18n="overview.title">Genel bakış</h1>
-          <p class="view-sub" id="goal-line"></p>
+          <!-- Baslik yuvasi PROJENIN HEDEFINI tasir. Once burada "Genel
+               bakis" yaziyordu: solda vurgulu duran ray maddesinin birebir
+               kopyasi, yani ekranin en buyuk puntosu en bos kelimeye
+               gidiyordu. Bos hedefte yedek metin JS'ten gelir. -->
+          <h1 id="goal-line"></h1>
+          <p class="view-sub" id="goal-brief"></p>
         </div>
         <button class="btn btn-primary" data-view="develop" type="button"
                 data-i18n="overview.toDevelop">Geliştirmeye git →</button>
@@ -216,7 +219,7 @@
     </section>
 
     <!-- Geliştirme: koşuyu buradan başlatır, belgeyi buradan verirsiniz -->
-    <section class="view" id="view-develop">
+    <section class="view" id="view-develop" data-narrow>
       <div class="view-head">
         <h1 data-i18n="develop.title">Geliştirme</h1>
         <p class="view-sub" data-i18n="develop.lead"></p>
@@ -338,7 +341,7 @@
     </section>
 
     <!-- Bilgi tabanı -->
-    <section class="view" id="view-knowledge">
+    <section class="view" id="view-knowledge" data-narrow>
       <div class="view-head">
         <h1 data-i18n="kb.title">Bilgi tabanı</h1>
         <p class="view-sub" id="kb-sub">—</p>
@@ -557,7 +560,7 @@
     </section>
 
     <!-- Ayarlar -->
-    <section class="view" id="view-settings">
+    <section class="view" id="view-settings" data-narrow>
       <div class="view-head view-head-row">
         <div>
           <h1 data-i18n="settings.title">Ayarlar</h1>

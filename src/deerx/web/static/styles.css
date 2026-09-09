@@ -127,9 +127,11 @@
   --stack:    16px;
   --stack-lg: 32px;
 
-  /* Okuma sutunu. 1600px'lik bir alanda 12px metin, doldurulmayi bekleyen
-     bir bosluk uretiyor ve o bosluk kutuyla dolduruluyordu. Tablo ve
-     panolar bundan MUAF: `.view[data-wide]`. */
+  /* Okuma sutunu. 1600 piksellik bir alanda 15px metin, doldurulmayi
+     bekleyen bir bosluk uretiyor ve o bosluk kutuyla dolduruluyordu.
+     Ama bu bir belge okuyucusu da degil: icinde gorev tahtasi, denetim
+     kaydi, tablo ve canli akis var. Varsayilan --col-wide; yalnizca
+     gercekten OKUNAN ekranlar `data-narrow` ile --col'a iner. */
   --col:      880px;
   --col-wide: 1240px;
 
@@ -458,7 +460,11 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   color: var(--accent);
   font-weight: 600;
 }
-.rail-icon { width: 16px; text-align: center; opacity: .85; font-size: var(--fs-body); }
+/* Ikonlar artik yazitipi glifi degil, tek gramerde inline SVG: 24
+   viewBox, 1.8 kalinlik, yuvarlak uc, dolgusuz. Glif olduklari surece
+   sekilleri makinede yuklu yazitipine gore degisiyordu. */
+.rail-icon { width: 18px; height: 18px; flex: none; opacity: .8; }
+.rail-item.is-active .rail-icon { opacity: 1; }
 .rail-text { flex: 1; }
 
 .rail-badge {
@@ -554,8 +560,10 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
    `margin: 0` KORUNUR (test_content_is_left_aligned_next_to_the_rail):
    sutun ortalanmaz, rayin yanindan baslar -- ortalamak ray ile metin
    arasinda ikinci bir bosluk acardi. */
-.view { display: none; max-width: var(--col); margin: 0; }
-.view[data-wide] { max-width: var(--col-wide); }
+.view { display: none; max-width: var(--col-wide); margin: 0; }
+/* Gercekten OKUNAN ekran: form doldurulur, metin yazilir. Tablo ve pano
+   burada degil. */
+.view[data-narrow] { max-width: var(--col); }
 .view.is-active { display: block; animation: fade .22s ease; }
 @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
@@ -581,12 +589,11 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   grid-template-columns: repeat(var(--phases, 13), minmax(0, 1fr));
   row-gap: 8px;
   list-style: none;
-  padding: 16px 16px 16px;
-  margin-bottom: var(--stack);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-sm);
+  padding: 0 0 20px;
+  margin-bottom: var(--stack-lg);
+  /* Kutu degil. Ayirimi altindaki cetvel yapiyor -- kenarlik yalnizca
+     bittigi yeri soyluyor, cerceve cizmiyor. */
+  border-bottom: 1px solid var(--border);
 }
 
 /* Asama basliklari: on uc esit nokta yerine dort okunur obek. */
@@ -610,44 +617,40 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
 .phase-stage[data-full="1"] .phase-stage-count { color: var(--ok); }
 
 .phase {
-  position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 0 2px;
+  gap: 4px;
+  padding: 0 1px;
   min-width: 0;
-  text-align: center;
 }
-.phase::before {
-  content: "";
-  position: absolute;
-  top: 10px; left: -50%; width: 100%;
-  height: 2px;
-  background: var(--border);
-  z-index: 0;
-}
-.phase[data-first="1"]::before { display: none; }
-.phase[data-done="1"]::before { background: var(--ok); }
+/* Daireleri birlestiren cizgi GITTI: segmentin kendisi zaten cizgi.
+   Once daire + baglayici + numara + ad + sayi vardi -- bes katman, ve
+   birlikte "uretilmis diyagram" gorunumunu veren seyin ta kendisi. */
 
-.phase-dot {
-  position: relative; z-index: 1;
-  display: grid; place-items: center;
-  /* 22px: on uc sutunda 1152 piksellik alanda 28px daireler ve 12px
-     etiketler ekrani kapliyordu. Ust katman okunur oldugu icin alt
-     katman geri cekilebilir. */
-  width: 22px; height: 22px;
-  border-radius: var(--r-full);
-  border: 2px solid var(--border-strong);
-  background: var(--surface);
-  font-family: var(--mono);
-  font-size: var(--fs-micro);
-  font-weight: 600;
-  color: var(--text-3);
-  transition: all var(--t-mid);
+/* Segment: gorsel yuksekligi 4 piksel, DOKUNMA alani 20. Once 22px
+   numarali dairelerdi ve tiklanabilir degillerdi -- on uc olu hedef. */
+.phase-seg {
+  display: block;
+  width: 100%; height: 4px;
+  padding: 8px 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  background-clip: content-box;
+  /* Serit ekranin tek ilerleme gostergesi: cetvel renginde birakmak onu
+     dekoratif bir cizgiye cevirir. */
+  background-color: var(--text-3);
+  opacity: .45;
+  transition: background-color var(--t-mid);
 }
+.phase-seg:hover { opacity: 1; }
+.phase[data-status="done"] .phase-seg,
+.phase[data-status="running"] .phase-seg,
+.phase[data-status="failed"] .phase-seg { opacity: 1; }
+.phase-seg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .phase-label {
-  font-size: var(--fs-micro); font-weight: 400; color: var(--text-3); line-height: 1.25;
+  font-size: var(--fs-meta); font-weight: 400; color: var(--text-3);
+  line-height: var(--lh-snug);
   /* `anywhere` DEGIL: tarayici o zaman heceleme denemeden kelimeyi
      bulundugu yerden kesiyor ve "Implementation" serit icinde
      "Implementatio / n" olarak cikiyordu. `break-word` once hecelemeye
@@ -659,40 +662,56 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   min-height: 28px;
 }
 
-.phase[data-status="done"] .phase-dot     { border-color: var(--ok);   background: var(--ok);   color: var(--surface); }
-.phase[data-status="done"] .phase-label   { color: var(--text); }
-.phase[data-status="running"] .phase-dot  { border-color: var(--accent); background: var(--accent); color: var(--accent-text);
-                                            box-shadow: 0 0 0 4px var(--accent-soft); animation: breathe 1.8s ease-in-out infinite; }
-.phase[data-status="running"] .phase-label{ color: var(--accent); font-weight: 600; }
-.phase[data-status="failed"] .phase-dot   { border-color: var(--err);  background: var(--err);  color: var(--surface); }
-.phase[data-status="failed"] .phase-label { color: var(--err); }
-.phase[data-status="blocked"] .phase-dot,
-.phase[data-status="cancelled"] .phase-dot{ border-color: var(--warn); background: var(--warn-soft); color: var(--warn); }
-.phase[data-status="skipped"] .phase-dot  { border-style: dashed; }
+/* Durum IKI kanalla: segmentin rengi ve etiketin rengi. */
+.phase[data-status="done"] .phase-seg      { background-color: var(--ok); }
+.phase[data-status="done"] .phase-label    { color: var(--text-2); }
+.phase[data-status="running"] .phase-seg   { background-color: var(--accent);
+                                             animation: breathe 1.8s ease-in-out infinite; }
+.phase[data-status="running"] .phase-label { color: var(--accent); font-weight: 600; }
+.phase[data-status="failed"] .phase-seg    { background-color: var(--err); }
+.phase[data-status="failed"] .phase-label  { color: var(--err); }
+.phase[data-status="blocked"] .phase-seg,
+.phase[data-status="cancelled"] .phase-seg { background-color: var(--warn); }
+.phase[data-status="skipped"] .phase-seg   { background-color: var(--border); }
 
+/* Segmentte golge halkasi yok; nabiz opaklikla atiyor. */
 @keyframes breathe {
-  0%, 100% { box-shadow: 0 0 0 4px var(--accent-soft); }
-  50%      { box-shadow: 0 0 0 8px transparent; }
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .45; }
 }
 
 /* ── Istatistik kartlari ─────────────────────────────────────────────── */
 /* Sekiz kart. `auto-fit` genislige gore altiya bolup ikisini alt satira
    dusuruyordu; ragged 6+2 kazara duruyordu. Dorde sabitlemek 4x2 veriyor. */
+/* UC sayac, sekiz degil: besi rayda rozet olarak zaten yaziyordu.
+   `auto-fit` ragged bir 6+2 uretiyordu; sabit sutun sayisi o yuzden. */
 .grid-stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: var(--stack);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin-bottom: var(--stack-lg);
 }
+/* Kutu degil: sayfanin uzerinde duran bir sayi. Gruplamayi bosluk ve
+   ortak taban cizgisi yapiyor. Tiklanabilir -- sayi bir karar
+   degistiriyorsa o karari verecegin ekrana goturmeli. */
 .stat {
-  position: relative;
-  padding: 12px 16px 12px 20px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-sm);
-  overflow: hidden;  /* renkli serit kartin kosesini tasmasin */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 16px 12px 12px;
+  border: 0;
+  border-left: 2px solid var(--border);
+  border-radius: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--t-fast), background var(--t-fast);
 }
+.stat:hover { background: var(--surface-2); border-left-color: var(--border-strong); }
+.stat[data-tone="warn"] { border-left-color: var(--warn); }
+.stat[data-tone="err"]  { border-left-color: var(--err); }
+.stat[data-tone="ok"]   { border-left-color: var(--ok); }
 /* Renkli seritler yalnizca dikkat isteyen kartlarda. Sekiz kart esit
    agirlikta oldugunda gozun tutunacagi yer kalmiyordu. */
 .stat::before {
@@ -701,16 +720,20 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   width: 3px;
   background: transparent;
 }
-.stat[data-tone="ok"]::before   { background: var(--ok); }
-.stat[data-tone="warn"]::before { background: var(--warn); }
-.stat[data-tone="err"]::before  { background: var(--err); }
 
-.stat-label { font-size: var(--fs-meta); font-weight: 400; color: var(--text-3); }
+/* Etiket okunan bir kelime: buyuk harf siluetini yok ediyordu ve
+   sekiz kardesin hepsine uygulandiginda ayristirdigi bir sey kalmiyordu. */
+.stat-label { font-size: var(--fs-body); color: var(--text-2); }
 .stat-value {
-  margin-top: 3px; font-size: var(--fs-title); font-weight: 600;
-  letter-spacing: -.03em; font-variant-numeric: tabular-nums; line-height: 1.15;
+  font-size: var(--fs-section); font-weight: 600;
+  letter-spacing: var(--track-tight);
+  font-variant-numeric: tabular-nums; line-height: var(--lh-tight);
 }
-.stat-hint  { margin-top: 2px; font-size: var(--fs-meta); color: var(--text-3); line-height: 1.35; }
+.stat-hint  { font-size: var(--fs-meta); color: var(--text-3); line-height: var(--lh-snug); }
+/* Durum EN FAZLA IKI kanalla kodlanir: sol serit ve degerin rengi.
+   Once alti kanal vardi -- serit, zemin tinti, kenarlik rengi, deger
+   rengi, sutun genisligi (span 2) ve siralama (order:-1). Alti kanal
+   bir sayiyi vurgulamaz, ekranin duzenini bozar. */
 .stat[data-tone="ok"]   .stat-value { color: var(--ok); }
 .stat[data-tone="warn"] .stat-value { color: var(--warn); }
 .stat[data-tone="err"]  .stat-value { color: var(--err); }
@@ -718,40 +741,31 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
 /* Dikkat isteyen kart izgaranin basina gecer ve iki sutun kaplar.
    `order` izgara ogelerinde calisir; belge sirasi degismedigi icin
    ekran okuyucunun okudugu sira da bozulmaz. */
-.stat[data-tone="err"], .stat[data-tone="warn"] {
-  grid-column: span 2;
-  order: -1;
-}
-.stat[data-tone="err"]  { background: var(--err-soft);  border-color: var(--err); }
-.stat[data-tone="warn"] { background: var(--warn-soft); border-color: var(--warn); }
 /* Zorunlu: `--text-3` / `--err-soft` isikta 4.37:1 ile AA'nin altinda
    kaliyor; zemin tonlandigi an murekkep bir kademe yukselmeli. */
-.stat[data-tone="err"]  .stat-label, .stat[data-tone="err"]  .stat-hint,
-.stat[data-tone="warn"] .stat-label, .stat[data-tone="warn"] .stat-hint {
-  color: var(--text-2);
-}
 /* Geri kalanlar geri cekilir: sekiz kart esit agirlikta oldugunda
    gozun tutunacagi yer kalmiyordu. */
-.stat:not([data-tone]) .stat-value { font-size: var(--fs-title); color: var(--text-2); }
 
 /* ── Paneller ────────────────────────────────────────────────────────── */
+/* Panel artik zeminden YUKSELEN bir kart degil, kagidin uzerinde bir
+   BOLUM. Yukselme (golge + acik zemin) yalnizca gercekten ustte durana
+   kaldi: kip, cekmece, toast. */
 .panel {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-sm);
-  margin-bottom: var(--stack);
-  overflow: hidden;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  margin-bottom: var(--stack-lg);
 }
+/* Bolum basligi: altindakine SAHIP oldugu icin ona yapisik durur ve
+   ayrimi cetvel yapar. */
 .panel-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 12px 16px;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 0 0 8px;
   border-bottom: 1px solid var(--border);
-  background: var(--surface);
 }
-.panel-head h2 { font-size: var(--fs-body); font-weight: 600; line-height: 1.35; }
+.panel-head h2 { font-size: var(--fs-title); font-weight: 600; line-height: 1.35; }
 .panel-hint { font-size: var(--fs-meta); color: var(--text-3); }
-.panel-body { padding: 16px; }
+.panel-body { padding: 16px 0 0; }
 
 .panel-row {
   display: grid;
@@ -1200,7 +1214,7 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
   margin-bottom: var(--stack);
   border-bottom: 1px solid var(--border);
 }
-.artifact-toolbar h2 { font-size: var(--fs-body); font-weight: 600; }
+.artifact-toolbar h2 { font-size: var(--fs-title); font-weight: 600; }
 .mockup-frame {
   width: 100%;
   height: 640px;
@@ -1410,7 +1424,7 @@ body[data-blocked] .view.is-active { display: none; }
 
 
 }
-.modal-head h2 { font-size: var(--fs-body); font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.modal-head h2 { font-size: var(--fs-title); font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
 .modal-detail {
   flex: 1;
   min-height: 60px;
@@ -1528,12 +1542,14 @@ body[data-blocked] .view.is-active { display: none; }
 /* ── Kullaniciya sorulan sorular ─────────────────────────────────────── */
 /* Bloke eden sorular genel bakisin en ustunde durur: kullanici baska bir yere
    bakmadan once bunu gormeli. */
+/* Ekrandaki TEK kutu. Kutu artik "bir bolum var" demiyor, "burada
+   duruyorsun" diyor -- o yuzden yalnizca seni durduran sey kutulu. */
 .questions {
-  margin-bottom: 20px;
+  margin-bottom: var(--stack-lg);
   border: 1px solid var(--warn);
   border-left-width: 3px;
   border-radius: var(--r-md);
-  background: var(--surface);
+  background: var(--surface-raised);
   box-shadow: var(--shadow-md);
   overflow: hidden;
 }
@@ -1554,7 +1570,12 @@ body[data-blocked] .view.is-active { display: none; }
 
 
 }
-.questions-head h2 { font-size: var(--fs-title); font-weight: 600; letter-spacing: -.01em; line-height: 1.3; }
+/* Ekranin var olus sebebi olan cumle. Once 17px idi ve hemen altindaki
+   sayac kartinin sayisi 22px: hiyerarsi tersine donmustu. */
+.questions-head h2 {
+  font-size: var(--fs-section); font-weight: 600;
+  letter-spacing: var(--track-tight); line-height: var(--lh-tight);
+}
 .questions-head p { margin-top: 4px; font-size: var(--fs-body); color: var(--text-2); max-width: 68ch; }
 
 .question { padding: 16px 20px; border-top: 1px solid var(--border); }
@@ -1571,7 +1592,7 @@ body[data-blocked] .view.is-active { display: none; }
   color: var(--warn);
   flex-shrink: 0;
 }
-.question-head h3 { font-size: var(--fs-body); font-weight: 600; line-height: 1.45; }
+.question-head h3 { font-size: var(--fs-title); font-weight: 600; line-height: 1.45; }
 .question-why,
 .question-suggestion {
   margin-top: 6px;
@@ -1672,7 +1693,7 @@ body[data-blocked] .view.is-active { display: none; }
   box-shadow: var(--shadow-sm);
 }
 .delivery-main { flex: 1; min-width: 260px; }
-.delivery-main h2 { font-size: var(--fs-body); font-weight: 600; }
+.delivery-main h2 { font-size: var(--fs-title); font-weight: 600; }
 .delivery-main p { margin-top: 4px; font-size: var(--fs-body); color: var(--text-2); }
 .delivery-actions { display: flex; align-items: center; gap: 12px; }
 
@@ -1802,13 +1823,13 @@ body[data-blocked] .view.is-active { display: none; }
   display: flex; flex-direction: column; gap: 8px;
   overflow-y: auto;
 }
+/* Panel icinde panel degil: her faz ozeti, ortak sol kenardan asilan
+   bir kayit. Ayirici komsusuyla paylasilan tek cizgi. */
 .phase-summary {
-  padding: 12px 12px;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--border-strong);
-  border-radius: var(--r-md);
-  background: var(--surface);
+  padding: 12px 0 12px 12px;
+  border-left: 2px solid var(--border-strong);
 }
+.phase-summary + .phase-summary { border-top: 1px solid var(--border); }
 .phase-summary[data-status="done"]      { border-left-color: var(--ok); }
 .phase-summary[data-status="running"]   { border-left-color: var(--accent); }
 .phase-summary[data-status="failed"]    { border-left-color: var(--err); }
@@ -2793,7 +2814,7 @@ body[data-blocked] .view.is-active { display: none; }
 }
 
 .drawer-head > div:first-child { min-width: 0; }
-.drawer-title { font-size: var(--fs-body); font-weight: 600; line-height: 1.35; }
+.drawer-title { font-size: var(--fs-title); font-weight: 600; line-height: 1.35; }
 .drawer-sub {
   margin-top: 4px;
   font-size: var(--fs-meta); color: var(--text-3);
@@ -2885,9 +2906,7 @@ body[data-blocked] .view.is-active { display: none; }
 .phase-summary-cost, .phase-count, .phase-blocked, .artifact-meta,
 .doc-chip-meta, .package-meta, .attachment-meta, .step-count,
 .modal-count, .rail-badge, .tab-count, .phase-stage-count,
-.phase-dot, .result-score, .queue-dot {
-  font-variant-numeric: tabular-nums;
-}
+.result-score, .queue-dot { font-variant-numeric: tabular-nums; }
 
 /* ─── Kırpılan odak halkaları ──────────────────────────────────────────── */
 /* Tam genişlikli satır başlıklarının halkası gövde kutusunun DIŞINA

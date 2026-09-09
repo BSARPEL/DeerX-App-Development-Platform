@@ -465,12 +465,36 @@ class TestOverviewLayout:
         assert len(stages) == 4, stages
 
     def test_stat_grid_divides_evenly(self):
-        """Sekiz kart dorde bolunur; `auto-fit` ragged 6+2 uretiyordu."""
+        """Sutun sayisi SABIT olmali; `auto-fit` ragged bir son satir
+        uretiyordu (sekiz kart 6+2 diye kiriliyordu).
+
+        Sayac sayisi sekizden UCE indi: besi rayda rozet olarak zaten
+        yaziyordu (#badge-docs, #badge-analysis, #badge-questions,
+        #badge-tasks, #badge-artifacts) ve "Maliyet" ust barda. Geriye
+        rayda karsiligi olmayanlar kaldi.
+        """
         css = self._css()
         block = css[css.index(".grid-stats {"):]
         block = block[:block.index("}")]
-        assert "repeat(4," in block, block
+        assert "repeat(3," in block, block
         assert "auto-fit" not in block
+
+    def test_no_counter_is_shown_twice_on_one_screen(self):
+        """Rayda rozeti olan bir sayi ayrica sayac karti OLMAMALI.
+
+        OLCULDU: sekiz karttan besi, ayni anda ekranda duran bir sayiyi
+        tekrar ediyordu. Ayni sayiyi iki yerde gostermek ekrani doldurur
+        ama hicbir sey soylemez -- ve ikisi ayrisirsa hangisinin dogru
+        oldugu belirsiz kalir.
+        """
+        js = self._js()
+        govde = js[js.index("function renderStats("):]
+        govde = govde[:govde.index("\n}")]
+        for anahtar in ("stat.documents", "stat.requirements", "stat.questions",
+                        "stat.artifacts", "stat.cost"):
+            assert anahtar not in govde, (
+                f"{anahtar} hem sayac karti hem rayda/ust barda gosteriliyor"
+            )
 
     def test_overview_columns_stretch_together(self):
         """Iki sutun ayni yuksekligi paylasmali."""
