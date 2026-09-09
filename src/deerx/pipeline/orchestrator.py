@@ -300,9 +300,16 @@ class Orchestrator:
         paketlerdir -- zaten imaj ya da sinir degistiginde yeniden
         kurulmalari gerekir.
         """
+        # SILER, durdurmaz. `close` = `stop` ve konteyner adi yalnizca
+        # calisma alani yolundan turetiliyor: durdurulan konteyner ayni ada
+        # sahip oldugu icin bir sonraki `ensure()` onu `docker start` ile
+        # GERI GETIRIYORDU. Yani "Ortami yeniden kur" hicbir sey yeniden
+        # kurmuyor, eski imajla eski sinirlarla eski konteyneri aciyordu --
+        # ustelik bu islevin kendi belgesi ve kullaniciya gosterilen uyari
+        # "konteyner silinir" diyordu.
         for kabin in (self._sandbox, getattr(self.ctx, "_sandbox", None)):
             if kabin is not None:
-                kabin.close()
+                kabin.destroy()
         self._sandbox = None
         # Arac baglami kendi kabinini tembel kurar; o el de birakilmali,
         # yoksa `run_command` eski ayarlarla kurulmus nesneyi kullanmaya

@@ -3640,3 +3640,62 @@ class TestEverySettingLandsInOneScopeTab:
             a for a, f in SETTING_FIELDS.items() if f.scope == "proje"
         }
         assert s["field_scopes"]["language"] == "hesap"
+
+
+class TestKapanisTemizligi:
+    """Takilan bir kosu, OTEKI projelerin temizligini goturmemeli.
+
+    OLCULDU: `AppState.close` icinde `return` vardi. Bir projenin kosusu
+    yirmi saniyede durmazsa metot ORADA cikiyor ve ikinci dongu --
+    `orchestrator.close()`, yani servisleri durduran, tarayiciyi kapatan,
+    kabini durduran dongu -- HIC kosmuyordu. Sunucu oluyor, arkasinda
+    baslattigi her sey calisir kaliyordu.
+    """
+
+    def test_a_stuck_run_does_not_cancel_the_other_projects_cleanup(self, settings):
+        from deerx.web.app import AppState
+
+        kapanan: list[str] = []
+
+        class SahteKosucu:
+            def __init__(self, takili: bool) -> None:
+                self._takili = takili
+
+            @property
+            def is_running(self) -> bool:
+                return self._takili
+
+            def stop(self) -> None:
+                pass
+
+            def wait(self, _sn: float) -> None:
+                pass
+
+        class SahteOrkestra:
+            def __init__(self, ad: str) -> None:
+                self.ad = ad
+
+            def close(self) -> None:
+                kapanan.append(self.ad)
+
+        class SahteCalisan:
+            def __init__(self, ad: str, takili: bool) -> None:
+                self.runner = SahteKosucu(takili)
+                self.orchestrator = SahteOrkestra(ad)
+
+        durum = AppState.__new__(AppState)
+        durum._runtimes = {  # noqa: SLF001 - testin kurdugu durum
+            1: SahteCalisan("takili", True),
+            2: SahteCalisan("temiz", False),
+        }
+        durum.auth = type("x", (), {"close": lambda self: None})()
+        durum.projects = type("x", (), {"close": lambda self: None})()
+        durum.close()
+
+        assert "temiz" in kapanan, (
+            "takilan bir proje yuzunden oteki projenin servisleri, tarayicisi "
+            "ve kabini hic kapatilmadi"
+        )
+        assert "takili" not in kapanan, (
+            "asili kosu suren projenin veritabani kapatilirsa surec coker"
+        )

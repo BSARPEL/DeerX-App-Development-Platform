@@ -62,6 +62,12 @@ class SandboxSonuc:
     timed_out: bool
 
 
+# Konteynerin uzerindeki etiketler. Ad tek basina yalnizca bir ozet;
+# hangi calisma alanina ait oldugunu ve DeerX'e ait oldugunu bunlar soyler.
+ETIKET = "deerx.sandbox"
+ETIKET_ALAN = "deerx.workspace"
+
+
 class Sandbox:
     """Bir kosuya ait konteyner. Kosu bitince silinir.
 
@@ -118,6 +124,13 @@ class Sandbox:
             # dosyalari paylasirlar.
             "-v", f"{self.workspace}:{CALISMA_ALANI}",
             "-w", CALISMA_ALANI,
+            # Konteyner KIM OLDUGUNU tasisin. Ad, calisma alani yolunun
+            # sha256'si: elinizde `deerx-sbx-3f84682fec` varken hangi
+            # projeye ait oldugunu ogrenmenin yolu YOKTU -- aday yollari
+            # tek tek ozetleyip denemek disinda. Etiket bunu kalici
+            # olarak cozer ve yetim konteyneri toplamayi mumkun kilar.
+            "--label", f"{ETIKET}=1",
+            "--label", f"{ETIKET_ALAN}={self.workspace}",
             # Portlar YALNIZCA konak geri dongusune acilir; aga cikmaz.
             "-p", f"127.0.0.1:{self.port_base}-{son}:{self.port_base}-{son}",
             # Kacak bir ajan konagi yormasin: bellek, cekirdek ve surec

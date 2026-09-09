@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -8,6 +11,8 @@ from deerx.config import Settings
 from deerx.logging import EventLog
 from deerx.pipeline.state import ProjectState
 from deerx.rag.knowledge import KnowledgeBase
+from deerx.sandbox import ETIKET as SANDBOX_ETIKET
+from deerx.sandbox import ETIKET_ALAN as SANDBOX_ETIKET_ALAN
 from deerx.tools import ToolContext, build_registry
 
 SPEC = """\
@@ -113,6 +118,69 @@ def _platform_evi_yalit(tmp_path_factory, monkeypatch):
     """
     ev = tmp_path_factory.mktemp("deerx-home")
     monkeypatch.setenv("DEERX_HOME", str(ev))
+
+
+def _bu_oturumun_konteynerleri(kok: Path) -> list[str]:
+    """`kok` dizininin altina bagli DeerX kabinlerinin adlari.
+
+    ADA BAKARAK karar VERILEMEZ: ad, calisma alani yolunun sha256'si.
+    Ayrica `docker ps --filter name=` ONEK degil ALT DIZE esler -- olculdu:
+    bu makinede `--filter name=ai-vllm` `deer-ai-vllm` donuyor.
+
+    Olcut ETIKET: konteyner kurulurken `deerx.workspace` etiketine kendi
+    calisma alanini yaziyor. Bagli dizini `docker inspect` ile okumak da
+    denenebilirdi ama Docker Desktop ayni makinede iki farkli Source
+    bicimi uretiyor (Windows yolu ve `/run/desktop/mnt/host/...`); etiket
+    ne yazdiysak onu geri veriyor.
+    """
+    if shutil.which("docker") is None:
+        return []
+    try:
+        listeleme = subprocess.run(
+            ["docker", "ps", "-a",
+             "--filter", f"label={SANDBOX_ETIKET}=1",
+             "--format", "{{.Names}}	{{.Label \"" + SANDBOX_ETIKET_ALAN + "\"}}"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):  # pragma: no cover - docker yok
+        return []
+    if listeleme.returncode != 0:  # pragma: no cover - daemon kapali
+        return []
+
+    hedef = os.path.normcase(str(kok))
+    adlar = []
+    for satir in listeleme.stdout.splitlines():
+        ad, _, alan = satir.partition("	")
+        if ad and alan and os.path.normcase(alan.strip()).startswith(hedef):
+            adlar.append(ad.strip())
+    return adlar
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _yalitim_kutularini_topla(tmp_path_factory):
+    """Testlerin actigi Docker konteynerlerini oturum sonunda supurur.
+
+    OLCULDU: makinede 48 adet `deerx-sbx-*` konteyneri birikmisti, hepsi
+    pytest gecici dizinlerine bagliydi. Sebep, `Sandbox.close`un DURDURUP
+    SILMEMESI -- ki kalici bir proje icin dogru karar, cunku kurulum
+    komutu yalnizca ilk kurulusta kosuyor. Testte ise calisma alani her
+    seferinde yeni; konteyner bir daha ASLA kullanilmiyor.
+
+    Testler zaten kendi `finally` bloklarinda siliyor. Bu ag, o blogun
+    HIC kosmadigi hal icin: cokme, kesilme, oldurulme.
+
+    Yalnizca BU OTURUMUN gecici kokune bagli olanlar silinir; ayni anda
+    kosan baska bir pytest oturumunun ya da kullanicinin gercek
+    projesinin konteynerine dokunulmaz.
+    """
+    kok = tmp_path_factory.getbasetemp()
+    yield
+    kalanlar = _bu_oturumun_konteynerleri(kok)
+    if kalanlar:  # pragma: no cover - yalnizca temizlik kacirildiginda
+        subprocess.run(
+            ["docker", "rm", "-f", *kalanlar],
+            capture_output=True, text=True, check=False, timeout=120,
+        )
 
 
 @pytest.fixture

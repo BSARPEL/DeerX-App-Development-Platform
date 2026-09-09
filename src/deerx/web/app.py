@@ -366,7 +366,8 @@ class AppState:
         # plandaki is parcacigi hala yazarken kapatilirsa SQLite serbest
         # birakilmis bir baglantiya dokunur ve surec erisim ihlaliyle
         # coker -- kapanis sirasinda gorulen tam olarak buydu.
-        for calisan in list(self._runtimes.values()):
+        takilan: set[int] = set()
+        for pid, calisan in list(self._runtimes.items()):
             if not calisan.runner.is_running:
                 continue
             calisan.runner.stop()
@@ -376,8 +377,16 @@ class AppState:
                 # Baglantiyi kapatmiyoruz: coken bir surec yerine sizan
                 # bir thread daha iyidir, surec zaten sonlaniyor.
                 log.warning(t("api.run_not_stopping", seconds=SHUTDOWN_GRACE))
-                return
-        for calisan in list(self._runtimes.values()):
+                takilan.add(pid)
+
+        # TAKILAN PROJEYI ATLA, otekileri KAPAT. Burada `return` vardi:
+        # tek bir projenin asili kalmis kosusu butun projelerin temizligini
+        # iptal ediyordu -- hicbir servis durdurulmuyor, hicbir tarayici
+        # kapanmiyor, hicbir konteyner durdurulmuyordu. Sunucu oluyor,
+        # arkasinda calisan her sey oyle kaliyordu.
+        for pid, calisan in list(self._runtimes.items()):
+            if pid in takilan:
+                continue
             calisan.orchestrator.close()
         self._runtimes.clear()
         self.auth.close()

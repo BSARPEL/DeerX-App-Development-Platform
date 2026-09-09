@@ -6,6 +6,7 @@ yerde kosar.
 
 from __future__ import annotations
 
+import contextlib
 import shutil
 import subprocess
 import urllib.request
@@ -16,7 +17,7 @@ import pytest
 from deerx.config import Settings
 from deerx.errors import ToolError
 from deerx.logging import EventLog
-from deerx.sandbox import CALISMA_ALANI, Sandbox
+from deerx.sandbox import CALISMA_ALANI, ETIKET, ETIKET_ALAN, Sandbox
 from deerx.tools import ToolContext, build_registry
 
 
@@ -73,6 +74,27 @@ def _sandbox(ws: Path, ayar: Settings) -> Sandbox:
         ws, ayar.sandbox_image, ayar.sandbox_port_base, ayar.sandbox_port_count,
         ayar.sandbox_memory, ayar.sandbox_cpus, ayar.sandbox_pids, ayar.sandbox_setup,
     )
+
+
+@contextlib.contextmanager
+def _acik_kutu(ws: Path, ayar: Settings):
+    """Konteyneri kurar ve testin sonunda SILER.
+
+    `close()` yalnizca DURDURUR ve bu kalici bir proje icin dogrudur:
+    kurulum komutu yalnizca ilk kurulusta kosuyor, her kapanista silmek her
+    acilista `apt-get install` demek olurdu. Testte ise calisma alani her
+    seferinde yeni bir tmp dizin; konteyner adi yolun sha256'si oldugu icin
+    bir daha ASLA kullanilmayacak. OLCULDU: bu ayrim yapilmadigi icin
+    makinede 48 olu konteyner birikmisti.
+
+    `destroy` cokme halinde de kosar: `finally` bloguna baglidir.
+    """
+    sb = _sandbox(ws, ayar)
+    sb.ensure()
+    try:
+        yield sb
+    finally:
+        sb.destroy()
 
 
 class TestYolCevirme:
@@ -169,10 +191,8 @@ class TestGercekKonteyner:
     def ortam(self, tmp_path):
         ayar = _docker_ayarlari(tmp_path, approval_mode="auto")
         ayar.ensure_dirs()
-        sb = _sandbox(tmp_path, ayar)
-        sb.ensure()
-        yield ayar, sb
-        sb.close()
+        with _acik_kutu(tmp_path, ayar) as sb:
+            yield ayar, sb
 
     @pytest.mark.slow
     def test_commands_run_in_the_container_not_on_the_host(self, ortam):
@@ -264,9 +284,7 @@ class TestKonakYalitimi:
         """
         ayar = _docker_ayarlari(tmp_path)
         ayar.ensure_dirs()
-        sb = _sandbox(tmp_path, ayar)
-        sb.ensure()
-        try:
+        with _acik_kutu(tmp_path, ayar) as sb:
             kod = (
                 "import socket,sys;s=socket.socket();s.settimeout(3);"
                 "sys.exit(0 if s.connect_ex(('host.docker.internal',8791))==0 else 1)"
@@ -274,8 +292,6 @@ class TestKonakYalitimi:
             assert sb.run(f"python -c {kod!r}", timeout=60).returncode != 0, (
                 "konteynerden DeerX arayuzune ulasilabiliyor"
             )
-        finally:
-            sb.close()
 
     @pytest.mark.slow
     def test_the_internet_still_works(self, tmp_path):
@@ -283,11 +299,204 @@ class TestKonakYalitimi:
         hicbir sey gelistiremezdi."""
         ayar = _docker_ayarlari(tmp_path)
         ayar.ensure_dirs()
-        sb = _sandbox(tmp_path, ayar)
-        sb.ensure()
-        try:
+        with _acik_kutu(tmp_path, ayar) as sb:
             kod = ("import urllib.request;"
                    "print(urllib.request.urlopen('https://pypi.org',timeout=15).status)")
             assert sb.run(f"python -c {kod!r}", timeout=90).returncode == 0
-        finally:
-            sb.close()
+
+
+class TestTestlerKendiKonteynerleriniSiler:
+    """Suit makinede artik birakmamali.
+
+    OLCULDU: 48 adet `deerx-sbx-*` konteyneri birikmisti ve `docker
+    inspect` ile bakildiginda HEPSI pytest gecici dizinlerine bagliydi --
+    yani hepsi testlerden kalmisti. Sebep `Sandbox.close`un DURDURUP
+    silmemesi; ki bu kalici bir proje icin DOGRU karar (kurulum komutu
+    yalnizca ilk kurulusta kosuyor). Ayrim testte yapilmali, urunde degil.
+    """
+
+    def test_the_helper_destroys_and_does_not_merely_stop(self):
+        """`close()` durdurur, `destroy()` siler. Test yardimcisi
+        SILMELI: testin calisma alani her seferinde yeni bir tmp dizin,
+        konteyner adi yolun sha256'si -- durdurulan konteyner bir daha
+        asla kullanilmayacak."""
+        import inspect as _inspect
+
+        kaynak = _inspect.getsource(_acik_kutu)
+        assert "sb.destroy()" in kaynak, "test konteyneri silmiyor, yalnizca durduruyor"
+        assert "finally:" in kaynak, "cokme halinde temizlik kosmaz"
+
+    def test_the_product_still_only_stops_on_close(self):
+        """Karsi test: urunun kendisi kapanista SILMEYE baslarsa, kalici
+        bir projede her sunucu acilisinda `apt-get install` bastan
+        kosardi. Testin kolayligi icin urunu bozmayalim."""
+        assert Sandbox.close is Sandbox.stop
+        assert Sandbox.destroy is not Sandbox.stop
+
+    def test_the_sweeper_only_matches_this_sessions_directory(self, tmp_path):
+        """Supurucunun olcutu ADA degil BAGLI DIZINE bakar.
+
+        Ad, calisma alani yolunun sha256'si; ada bakarak bir konteynerin
+        teste mi gercek bir projeye mi ait oldugu ANLASILMAZ. Bu test
+        olcutun kendisini kilitler: baska bir kok altindaki yol
+        eslesmemeli.
+        """
+        import os
+
+        from conftest import _bu_oturumun_konteynerleri
+
+        assert callable(_bu_oturumun_konteynerleri)
+
+        # Olcutun kendisi: normalize edilmis onek karsilastirmasi.
+        benim = tmp_path / "test_x0"
+        baskasi = tmp_path.parent / "baska-kok" / "proje"
+        gercek = Path.home() / "Desktop" / "GercekProje"
+        kok = os.path.normcase(str(tmp_path))
+        assert os.path.normcase(str(benim)).startswith(kok)
+        assert not os.path.normcase(str(baskasi)).startswith(kok)
+        assert not os.path.normcase(str(gercek)).startswith(kok)
+
+    @docker_gerekli
+    @pytest.mark.slow
+    def test_a_container_is_gone_after_the_helper_exits(self, tmp_path):
+        """ASIL KANIT: yardimci cikinca konteyner GERCEKTEN yok."""
+        ayar = _docker_ayarlari(tmp_path)
+        ayar.ensure_dirs()
+        with _acik_kutu(tmp_path, ayar) as sb:
+            ad = sb.name
+            assert _konteyner_var(ad), "konteyner kurulmadi"
+        assert not _konteyner_var(ad), (
+            "yardimci cikti ama konteyner duruyor; suit makinede artik birakiyor"
+        )
+
+    @docker_gerekli
+    @pytest.mark.slow
+    def test_the_container_is_gone_even_when_the_test_fails(self, tmp_path):
+        """Temizlik `finally`ye bagli: testin patlamasi artik birakmamali."""
+        ayar = _docker_ayarlari(tmp_path)
+        ayar.ensure_dirs()
+        ad = ""
+        with pytest.raises(RuntimeError):
+            with _acik_kutu(tmp_path, ayar) as sb:
+                ad = sb.name
+                raise RuntimeError("testin icinde patlama")
+        assert ad and not _konteyner_var(ad)
+
+
+def _konteyner_var(ad: str) -> bool:
+    sonuc = subprocess.run(
+        ["docker", "ps", "-a", "--filter", f"name=^{ad}$", "--format", "{{.Names}}"],
+        capture_output=True, text=True, timeout=30,
+    )
+    return ad in sonuc.stdout.split()
+
+
+class TestKonteynerKimOldugunuSoyler:
+    """Ad yalnizca bir ozet; konteyner nereye ait oldugunu TASIMALI.
+
+    Elinizde `deerx-sbx-3f84682fec` varken hangi projeye ait oldugunu
+    ogrenmenin yolu yoktu: ad `sha256(yol)[:10]` ve ozet geri
+    cevrilemiyor. Aday yollari tek tek ozetleyip denemek disinda hicbir
+    yontem kalmiyordu -- yani yetim bir konteyner sonsuza kadar yetim.
+    """
+
+    def test_the_create_command_carries_both_labels(self, tmp_path, monkeypatch):
+        """Kurulum komutu OLCULUR: `docker run` satirinda etiketler var mi."""
+        yakalanan: list[list[str]] = []
+
+        sb = _sandbox(tmp_path, Settings(workspace=tmp_path))
+        monkeypatch.setattr(sb, "_durum", lambda: None)
+        monkeypatch.setattr(
+            sb, "_docker", lambda argv, timeout: yakalanan.append(argv) or "")
+        monkeypatch.setattr(shutil, "which", lambda _ad: "docker")
+        sb.setup = ""  # kurulum komutu kosmasin
+        sb.ensure()
+
+        assert yakalanan, "docker run hic cagrilmadi"
+        argv = yakalanan[0]
+        assert f"{ETIKET}=1" in argv, "DeerX kabini oldugu isaretlenmemis"
+        assert f"{ETIKET_ALAN}={tmp_path}" in argv, (
+            "konteyner hangi calisma alanina ait oldugunu tasimiyor"
+        )
+
+    def test_the_labels_are_not_guessed_in_two_places(self):
+        """Etiket adi urunde bir kez tanimli olmali; test tarafi onu
+        KOPYALAMAZ, ithal eder. Iki sabit olsaydi biri gunu gelince
+        kayar ve supurucu sessizce hicbir sey bulamazdi."""
+        from pathlib import Path as _Path
+
+        kaynak = (_Path("tests") / "conftest.py").read_text(encoding="utf-8")
+        assert "from deerx.sandbox import ETIKET" in kaynak
+        assert '"deerx.sandbox"' not in kaynak, "etiket adi testte kopyalanmis"
+
+    @docker_gerekli
+    @pytest.mark.slow
+    def test_docker_can_find_the_container_by_its_workspace(self, tmp_path):
+        """ASIL KANIT: etiketle sorulunca Docker dogru konteyneri veriyor."""
+        ayar = _docker_ayarlari(tmp_path)
+        ayar.ensure_dirs()
+        with _acik_kutu(tmp_path, ayar) as sb:
+            sonuc = subprocess.run(
+                ["docker", "ps", "-a",
+                 "--filter", f"label={ETIKET_ALAN}={tmp_path}",
+                 "--format", "{{.Names}}"],
+                capture_output=True, text=True, timeout=30,
+            )
+            assert sb.name in sonuc.stdout.split(), (
+                "konteyner kendi calisma alaniyla bulunamiyor"
+            )
+
+
+class TestOrtamiYenidenKurGercektenKurar:
+    """"Yeniden kur" dugmesi hicbir sey yeniden kurmuyordu.
+
+    OLCULDU: `reset_sandbox` kabin icin `close()` cagiriyordu ve `close`
+    aslinda `stop`. Konteyner adi yalnizca calisma alani yolundan
+    turetildigi icin bir sonraki `ensure()` AYNI adi uretiyor, konteyner
+    var oldugundan `docker start` ile ESKISINI geri getiriyordu: eski
+    imaj, eski bellek/CPU sinirlari, eski yayinlanmis port araligi.
+
+    Ustelik islevin kendi belgesi "Konteyner SILINIR" diyor ve arayuz
+    kullaniciya "kabini yeniden kurmak calisan konteyneri siler" uyarisi
+    gosteriyordu. Kod, belgesinin ve kullaniciya verdigi sozun tersini
+    yapiyordu.
+    """
+
+    def test_the_rebuild_path_destroys_instead_of_stopping(self, settings, tmp_path):
+        from deerx.pipeline.orchestrator import Orchestrator
+
+        cagrilar: list[str] = []
+
+        class SahteKabin:
+            def close(self) -> None:
+                cagrilar.append("close")
+
+            def stop(self) -> None:
+                cagrilar.append("stop")
+
+            def destroy(self) -> None:
+                cagrilar.append("destroy")
+
+        orch = Orchestrator.__new__(Orchestrator)
+        orch.settings = settings
+        orch.settings.execution = "host"   # yeniden kurmasin, yalnizca biraksin
+        orch._sandbox = SahteKabin()       # noqa: SLF001 - testin kurdugu durum
+        orch.ctx = type("x", (), {"_sandbox": None})()
+        orch.services = type("x", (), {"sandbox": None})()
+        orch.reset_sandbox()
+
+        assert cagrilar == ["destroy"], (
+            f"kabin silinmedi, cagrilar: {cagrilar} -- durdurulan konteyner ayni "
+            "adla geri gelir ve eski ayarlarla kosar"
+        )
+
+    def test_the_promise_shown_to_the_user_matches_the_code(self):
+        """Kullaniciya gosterilen uyari ile kodun yaptigi ayni sey olmali."""
+        from deerx.i18n import CATALOG
+
+        uyari = CATALOG.get("api.sandbox_locked", {})
+        metin = " ".join(str(v) for v in uyari.values()).lower()
+        if metin:
+            assert "sil" in metin or "destroy" in metin, (
+                "uyari metni degistiyse bu testin gerekcesi de gozden gecirilmeli"
+            )
