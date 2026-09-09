@@ -12,8 +12,10 @@ Varsayilan olarak yalnizca 127.0.0.1 dinlenir. Disari acmak icin acik bir
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
+import sqlite3
 import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -35,7 +37,9 @@ from starlette.staticfiles import StaticFiles
 
 from ..config import (
     CONFIG_FILENAME,
+    DATA_DIRNAME,
     DEFAULT_PORT,
+    LEGACY_DATA_DIRNAME,
     Settings,
     browse_host,
     load_settings,
@@ -547,6 +551,77 @@ SANDBOX_FIELDS = {
 }
 
 
+# Capraz proje taramasindan okunacak kosu sutunlari. Hepsi ISTENIR ama
+# yalnizca VAR OLANLAR secilir: goc kosturmadigimiz icin hic acilmamis eski
+# bir veritabaninda `started_by` bulunmayabilir (goc `ProjectState.__init__`
+# icinde). Sutun yoksa o projedeki her kosu adsizdir -- dogru cevap, sifir
+# yazma.
+_KOSU_SUTUNLARI = (
+    "id", "seq", "workflow_id", "title", "title_key", "title_args",
+    "goal", "status", "cost_usd", "started_at", "finished_at", "started_by",
+)
+
+
+def _proje_db(yol: str | Path) -> Path | None:
+    """Projenin veri dosyasi; yoksa None.
+
+    `.praxis` -> `.deerx` yeniden adlandirmasi YALNIZCA `load_settings`
+    icinde kosuyor ve o yol ayar YAZAR. Tarama oraya girmez: eski adi da
+    okur, tasimaz.
+    """
+    kok = Path(yol)
+    yeni = kok / DATA_DIRNAME / "deerx.db"
+    if yeni.is_file():
+        return yeni
+    eski = kok / LEGACY_DATA_DIRNAME / "praxis.db"
+    return eski if eski.is_file() else None
+
+
+def _salt_okunur(db: Path) -> sqlite3.Connection:
+    """Proje veritabanini SALT OKUNUR acar.
+
+    `mode=ro` yazmayi yasaklar; `query_only` ikinci kilit -- ileride biri
+    URI'yi sadelestirirse yazmanin sessizce geri gelmemesi icin.
+
+    `as_uri()` mutlak yol ister ve Windows surucu harfini dogru kodlar.
+    WAL guvenli: okuyucu yaziciyi bloklamaz ve yarim islem gormez.
+    """
+    conn = sqlite3.connect(f"{db.as_uri()}?mode=ro", uri=True, timeout=2.0)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA query_only=ON")
+    return conn
+
+
+def _tabloda_var(conn: sqlite3.Connection, tablo: str) -> set[str]:
+    """Tablonun sutun adlari; tablo yoksa bos kume.
+
+    Hata YUTULMAZ. Bozuk bir dosyada `PRAGMA` de duser ve onu burada
+    yakalamak projeyi "bos ama saglam" gibi gosterirdi -- oysa okunamiyor
+    olmasi kullanicinin bilmesi gereken sey. Siniflandirmayi
+    `_proje_tara` yapiyor.
+    """
+    return {r["name"] for r in conn.execute(f"PRAGMA table_info({tablo})")}
+
+
+def _proje_tara(db: Path, okuyucu: Callable[..., Any]) -> tuple[Any, str]:
+    """Tek projeyi acar, `okuyucu`ya verir, kapatir; (sonuc, durum) doner.
+
+    Hicbir hata yaniti dusurmez ve proje LISTEDEN ATILMAZ: sessizce
+    atlamak, kullanicinin bildigi bir projeyi yok gostermek ve toplami
+    sessizce yanlis yapmak olurdu.
+    """
+    conn = None
+    try:
+        conn = _salt_okunur(db)
+        return okuyucu(conn), "ok"
+    except (sqlite3.DatabaseError, OSError):
+        return None, "unreadable"
+    finally:
+        if conn is not None:
+            with contextlib.suppress(sqlite3.Error):
+                conn.close()
+
+
 def settings_snapshot(
     settings: Settings, hesap: dict[str, Any] | None = None
 ) -> dict[str, Any]:
@@ -633,6 +708,23 @@ def build_app(settings: Settings) -> Starlette:
             return denied
         orch = state.orchestrator
         counts = orch.state.counts()
+
+        # Gorev sayilari ETKIN PLANA kapsanir. `counts()` proje genelini
+        # sayiyor ve o ajan baglami icin dogru; ama rayda bir sayi
+        # gostermek, ona tiklayinca gorulecek seyi soylemektir. Plan
+        # ekrani acilista etkin plani gosteriyor: iki plani olan bir
+        # projede ray "8" derken ekranda 3 gorev cikiyordu -- Ciktilar'da
+        # 11/1 olarak bildirilen hatanin ayni sinifi.
+        aktif_plan = orch.state.active_plan_id()
+        plan_gorevleri = orch.state.list_tasks(plan_id=aktif_plan)
+        counts = {
+            **counts,
+            "tasks": len(plan_gorevleri),
+            "tasks_done": sum(1 for g in plan_gorevleri if g.status == Status.DONE),
+            # Projenin tamami da lazim: plan sekmeleri bunu gosteriyor ve
+            # "bu planda 3, projede 8" cumlesi kurulabilmeli.
+            "tasks_all": counts["tasks"],
+        }
         phases = phase_catalog(orch.state)
         total_cost = sum(p["cost"] for p in phases)
 
@@ -957,6 +1049,301 @@ def build_app(settings: Settings) -> Starlette:
     # ---------------------------------------------------------------- #
     # Proje hafizasi
     # ---------------------------------------------------------------- #
+    # ---------------------------------------------------------------- #
+    # Capraz proje etkinligi
+    # ---------------------------------------------------------------- #
+    def _gorulebilen_projeler(request: Request) -> list[Project]:
+        """Taramanin kapsami.
+
+        `_proje_uyesi` ve `_project_role` KULLANILMAZ: ikisi de
+        `_sahipsizi_sahiplen` cagiriyor ve bir yonetici sahipsiz projeye
+        dokundugunda kendini `owner` olarak YAZIYOR. Bir listeyi cizmek,
+        dokundugu her projeye uyelik satiri eklemek olamaz.
+
+        Arsivlenenler DAHIL: arsiv kaydi silmez ve orada yapilmis is hala
+        kullanicinindir. Disarida birakmak toplami sessizce yanlis yapardi.
+        """
+        if not state.auth.is_configured:
+            return state.projects.all_projects(include_archived=True)
+        user = getattr(request.state, "user", None)
+        if user is None:
+            return []
+        return state.projects.for_user(
+            user.id, is_admin=bool(user.is_admin), include_archived=True
+        )
+
+    def _kim_cozumle(request: Request) -> tuple[str, bool, Response | None]:
+        """`?who=` -- uc kip, tek parametre. (kim, hepsi_mi, hata) doner.
+
+        Yonetici olmayan `all` ya da baskasinin adini yollarsa 403; sessizce
+        `me`ye DUSURULMEZ: bir yoneticinin paylastigi baglanti, alan kisiye
+        kendi verisini baskasinin adiyla gostermemeli.
+        """
+        yonetici = _is_admin(request)
+        ham = (request.query_params.get("who") or "me").strip()
+
+        if not state.auth.is_configured:
+            # Makinede tek kisi var ve her sey onun; `me` sifir satir
+            # donerdi cunku `_uploader` orada bos donuyor.
+            return "", True, None
+
+        me = getattr(request.state, "user", None)
+        benim_adim = getattr(me, "username", "")
+
+        if ham in ("", "me"):
+            return benim_adim, False, None
+        if ham == "all":
+            if not yonetici:
+                return "", False, _error(t("api.activity_admin_only"), 403)
+            return "", True, None
+        if ham == benim_adim:
+            return benim_adim, False, None
+        if not yonetici:
+            return "", False, _error(t("api.activity_admin_only"), 403)
+        return ham, False, None
+
+    def _kosu_okuyucu(kim: str, hepsi: bool, before: float, limit: int):
+        """Tek projeden kosu satirlari + ozet okuyan kapanis."""
+
+        def oku(conn: sqlite3.Connection) -> dict[str, Any]:
+            var = _tabloda_var(conn, "runs")
+            if not var:
+                return {"runs": [], "ozet": None}
+            sutunlar = [c for c in _KOSU_SUTUNLARI if c in var]
+            adli = "started_by" in var
+            cikti_var = bool(_tabloda_var(conn, "artifacts"))
+
+            secim = ", ".join(f"r.{c}" for c in sutunlar)
+            if cikti_var:
+                secim += (
+                    ", (SELECT COUNT(*) FROM artifacts a WHERE a.run_id = r.id)"
+                    " AS cikti_sayisi"
+                )
+            kosul = ["r.started_at < ?"]
+            param: list[Any] = [before]
+            if not hepsi:
+                if not adli:
+                    # Sutun yok: bu projede kimse atfedilemez.
+                    return {"runs": [], "ozet": _ozet(conn, var, kim, cikti_var)}
+                kosul.append("r.started_by = ?")
+                param.append(kim)
+            param.append(limit)
+
+            satirlar = conn.execute(
+                f"SELECT {secim} FROM runs r WHERE {' AND '.join(kosul)} "
+                f"ORDER BY r.started_at DESC LIMIT ?",
+                param,
+            ).fetchall()
+            return {
+                "runs": [dict(r) for r in satirlar],
+                "ozet": _ozet(conn, var, kim, cikti_var),
+            }
+
+        def _ozet(conn, var, kim, cikti_var) -> dict[str, Any]:
+            adli = "started_by" in var
+            if adli:
+                satir = conn.execute(
+                    "SELECT COUNT(*) AS toplam,"
+                    " SUM(CASE WHEN started_by = '' THEN 1 ELSE 0 END) AS adsiz,"
+                    " SUM(CASE WHEN started_by = ? THEN 1 ELSE 0 END) AS benim,"
+                    " SUM(CASE WHEN started_by = ? THEN cost_usd ELSE 0 END)"
+                    "   AS benim_maliyet,"
+                    " MAX(started_at) AS son FROM runs",
+                    (kim, kim),
+                ).fetchone()
+            else:
+                satir = conn.execute(
+                    "SELECT COUNT(*) AS toplam, COUNT(*) AS adsiz, 0 AS benim,"
+                    " 0 AS benim_maliyet, MAX(started_at) AS son FROM runs"
+                ).fetchone()
+            return {
+                "total": int(satir["toplam"] or 0),
+                "unattributed": int(satir["adsiz"] or 0),
+                "mine": int(satir["benim"] or 0),
+                "cost_mine": round(float(satir["benim_maliyet"] or 0.0), 4),
+                "last_at": satir["son"],
+            }
+
+        return oku
+
+    def _capraz_tara(request: Request, okuyucu) -> tuple[list, list, int]:
+        """Gorulebilen her projeyi salt okunur tarar.
+
+        (proje_ozetleri, ham_sonuclar, okunamayan) doner. Yaniti hicbir
+        hata dusurmez.
+        """
+        ozetler: list[dict[str, Any]] = []
+        sonuclar: list[tuple[Project, Any]] = []
+        okunamayan = 0
+
+        for proje in _gorulebilen_projeler(request):
+            temel = {
+                "id": proje.id, "slug": proje.slug, "name": proje.name,
+                "archived": bool(proje.archived), "role": proje.role,
+            }
+            db = _proje_db(proje.path)
+            if db is None:
+                ozetler.append({**temel, "status": "empty", "total": 0,
+                                "mine": 0, "unattributed": 0, "cost_mine": 0.0,
+                                "last_at": None})
+                continue
+
+            sonuc, durum = _proje_tara(db, okuyucu)
+            if durum != "ok" or sonuc is None:
+                okunamayan += 1
+                ozetler.append({**temel, "status": "unreadable", "total": 0,
+                                "mine": 0, "unattributed": 0, "cost_mine": 0.0,
+                                "last_at": None})
+                continue
+
+            ozet = sonuc.get("ozet") or {
+                "total": 0, "mine": 0, "unattributed": 0,
+                "cost_mine": 0.0, "last_at": None,
+            }
+            ozetler.append({**temel, "status": "ok", **ozet})
+            sonuclar.append((proje, sonuc))
+
+        return ozetler, sonuclar, okunamayan
+
+    async def activity_runs(request: Request) -> Response:
+        """Kullanicinin (ya da herkesin) BUTUN projelerdeki kosulari.
+
+        Sayfalama ZAMAN DAMGASI IMLECIYLE: N bagimsiz sirali listede ofset
+        yanlistir -- sayfa degistikce satir atlar ve tekrarlar. Her
+        projeden `LIMIT` alinip birlestirilir; kuresel ilk N'e girecek bir
+        satir kendi projesinin ilk N'inde olmak zorundadir.
+        """
+        kim, hepsi, hata = _kim_cozumle(request)
+        if hata is not None:
+            return hata
+
+        try:
+            limit = max(1, min(200, int(request.query_params.get("limit", 50))))
+        except ValueError:
+            limit = 50
+        try:
+            before = float(request.query_params.get("before", "") or time.time() + 1)
+        except ValueError:
+            before = time.time() + 1
+
+        okuyucu = _kosu_okuyucu(kim, hepsi, before, limit)
+        ozetler, sonuclar, okunamayan = await asyncio.to_thread(
+            _capraz_tara, request, okuyucu
+        )
+
+        satirlar: list[dict[str, Any]] = []
+        for proje, sonuc in sonuclar:
+            for ham in sonuc["runs"]:
+                basladi = float(ham.get("started_at") or 0.0)
+                bitti = ham.get("finished_at")
+                satirlar.append({
+                    "project_id": proje.id,
+                    "project_slug": proje.slug,
+                    "project_name": proje.name,
+                    "project_archived": bool(proje.archived),
+                    "id": ham.get("id", ""),
+                    "seq": ham.get("seq"),
+                    "workflow_id": ham.get("workflow_id", ""),
+                    "title": ham.get("title", ""),
+                    "title_key": ham.get("title_key", ""),
+                    "title_args": json.loads(ham.get("title_args") or "{}"),
+                    "goal": ham.get("goal", ""),
+                    "status": ham.get("status", ""),
+                    "started_by": ham.get("started_by", ""),
+                    "cost": round(float(ham.get("cost_usd") or 0.0), 4),
+                    "started_at": basladi,
+                    "finished_at": bitti,
+                    "elapsed": round((bitti or time.time()) - basladi, 1),
+                    "artifacts": int(ham.get("cikti_sayisi") or 0),
+                })
+
+        satirlar.sort(key=lambda r: r["started_at"], reverse=True)
+        kirpilmis = satirlar[:limit]
+        return _json({
+            "who": "all" if hepsi else kim,
+            "can_see_everyone": _is_admin(request),
+            "runs": kirpilmis,
+            "projects": ozetler,
+            "next_before": kirpilmis[-1]["started_at"] if len(satirlar) > limit else None,
+            "unreadable": okunamayan,
+        })
+
+    async def activity_artifacts(request: Request) -> Response:
+        """Ayni tarama, cikti yuku.
+
+        `bytes`/`exists` DONMEZ: proje ici islerici cikti basina `stat()`
+        cagiriyor ve N projede bu binlerce dosya sistemi cagrisi demek --
+        erisilemeyen bir yolda takilir. Boyut, projeye gecildikten sonra
+        detay bolmesinde zaten gorunuyor.
+        """
+        kim, hepsi, hata = _kim_cozumle(request)
+        if hata is not None:
+            return hata
+
+        def oku(conn: sqlite3.Connection) -> dict[str, Any]:
+            var_runs = _tabloda_var(conn, "runs")
+            var_art = _tabloda_var(conn, "artifacts")
+            if not var_art:
+                return {"gruplar": [], "ozet": None, "toplam": 0}
+            adli = "started_by" in var_runs
+            if not hepsi and not adli:
+                return {"gruplar": [], "ozet": None, "toplam": 0}
+
+            kosul = "" if hepsi else " WHERE r.started_by = ?"
+            param = () if hepsi else (kim,)
+            satirlar = conn.execute(
+                "SELECT a.name, a.kind, a.phase, a.run_id,"
+                " r.seq, r.title, r.title_key, r.title_args, r.goal,"
+                " r.started_at, " + ("r.started_by" if adli else "'' AS started_by") +
+                " FROM artifacts a JOIN runs r ON r.id = a.run_id" + kosul +
+                " ORDER BY r.started_at DESC, a.name",
+                param,
+            ).fetchall()
+
+            gruplar: dict[str, dict[str, Any]] = {}
+            for r in satirlar:
+                g = gruplar.setdefault(r["run_id"], {
+                    "run_id": r["run_id"], "seq": r["seq"],
+                    "title": r["title"] or "", "title_key": r["title_key"] or "",
+                    "title_args": json.loads(r["title_args"] or "{}"),
+                    "goal": r["goal"] or "",
+                    "started_at": float(r["started_at"] or 0.0),
+                    "started_by": r["started_by"] or "",
+                    "items": [],
+                })
+                g["items"].append({
+                    "name": r["name"], "kind": r["kind"], "phase": r["phase"] or "",
+                })
+            return {
+                "gruplar": list(gruplar.values()),
+                "ozet": None,
+                "toplam": len(satirlar),
+            }
+
+        ozetler, sonuclar, okunamayan = await asyncio.to_thread(
+            _capraz_tara, request, oku
+        )
+
+        projeler = []
+        toplam = 0
+        for proje, sonuc in sonuclar:
+            if not sonuc["gruplar"]:
+                continue
+            toplam += sonuc["toplam"]
+            projeler.append({
+                "id": proje.id, "slug": proje.slug, "name": proje.name,
+                "archived": bool(proje.archived),
+                "total": sonuc["toplam"], "runs": sonuc["gruplar"],
+            })
+
+        return _json({
+            "who": "all" if hepsi else kim,
+            "can_see_everyone": _is_admin(request),
+            "projects": projeler,
+            "total": toplam,
+            "unreadable": okunamayan,
+        })
+
     async def project_state(request: Request) -> Response:
         denied = _require_role(request, "viewer")
         if denied is not None:
@@ -2264,9 +2651,16 @@ def build_app(settings: Settings) -> Starlette:
     async def artifacts(request: Request) -> Response:
         """Ciktilar, uretildikleri kosuya gore gruplanmis.
 
-        Kosusu bilinmeyen ciktilar listelenmez: her cikti bir kosunun urunudur
-        ve kosusuz bir grup basligi kullaniciya hicbir sey anlatmiyordu.
-        `?orphans=1` ile kosu kaydindan onceki ciktilar da dahil edilir.
+        Kosusu bilinmeyen ciktilar da LISTELENIR, kendi grubunda. Once
+        gizleniyorlardi ve gerekcesi "kosusuz bir grup basligi kullaniciya
+        hicbir sey anlatmiyor" idi -- ama o baslik zaten var
+        (`artifacts.beforeRuns`) ve gizlemenin bedeli olculdu: rozet 11
+        derken ekranda 1 cikti goruluyor, kullanici bunu ariza saniyordu.
+        Kosede duran "10 ciktiyi da goster" dugmesi bunu ONLEMEDI.
+
+        Bir sayinin iki yerde iki farkli deger gostermesi, otekine
+        ulasmanin yolu olsa bile yanlistir. `orphans` alani DONMEYE devam
+        eder: kac tanesinin kosusu bilinmiyor, bilgi olarak degerli.
         """
         denied = _require_role(request, "viewer")
         if denied is not None:
@@ -2277,8 +2671,6 @@ def build_app(settings: Settings) -> Starlette:
         # tek tek sorulmuyor: is akislari bir kez okunup eslesme kuruluyor,
         # aksi halde her cikti icin ayri bir sorgu giderdi.
         akislar = {w["id"]: w["seq"] for w in project.list_workflows(200)}
-        include_orphans = request.query_params.get("orphans") == "1"
-
         groups: dict[str, dict[str, Any]] = {}
         orphans = 0
         for artifact in project.list_artifacts():
@@ -2286,8 +2678,6 @@ def build_app(settings: Settings) -> Starlette:
             run = runs.get(artifact.run_id)
             if run is None:
                 orphans += 1
-                if not include_orphans:
-                    continue
             key = artifact.run_id if run else ""
             group = groups.setdefault(
                 key,
@@ -2875,6 +3265,8 @@ def build_app(settings: Settings) -> Starlette:
         Route("/api/users/{user_id}", users_update, methods=["POST"]),
         Route("/api/users/{user_id}", users_delete, methods=["DELETE"]),
         Route("/api/audit", audit_log),
+        Route("/api/activity/runs", activity_runs),
+        Route("/api/activity/artifacts", activity_artifacts),
         Route("/api/overview", overview),
         Route("/api/settings", update_settings, methods=["POST"]),
         Route("/api/providers", provider_catalog, methods=["GET"]),

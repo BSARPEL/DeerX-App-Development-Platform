@@ -570,6 +570,35 @@ class TestOnaySahipligi:
         cevap = iki_kisi.post("/api/run", json={"phases": ["ingest"]})
         assert cevap.json()["run"]["started_by"] == "yonetici"
 
+    def test_the_owner_is_the_username_not_the_display_name(self, iki_kisi):
+        """Sahiplik KULLANICI ADIYLA yazilir ve KULLANICI ADIYLA dogrulanir.
+
+        Iki taraf da ayni alani kullanmak zorunda: `resolve_approval`
+        `started_by`i `_uploader(request)` ile karsilastiriyor ve o
+        `username` donuyor. Bir gun buraya `display_name` yazilirsa onay
+        sahipligi sessizce kirilir -- ve arayuz tarafinda tam olarak bu
+        olmustu (bkz. tests/test_i18n.py::TestGorunenAdKendiKosusunuGizlemez).
+
+        Ustteki test gorunen adi OLMAYAN bir kullaniciyla yazildigi icin
+        ikisini ayirt edemiyordu.
+        """
+        # `display_name` icin ayri bir yazici yok; sutun dogrudan yazilir.
+        auth = iki_kisi.app.state.deerx.auth
+        kisi = auth.find("yonetici")
+        auth._conn.execute(  # noqa: SLF001 - testin kurdugu durum
+            "UPDATE users SET display_name = ? WHERE id = ?",
+            ("Yönetici Hanım", kisi.id),
+        )
+        auth._conn.commit()  # noqa: SLF001
+        assert auth.find("yonetici").display_name == "Yönetici Hanım"
+
+        iki_kisi.post("/api/ingest", json={"path": "docs"})
+        cevap = iki_kisi.post("/api/run", json={"phases": ["ingest"]})
+        assert cevap.json()["run"]["started_by"] == "yonetici", (
+            "sahiplik gorunen adla yazilmis; onay dogrulamasi kullanici adina "
+            "bakiyor ve ikisi ayrisirsa kimse kendi onayini cozemez"
+        )
+
     def test_another_developer_cannot_resolve_someone_elses_approval(self, iki_kisi):
         durum = iki_kisi.app.state.deerx
         calisan = durum.runtime()
@@ -746,3 +775,247 @@ class TestUyeListesiUyeninHakki:
             f"/api/projects/{proje['id']}/members",
             headers={"X-DeerX-Project": proje["slug"]},
         ).status_code == 403
+
+
+class TestCaprazTaramaYazmaz:
+    """Capraz proje taramasi proje veritabanlarina DOKUNMAMALI.
+
+    "Butun islerim" ekrani N ayri SQLite dosyasi okumak zorunda, cunku her
+    projenin kendi dosyasi var. Bunu `AppState.runtime()` uzerinden yapmak
+    yikici olurdu ve tehlikeler somut:
+
+    * Her acilis YAZAR -- sema gocu, yetim kosu devralma, yetim gorev
+      toplama. "Sadece bakiyorum" diye acilan bir proje kosu ve gorev
+      durumlarini degistirir.
+    * `MAX_OPEN_PROJECTS` tahliyesi calisan bir projenin servislerini,
+      tarayicisini ve konteynerini KAPATIR. Dokuzuncu projeyi tarayan bir
+      ekran baskasinin ortamini soker.
+    * Yonetici `_proje_uyesi`/`_project_role` uzerinden gecerse sahipsiz
+      projelere kendini `owner` olarak YAZAR.
+
+    Bu sinif ucunu de olcer.
+    """
+
+    @pytest.fixture
+    def sunucu(self, settings):
+        from starlette.testclient import TestClient
+
+        from deerx.web.app import build_app
+
+        with TestClient(build_app(settings)) as client:
+            auth = client.app.state.deerx.auth
+            auth.create_first_admin(
+                auth.issue_setup_token(), "yonetici", "cok-uzun-parola-1"
+            )
+            client.post(
+                "/api/auth/login",
+                json={"username": "yonetici", "password": "cok-uzun-parola-1"},
+            )
+            yield client
+
+    @staticmethod
+    def _eski_semali_proje(sunucu, tmp_path, ad="eski"):
+        """`started_by` sutunu OLMAYAN bir proje veritabani tohumlar.
+
+        Goc `ProjectState.__init__` icinde kosuyor; tarama oraya
+        girmediginde bu sutun ORTAYA CIKMAMALI.
+        """
+        import sqlite3
+
+        kok = tmp_path / ad
+        (kok / ".deerx").mkdir(parents=True)
+        db = kok / ".deerx" / "deerx.db"
+        with sqlite3.connect(db) as conn:
+            conn.execute(
+                "CREATE TABLE runs (id TEXT PRIMARY KEY, seq INTEGER NOT NULL,"
+                " workflow_id TEXT NOT NULL DEFAULT '',"
+                " title TEXT NOT NULL DEFAULT '',"
+                " title_key TEXT NOT NULL DEFAULT '',"
+                " title_args TEXT NOT NULL DEFAULT '{}',"
+                " goal TEXT NOT NULL DEFAULT '',"
+                " status TEXT NOT NULL DEFAULT 'done',"
+                " cost_usd REAL NOT NULL DEFAULT 0,"
+                " started_at REAL NOT NULL DEFAULT 0,"
+                " finished_at REAL)"
+            )
+            conn.execute(
+                "INSERT INTO runs (id, seq, started_at) VALUES ('k1', 1, 100.0)"
+            )
+        sunucu.post("/api/projects", json={"name": ad, "path": str(kok)})
+        return db
+
+    def test_the_scan_does_not_migrate_the_schema(self, sunucu, tmp_path):
+        """EN KESKIN OLCUM: sutun ortaya CIKMAMALI.
+
+        `ProjectState` uzerinden gecen bir uygulama gocu kosturur ve
+        `started_by` belirir -- test duser.
+        """
+        import sqlite3
+
+        db = self._eski_semali_proje(sunucu, tmp_path)
+        assert sunucu.get("/api/activity/runs").status_code == 200
+
+        with sqlite3.connect(db) as conn:
+            sutunlar = {r[1] for r in conn.execute("PRAGMA table_info(runs)")}
+        assert "started_by" not in sutunlar, (
+            "tarama sema gocu kosturdu; salt okunur olmasi gerekiyordu"
+        )
+
+    def test_a_database_without_the_column_is_all_unattributed(self, sunucu, tmp_path):
+        """Sutun yoksa o projenin HER kosusu adsizdir -- dogru cevap,
+        sifir yazma."""
+        self._eski_semali_proje(sunucu, tmp_path)
+        veri = sunucu.get("/api/activity/runs").json()
+        eski = [p for p in veri["projects"] if p["name"] == "eski"][0]
+        assert eski["status"] == "ok"
+        assert eski["total"] == 1
+        assert eski["unattributed"] == eski["total"]
+        assert eski["mine"] == 0
+
+    def test_the_scan_leaves_the_file_untouched(self, sunucu, tmp_path):
+        """Ana `.db` dosyasinin boyutu ve degistirme zamani ayni kalmali.
+
+        `-wal`/`-shm` KARSILASTIRILMAZ: salt okunur bir okuyucunun wal
+        indeksine dokunmasi mesru.
+        """
+        db = self._eski_semali_proje(sunucu, tmp_path)
+        once = (db.stat().st_size, db.stat().st_mtime_ns)
+        sunucu.get("/api/activity/runs")
+        assert (db.stat().st_size, db.stat().st_mtime_ns) == once
+
+    def test_the_scan_does_not_adopt_an_ownerless_project(self, sunucu, tmp_path):
+        """Bir listeyi cizmek, dokundugu her projeye uyelik satiri
+        eklemek olamaz."""
+        durum = sunucu.app.state.deerx
+        kok = tmp_path / "sahipsiz"
+        kok.mkdir()
+        proje = durum.projects.create(name="Sahipsiz", path=kok, owner_id=None)
+        assert durum.projects.members(proje.id) == []
+
+        assert sunucu.get("/api/activity/runs").status_code == 200
+        assert durum.projects.members(proje.id) == [], (
+            "tarama sahipsiz projeyi sahiplendi"
+        )
+
+    def test_the_scan_does_not_evict_an_open_project(self, sunucu, tmp_path):
+        """Tahliye baskasinin dev sunucusunu, tarayicisini ve konteynerini
+        kapatir. Tarama LRU'ya HIC dokunmamali."""
+        durum = sunucu.app.state.deerx
+        for i in range(3):
+            kok = tmp_path / f"acik{i}"
+            kok.mkdir()
+            proje = durum.projects.create(name=f"Acik {i}", path=kok, owner_id=1)
+            durum.runtime(proje)
+        once = set(durum._runtimes)  # noqa: SLF001 - testin olctugu sey
+        assert once
+
+        sunucu.get("/api/activity/runs")
+        assert set(durum._runtimes) == once, (  # noqa: SLF001
+            "tarama acik bir projeyi tahliye etti"
+        )
+
+    def test_a_missing_database_is_listed_not_dropped(self, sunucu, tmp_path):
+        """Sessizce atlamak, kullanicinin bildigi bir projeyi yok
+        gostermek ve toplami sessizce yanlis yapmak olurdu."""
+        kok = tmp_path / "hic-kosulmamis"
+        kok.mkdir()
+        sunucu.post("/api/projects", json={"name": "Bos", "path": str(kok)})
+
+        veri = sunucu.get("/api/activity/runs").json()
+        bos = [p for p in veri["projects"] if p["name"] == "Bos"]
+        assert bos, "kayitli ama hic kosulmamis proje listeden dusurulmus"
+        assert bos[0]["status"] == "empty"
+
+    def test_a_corrupt_database_does_not_break_the_response(self, sunucu, tmp_path):
+        kok = tmp_path / "bozuk"
+        (kok / ".deerx").mkdir(parents=True)
+        (kok / ".deerx" / "deerx.db").write_bytes(b"bu bir sqlite dosyasi degil")
+        sunucu.post("/api/projects", json={"name": "Bozuk", "path": str(kok)})
+
+        cevap = sunucu.get("/api/activity/runs")
+        assert cevap.status_code == 200
+        veri = cevap.json()
+        assert veri["unreadable"] >= 1
+        bozuk = [p for p in veri["projects"] if p["name"] == "Bozuk"][0]
+        assert bozuk["status"] == "unreadable"
+
+
+class TestCaprazTaramaYetkisi:
+    """Kim kimin isini gorebilir."""
+
+    @pytest.fixture
+    def iki_kisi(self, settings):
+        from starlette.testclient import TestClient
+
+        from deerx.web.app import build_app
+
+        with TestClient(build_app(settings)) as client:
+            auth = client.app.state.deerx.auth
+            auth.create_first_admin(
+                auth.issue_setup_token(), "yonetici", "cok-uzun-parola-1"
+            )
+            client.post(
+                "/api/auth/login",
+                json={"username": "yonetici", "password": "cok-uzun-parola-1"},
+            )
+            client.post(
+                "/api/users",
+                json={"username": "ekip", "password": "ikinci-uzun-parola"},
+            )
+            yield client
+
+    @staticmethod
+    def _gec(client, ad, parola="ikinci-uzun-parola"):
+        client.post("/api/auth/logout")
+        assert client.post(
+            "/api/auth/login", json={"username": ad, "password": parola}
+        ).status_code == 200
+
+    def test_a_plain_user_cannot_ask_for_everyone(self, iki_kisi):
+        """Sessizce `me`ye DUSURULMEZ: bir yoneticinin paylastigi baglanti,
+        alan kisiye kendi verisini baskasinin adiyla gostermemeli."""
+        self._gec(iki_kisi, "ekip")
+        assert iki_kisi.get("/api/activity/runs?who=all").status_code == 403
+
+    def test_a_plain_user_cannot_ask_for_someone_else(self, iki_kisi):
+        self._gec(iki_kisi, "ekip")
+        assert iki_kisi.get("/api/activity/runs?who=yonetici").status_code == 403
+
+    def test_a_plain_user_can_ask_for_themselves(self, iki_kisi):
+        self._gec(iki_kisi, "ekip")
+        cevap = iki_kisi.get("/api/activity/runs?who=ekip")
+        assert cevap.status_code == 200
+        assert cevap.json()["who"] == "ekip"
+
+    def test_an_admin_can_ask_for_everyone(self, iki_kisi):
+        cevap = iki_kisi.get("/api/activity/runs?who=all")
+        assert cevap.status_code == 200
+        assert cevap.json()["who"] == "all"
+        assert cevap.json()["can_see_everyone"] is True
+
+    def test_a_plain_user_only_sees_their_own_projects(self, iki_kisi, tmp_path):
+        """Uye olunmayan proje LISTEDE BILE gorunmemeli."""
+        kok = tmp_path / "gizli"
+        kok.mkdir()
+        iki_kisi.post("/api/projects", json={"name": "Gizli", "path": str(kok)})
+
+        self._gec(iki_kisi, "ekip")
+        veri = iki_kisi.get("/api/activity/runs").json()
+        assert "Gizli" not in [p["name"] for p in veri["projects"]]
+
+    def test_an_unnamed_run_is_counted_but_not_claimed(self, iki_kisi):
+        """`started_by=''` "bilinmiyor" demek, "ben" degil: `deerx run`
+        ile terminalden baslatilan kosunun sahibi yoktur."""
+        durum = iki_kisi.app.state.deerx
+        calisan = durum.runtime()
+        calisan.orchestrator.state.start_run(
+            "adsiz", goal="h", phases=["ingest"], started_by=""
+        )
+        calisan.orchestrator.state.finish_run("adsiz", status="done")
+
+        veri = iki_kisi.get("/api/activity/runs").json()
+        assert "adsiz" not in [r["id"] for r in veri["runs"]], (
+            "sahipsiz kosu 'benim islerim' listesine girdi"
+        )
+        toplam_adsiz = sum(p["unattributed"] for p in veri["projects"])
+        assert toplam_adsiz >= 1, "sahipsiz kosu hic sayilmamis"

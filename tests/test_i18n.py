@@ -920,3 +920,63 @@ class TestTheProviderListSpeaksTheUsersLanguage:
         for anahtar in ("runs.titlePhase", "runs.titlePhases", "runs.titleTask",
                         "runs.titleTaskOnly", "runs.titlePlan", "runs.titlePlanOnly"):
             assert anahtar in i18n[dil], f"{dil}: {anahtar}"
+
+
+class TestGorunenAdKendiKosusunuGizlemez:
+    """`kosuBenim` sunucunun YAZDIGI seyle karsilastirmali.
+
+    Sunucu `started_by`a `username` yaziyor (`_uploader`, app.py) ve onay
+    sahipligini de onunla dogruluyor (`resolve_approval`). Arayuz
+    `display_name`e once bakarsa, gorunen adi tanimli bir kullanici KENDI
+    kosusunu "baskasininki" sanir.
+
+    Bedeli sadece yanlis bir etiket degil: `onayBana` bu karsilastirmaya
+    dayaniyor, yani o kullanici KENDI kosusunun onay modalini HIC gormez
+    ve ajanin komutu zaman asimina kadar asili kalir.
+
+    Fonksiyon GERCEKTEN kosturulur; kaynakta desen aramak, `||` sirasini
+    degistiren bir duzenlemeyi de gecerdi.
+    """
+
+    def _cagir(self, run: dict, user: dict) -> str:
+        _node()
+        src = _asset("app.js")
+        fn = src[src.index("function kosuBenim("):]
+        fn = fn[: fn.index("\n}") + 2]
+        betik = (
+            "const state = { auth: { configured: true, user: "
+            + json.dumps(user)
+            + " } };\n"
+            + fn
+            + "\nprocess.stdout.write(String(kosuBenim("
+            + json.dumps(run)
+            + ")));"
+        )
+        out = subprocess.run(
+            ["node", "-e", betik], capture_output=True, text=True, encoding="utf-8"
+        )
+        assert out.returncode == 0, out.stderr
+        return out.stdout.strip()
+
+    def test_a_display_name_does_not_disown_my_run(self):
+        assert self._cagir(
+            {"current": {"started_by": "sarpel"}},
+            {"username": "sarpel", "display_name": "Sarpel B."},
+        ) == "true", (
+            "gorunen adi tanimli kullanici kendi kosusunu baskasininki saniyor; "
+            "onay modali hic acilmaz"
+        )
+
+    def test_someone_elses_run_is_still_not_mine(self):
+        assert self._cagir(
+            {"current": {"started_by": "baskasi"}},
+            {"username": "sarpel", "display_name": "Sarpel B."},
+        ) == "false"
+
+    def test_an_unnamed_run_is_not_a_warning(self):
+        """Bos sahip "bilinmiyor" demek, "baskasi" degil: `deerx run` ile
+        terminalden baslatilan kosunun sahibi yoktur."""
+        assert self._cagir(
+            {"current": {"started_by": ""}},
+            {"username": "sarpel", "display_name": "Sarpel B."},
+        ) == "true"

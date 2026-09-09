@@ -175,7 +175,6 @@ const state = {
   openArtifactRuns: new Set(),
   // Kosu kaydindan onceki ciktilar varsayilan olarak gizli; kullanici
   // acikca isterse gosterilir.
-  showOrphans: false,
   // Genel durum istegi neden dustu; ayarlar ekrani bunu yaziyor.
   overviewError: null,
   // Planlar: secili plan gorev listesini suzer, etkin plan ajanin
@@ -882,8 +881,13 @@ function initStepPicker() {
 function kosuBenim(run) {
   const sahip = run?.current?.started_by || "";
   if (!sahip || state.auth?.configured === false) return true;
-  const me = state.auth?.user;
-  return sahip === (me?.display_name || me?.username || "");
+  // KULLANICI ADI ile karsilastirilir, gorunen adla DEGIL: sunucu
+  // `started_by`a hep `username` yaziyor ve onay sahipligini de onunla
+  // dogruluyor. Once `display_name`e bakildigi surece, gorunen adi tanimli
+  // bir kullanici kendi kosusunu "baskasininki" saniyordu -- ve `onayBana`
+  // bu karsilastirmaya dayandigi icin KENDI onay modalini hic gormuyor,
+  // ajanin komutu zaman asimina kadar asili kaliyordu.
+  return sahip === (state.auth?.user?.username || "");
 }
 
 function syncRunState(run) {
@@ -3503,27 +3507,14 @@ async function loadArtifacts() {
   list.innerHTML = busyState();
   try {
     const data = await api(
-      "/api/artifacts" + (state.showOrphans ? "?orphans=1" : ""));
+      "/api/artifacts");
     state.artifactGroups = data.groups;
     $("#artifacts-sub").textContent = data.total
       ? t("artifacts.count", { n: data.total, runs: data.groups.length })
       : t("artifacts.empty");
 
-    // Gizlenen cikti VARSA soylenir. Eskiden bu bilgi yalnizca liste TAMAMEN
-    // bosken cikiyordu: rozet 11 derken ekranda 1 cikti gorunuyor ve geri
-    // kalanina ulasmanin hicbir yolu yoktu.
-    const toggle = $("#btn-orphans");
-    toggle.hidden = !(data.orphans || state.showOrphans);
-    toggle.textContent = state.showOrphans
-      ? t("artifacts.hideOrphans")
-      : t("artifacts.showOrphans", { n: data.orphans });
-
     if (!data.total) {
-      list.innerHTML = emptyState(
-        t("artifacts.empty"),
-        data.orphans
-          ? t("artifacts.hiddenOrphans", { n: data.orphans })
-          : t("artifacts.emptyHint"));
+      list.innerHTML = emptyState(t("artifacts.empty"), t("artifacts.emptyHint"));
       detayKutusu().innerHTML = emptyState(t("artifacts.empty"));
       return;
     }
@@ -4377,13 +4368,6 @@ function syncPackageButton() {
 }
 
 function initDelivery() {
-  $("#btn-orphans").addEventListener("click", () => {
-    state.showOrphans = !state.showOrphans;
-    // Acilan/kapanan gruplarin secimi sifirlanir: aksi halde "goster"e
-    // basildiginda yeni grup kapali gelir ve hicbir sey olmamis gibi durur.
-    state.openArtifactRuns.clear();
-    loadArtifacts();
-  });
   $("#package-force").addEventListener("change", syncPackageButton);
   $("#btn-package").addEventListener("click", async () => {
     const button = $("#btn-package");

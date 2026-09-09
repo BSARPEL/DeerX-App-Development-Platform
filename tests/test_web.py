@@ -1238,20 +1238,31 @@ class TestArtifactsWithoutARunAreReachable:
         )
         return name
 
-    def test_the_count_of_hidden_ones_is_reported(self, client, settings):
-        self._yetim(client, settings)
-        data = client.get("/api/artifacts").json()
-        assert data["total"] == 0
-        assert data["orphans"] == 1, "gizlenen cikti sayilmali"
-
-    def test_they_can_be_asked_for(self, client, settings):
+    def test_they_are_listed_without_being_asked_for(self, client, settings):
+        """Artik gizli DEGILLER: bir parametre gondermek gerekmiyor."""
         name = self._yetim(client, settings)
-        data = client.get("/api/artifacts?orphans=1").json()
+        data = client.get("/api/artifacts").json()
         assert data["total"] == 1
         grup = data["groups"][0]
         # Kosusu yok: arayuz "#null" yazmasin diye sira numarasi None.
         assert grup["seq"] is None
         assert [i["name"] for i in grup["items"]] == [name]
+        assert data["orphans"] == 1, "kac tanesinin kosusu bilinmiyor, bilgi"
+
+    def test_the_interface_has_no_hidden_artifact_switch(self):
+        """Gizleme kalkti; onu geri getiren bir dugme de kalmamali.
+
+        Yarim bir geri alma -- dugme durur ama varsayilan degisir --
+        kullaniciya hicbir sey yapmayan bir denetim birakirdi.
+        """
+        from deerx.web.app import STATIC_DIR
+
+        js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+        html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        assert "btn-orphans" not in html
+        assert "btn-orphans" not in js
+        assert "showOrphans" not in js
+        assert "orphans=1" not in js, "arayuz hala parametreyle istiyor"
 
 class TestUploadDoesNotDestroyExistingFiles:
     """Okunamayan bir yukleme, ayni adli calisan sartnameyi silmemeli."""
@@ -2014,27 +2025,43 @@ class TestArtifactsByRun:
         assert item["phase"] == "design"
         assert item["phase_label"] == "Mimari"
 
-    def test_artifacts_without_a_run_are_not_listed(self, client, settings, state_of):
-        """Her cikti bir kosunun urunudur.
+    def test_artifacts_without_a_run_are_listed_in_their_own_group(
+        self, client, settings, state_of
+    ):
+        """Kosusu bilinmeyen cikti GORUNUR, kendi grubunda.
 
-        Kosusuz bir grup basligi kullaniciya hicbir sey anlatmiyordu; ama
-        sayilari bildirilir ki sessizce kaybolmus gibi durmasin.
+        Once gizleniyordu ve gerekcesi "kosusuz bir grup basligi kullaniciya
+        hicbir sey anlatmiyor" idi. Bedeli olculdu: gercek bir projede on
+        bir ciktinin onunun kosu kaydi yoktu (hepsi kosu kaydi eklenmeden
+        ONCE uretilmis), rayda 11 yaziyordu, ekranda 1 gorunuyordu ve
+        sahibi bunu ariza olarak bildirdi. Kosede duran "10 ciktiyi da
+        goster" dugmesi bunu onlemedi.
         """
         run_id = self._run(state_of)
         self._artifact(settings, state_of, "yeni.md", run_id=run_id)
         self._artifact(settings, state_of, "eski.md")
 
         payload = client.get("/api/artifacts").json()
-        listed = [i["name"] for g in payload["groups"] for i in g["items"]]
-        assert listed == ["yeni.md"]
+        listed = {i["name"] for g in payload["groups"] for i in g["items"]}
+        assert listed == {"yeni.md", "eski.md"}
+        # Kosusuz grup EN SONDA ve sira numarasi yok: arayuz "#null" yazmasin.
+        assert payload["groups"][-1]["seq"] is None
+        # Sayi bilgi olarak DONMEYE devam eder.
         assert payload["orphans"] == 1
 
-    def test_orphans_can_still_be_requested(self, client, settings, state_of):
+    def test_the_screen_total_matches_the_badge(self, client, settings, state_of):
+        """Rozet ile ekranin sayisi AYNI olmali.
+
+        Bir sayinin iki yerde iki farkli deger gostermesi, otekine
+        ulasmanin yolu olsa bile yanlistir -- kullanici once "bozuk" der.
+        """
+        run_id = self._run(state_of)
+        self._artifact(settings, state_of, "yeni.md", run_id=run_id)
         self._artifact(settings, state_of, "eski.md")
-        payload = client.get("/api/artifacts?orphans=1").json()
-        listed = [i["name"] for g in payload["groups"] for i in g["items"]]
-        assert listed == ["eski.md"]
-        assert payload["groups"][-1]["seq"] is None
+
+        ekran = client.get("/api/artifacts").json()["total"]
+        rozet = client.get("/api/overview").json()["counts"]["artifacts"]
+        assert ekran == rozet == 2
 
     def test_rewriting_an_artifact_moves_it_to_the_new_run(self, client, settings, state_of):
         """Ayni ad tekrar uretilirse cikti son ureten kosunun urunudur."""
@@ -3839,3 +3866,87 @@ class TestCiktiDetayiNullYazmaz:
         assert '$("#artifact-view")' not in kalan, (
             "detay kutusuna yardimci disindan erisiliyor"
         )
+
+
+class TestRayRozetiEkraniSoyler:
+    """Bir rozet, tiklaninca gorulecek sayiyi soylemeli.
+
+    OLCULDU (kullanicinin gercek verisi): rayda "11" yaziyordu, Ciktilar
+    ekraninda 1 cikti goruluyordu. Sebep bir hata degil, bir karardi --
+    kosusu bilinmeyen cikti gizleniyordu -- ama kullanici once "bozuk"
+    dedi. Kosede duran "10 ciktiyi da goster" dugmesi bunu ONLEMEDI.
+
+    Ayni sinif Gorev rozetinde de vardi: `counts()` proje genelini
+    sayiyor, Plan ekrani ise ETKIN PLANI gosteriyor. Iki planli bir
+    projede ray "8" derken ekranda 3 gorev cikiyordu.
+
+    Kural: rozet ile ekranin acilista gosterdigi sayi AYNI olmali.
+    """
+
+    def test_the_artifact_badge_matches_the_artifact_screen(
+        self, client, settings, state_of
+    ):
+        yol = settings.artifacts_dir
+        yol.mkdir(parents=True, exist_ok=True)
+        durum = state_of
+
+        kosu = "k1"
+        durum.start_run(kosu, goal="h", phases=["design"])
+        for ad, rid in (("baglı.md", kosu), ("baglisiz.md", "")):
+            (yol / ad).write_text("# x\n", encoding="utf-8")
+            durum.add_artifact(
+                Artifact(name=ad, kind="report", path=str(yol / ad), summary=""),
+                run_id=rid,
+            )
+
+        rozet = client.get("/api/overview").json()["counts"]["artifacts"]
+        ekran = client.get("/api/artifacts").json()["total"]
+        assert rozet == ekran == 2, (
+            f"ray {rozet} diyor, ekran {ekran} gosteriyor"
+        )
+
+    def test_the_task_badge_matches_the_plan_screen(self, client, state_of):
+        durum = state_of
+        a = durum.create_plan("Plan A")
+        b = durum.create_plan("Plan B")
+        durum.set_active_plan(a["id"])
+        for i in range(3):
+            durum.add_task(Task(key=f"A-{i}", title=f"a{i}"), plan_id=a["id"])
+        for i in range(5):
+            durum.add_task(Task(key=f"B-{i}", title=f"b{i}"), plan_id=b["id"])
+
+        rozet = client.get("/api/overview").json()["counts"]["tasks"]
+        ekran = len(
+            client.get(f"/api/state/tasks?plan={a['id']}").json()["items"]
+        )
+        assert rozet == ekran == 3, (
+            f"ray {rozet} diyor, etkin planin ekraninda {ekran} gorev var"
+        )
+
+    def test_the_project_wide_total_is_still_available(self, client, state_of):
+        """Plan sekmeleri "bu planda 3, projede 8" diyebilmeli: proje
+        geneli kaybolmadi, yalnizca rozetin anlami daraldi."""
+        durum = state_of
+        a = durum.create_plan("Plan A")
+        b = durum.create_plan("Plan B")
+        durum.set_active_plan(a["id"])
+        durum.add_task(Task(key="A-1", title="a"), plan_id=a["id"])
+        for i in range(4):
+            durum.add_task(Task(key=f"B-{i}", title=f"b{i}"), plan_id=b["id"])
+
+        counts = client.get("/api/overview").json()["counts"]
+        assert counts["tasks"] == 1
+        assert counts["tasks_all"] == 5
+
+    def test_the_agent_context_still_counts_the_whole_project(self, state_of):
+        """`ProjectState.counts()` DEGISMEDI: ajan baglami proje genelini
+        gormeye devam etmeli, daraltma yalnizca arayuz katmaninda."""
+        durum = state_of
+        a = durum.create_plan("Plan A")
+        b = durum.create_plan("Plan B")
+        durum.set_active_plan(a["id"])
+        durum.add_task(Task(key="A-1", title="a"), plan_id=a["id"])
+        for i in range(4):
+            durum.add_task(Task(key=f"B-{i}", title=f"b{i}"), plan_id=b["id"])
+
+        assert durum.counts()["tasks"] == 5

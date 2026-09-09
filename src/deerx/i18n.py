@@ -1611,6 +1611,10 @@ CATALOG: dict[str, dict[str, str]] = {
         "tr": "Bilinmeyen ayar: {name}",
         "en": "Unknown setting: {name}",
     },
+    "api.activity_admin_only": {
+        "tr": "Baskasinin islerini yalnizca yonetici gorebilir.",
+        "en": "Only an administrator can see someone else's work.",
+    },
     "api.setting_admin_only": {
         "tr": "Bu ayari yalnizca yonetici degistirebilir: {name}",
         "en": "Only an administrator can change this setting: {name}",
