@@ -95,6 +95,9 @@ class ChunkRecord:
     source: str
     title: str
     score: float = 0.0
+    # Belgesi ETKIN mi. Ajan yolunda hep True (pasifler dislaniyor);
+    # arayuzun tani aramasinda False olabilir ve ekran bunu soyler.
+    is_active: bool = True
 
     def citation(self) -> str:
         loc = f":{self.start_line}" if self.start_line > 1 else ""
@@ -401,6 +404,7 @@ class VectorStore:
         k: int,
         kinds: Iterable[str] | None = None,
         doc_ids: Iterable[int] | None = None,
+        exclude_doc_ids: Iterable[int] | None = None,
     ) -> list[tuple[int, float]]:
         matrix, ids, row_kinds, row_docs = self._vector_cache()
         if matrix.shape[0] == 0:
@@ -425,6 +429,11 @@ class VectorStore:
             # Bos kapsam "hicbir belge" demektir, "kapsam yok" degil:
             # caginin bos liste vermesi ile hic vermemesi ayri seyler.
             scores = np.where(np.isin(row_docs, izin), scores, -np.inf)
+        if exclude_doc_ids:
+            # Pasiflik kapsamdan SONRA uygulanir: bir kosu kapsami bir
+            # DARALTMADIR, kullanicinin dislama kararini geri alamaz.
+            haric = np.asarray(sorted(set(exclude_doc_ids)), dtype=np.int64)
+            scores = np.where(np.isin(row_docs, haric), -np.inf, scores)
 
         top = np.argpartition(-scores, min(k, len(scores) - 1))[:k]
         top = top[np.argsort(-scores[top])]
@@ -445,9 +454,10 @@ class VectorStore:
         k: int,
         kinds: Iterable[str] | None = None,
         doc_ids: Iterable[int] | None = None,
+        exclude_doc_ids: Iterable[int] | None = None,
     ) -> list[tuple[int, float]]:
         if not self._fts_enabled:
-            return self._search_like(query, k, kinds, doc_ids)
+            return self._search_like(query, k, kinds, doc_ids, exclude_doc_ids)
 
         match = self._fts_query(query)
         if not match:
@@ -466,6 +476,10 @@ class VectorStore:
             izin = sorted(set(doc_ids))
             sql += f" AND c.doc_id IN ({','.join('?' * len(izin)) or 'NULL'})"
             params.extend(izin)
+        if exclude_doc_ids:
+            haric = sorted(set(exclude_doc_ids))
+            sql += f" AND c.doc_id NOT IN ({','.join('?' * len(haric))})"
+            params.extend(haric)
         sql += " ORDER BY rank LIMIT ?"
         params.append(k)
 
@@ -473,7 +487,7 @@ class VectorStore:
             rows = self._conn.execute(sql, params).fetchall()
         except sqlite3.OperationalError as exc:  # pragma: no cover
             log.debug("FTS sorgusu basarisiz (%s); LIKE'a dusuluyor.", exc)
-            return self._search_like(query, k, kinds, doc_ids)
+            return self._search_like(query, k, kinds, doc_ids, exclude_doc_ids)
         # bm25 dusuk = daha iyi; isareti cevirerek "yuksek = iyi" yapariz.
         return [(int(r["chunk_id"]), -float(r["rank"])) for r in rows]
 
@@ -483,6 +497,7 @@ class VectorStore:
         k: int,
         kinds: Iterable[str] | None,
         doc_ids: Iterable[int] | None = None,
+        exclude_doc_ids: Iterable[int] | None = None,
     ) -> list[tuple[int, float]]:
         tokens = _TOKEN_RE.findall(query.lower())[:6]
         if not tokens:
@@ -498,6 +513,10 @@ class VectorStore:
             izin = sorted(set(doc_ids))
             sql += f" AND doc_id IN ({','.join('?' * len(izin)) or 'NULL'})"
             params.extend(izin)
+        if exclude_doc_ids:
+            haric = sorted(set(exclude_doc_ids))
+            sql += f" AND doc_id NOT IN ({','.join('?' * len(haric))})"
+            params.extend(haric)
         sql += " LIMIT ?"
         params.append(k)
         rows = self._conn.execute(sql, params).fetchall()
@@ -509,7 +528,7 @@ class VectorStore:
             return {}
         placeholders = ",".join("?" * len(ids))
         rows = self._conn.execute(
-            "SELECT c.*, d.source, d.title FROM chunks c "
+            "SELECT c.*, d.source, d.title, d.is_active FROM chunks c "
             f"JOIN documents d ON d.id = c.doc_id WHERE c.id IN ({placeholders})",
             ids,
         ).fetchall()
@@ -525,6 +544,10 @@ class VectorStore:
                 kind=r["kind"],
                 source=r["source"],
                 title=r["title"],
+                # Isabet, belgesinin pasif olup olmadigini TASIR. Ajan
+                # yolunda hep True (pasifler zaten dislanmis); arayuzun
+                # tani aramasinda False olabilir ve ekran bunu soyler.
+                is_active=bool(r["is_active"]),
             )
             for r in rows
         }
@@ -575,6 +598,20 @@ class VectorStore:
     def active_doc_ids(self) -> list[int]:
         rows = self._conn.execute(
             "SELECT id FROM documents WHERE is_active = 1"
+        ).fetchall()
+        return [int(r["id"]) for r in rows]
+
+    def inactive_doc_ids(self) -> list[int]:
+        """Kullanicinin "artik buna bakma" dedigi belgeler.
+
+        Arama bunlari DISLAR. Etkin olanlari saymak yerine pasif olanlari
+        saymanin iki sebebi var: liste normalde cok daha kucuk (bir
+        korpusta genelde birkac belge pasiflestirilir) ve bos oldugunda
+        suzgec tamamen atlanabilir -- yani hicbir sey pasif degilken
+        arama bugunku kadar hizli kalir.
+        """
+        rows = self._conn.execute(
+            "SELECT id FROM documents WHERE is_active = 0"
         ).fetchall()
         return [int(r["id"]) for r in rows]
 

@@ -2307,7 +2307,15 @@ def build_app(settings: Settings) -> Starlette:
             return _error("k sayisal olmali.")
 
         def run_search() -> list[dict[str, Any]]:
-            hits = state.orchestrator.kb.search(query, k=limit, kinds=kinds)
+            # TANI KIPI. Ekrandaki arama kutusuna cogu zaman "bu neden
+            # bulunmuyor?" diye gelinir ve sifir sonuc bu soruya cevap
+            # vermez. Pasif belgeler de doner, ISARETLI olarak: ekran
+            # onlari soluk gosterip sebebini soyler.
+            #
+            # Ajan yolu (`tools/knowledge.py`) bunu ACMAZ: orada pasif
+            # belge hic gorunmez.
+            hits = state.orchestrator.kb.search(
+                query, k=limit, kinds=kinds, include_inactive=True)
             return [
                 {
                     "id": h.id,
@@ -2318,6 +2326,7 @@ def build_app(settings: Settings) -> Starlette:
                     "citation": h.citation(),
                     "start_line": h.start_line,
                     "score": round(h.score, 5),
+                    "is_active": h.is_active,
                     "text": h.text,
                 }
                 for h in hits

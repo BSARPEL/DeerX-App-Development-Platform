@@ -201,6 +201,7 @@ class KnowledgeBase:
         kinds: Iterable[str] | None = None,
         diversify: bool = True,
         sources: Iterable[str] | None = None,
+        include_inactive: bool = False,
     ) -> list[ChunkRecord]:
         """Hibrit arama: anlamsal + sozcuksel siralamalari RRF ile birlestirir.
 
@@ -208,6 +209,18 @@ class KnowledgeBase:
         belge kapsami bunun uzerine kuruluyor: kullanici bir kosuda
         korpusun tamamini degil, sectigi sartnameleri okutmak isteyebilir.
         Bos bir liste "hicbir belge" demektir; `None` "kapsam yok".
+
+        PASIF belgeler dislanir. OLCULDU: once dislanmiyorlardi ve
+        "Pasiflestir" dugmesi ajanlarin gordugu seyi hic degistirmiyordu
+        -- kullanicinin "artik buna bakma" karari sessizce hukumsuzdu.
+        Kapsam ile pasiflik ayri iki kavram: kapsam bir DARALTMA ("bu
+        kosuda yalnizca sunlara bak"), pasiflik bir DISLAMA ("hicbir
+        kosuda buna bakma"). Daraltma dislamayi geri alamaz.
+
+        `include_inactive` yalnizca ARAYUZ icindir. Bilgi tabani
+        ekranindaki arama bir TANI aracidir: "neden bulunmuyor?"
+        sorusunun cevabi cogu zaman "cunku pasiflestirmissin" ve sifir
+        sonuc bunu soylemez. Ajan yolunda hicbir zaman acilmaz.
         """
         rag = self.settings.rag
         k = k or rag.top_k
@@ -218,12 +231,16 @@ class KnowledgeBase:
         # Yol -> kimlik cevrimi BURADA yapilir, iki arama yolunda iki kez
         # degil: cevrim bir sorgu ve ikisi de ayni kumeyi kullaniyor.
         doc_ids = None if sources is None else self.store.doc_ids_for(sources)
+        # Pasif belgeler. Bos liste ise suzgec hic kurulmaz ve sicak yol
+        # bugunku kadar hizli kalir.
+        haric = None if include_inactive else (self.store.inactive_doc_ids() or None)
         # Fuzyon ve MMR icin adaydan daha genis bir havuz cekilir.
         pool = max(k * 4, 24)
 
         query_vector = self.embedder.embed_query(query)
-        semantic = self.store.search_semantic(query_vector, pool, kind_list, doc_ids)
-        lexical = self.store.search_lexical(query, pool, kind_list, doc_ids)
+        semantic = self.store.search_semantic(
+            query_vector, pool, kind_list, doc_ids, haric)
+        lexical = self.store.search_lexical(query, pool, kind_list, doc_ids, haric)
 
         if not semantic and not lexical:
             return []

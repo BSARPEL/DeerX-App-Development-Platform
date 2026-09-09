@@ -192,6 +192,77 @@ class TestKnowledgeBase:
         assert kb.search("KVKK", k=3) != []
         assert kb.search("KVKK", k=3, sources=[]) == []
 
+    def test_a_deactivated_document_disappears_from_search(self, kb, workspace):
+        """OLCULDU: cikmiyordu. Dugme "Pasiflestir" diyor, `set_active`
+        docstring'i "Belgeyi aramadan ve yeniden indekslemeden cikarir"
+        diyordu -- ikinci yarisi dogruydu, birincisi degildi.
+
+        `store.active_doc_ids()` TANIMLIYDI ama hicbir yerden
+        cagrilmiyordu; `KnowledgeBase.search` belge suzgecini yalnizca
+        `sources`tan kuruyordu ve ajanin araci kosuda belge kapsami
+        secilmemisse `sources=None` gonderiyor. Sonuc: kullanicinin
+        "artik buna bakma" karari ajanlarin gordugu seyi HIC
+        degistirmiyordu ve bunu fark etmenin bir yolu yoktu.
+        """
+        kb.ingest_path(workspace / "docs")
+        kaynak = kb.store.list_documents()[0]["source"]
+
+        onceki = kb.search("KVKK", k=5)
+        assert any(h.source == kaynak for h in onceki), "sorgu belgeyi bulmuyor"
+
+        assert kb.deactivate(kaynak) is True
+
+        sonra = kb.search("KVKK", k=5)
+        assert all(h.source != kaynak for h in sonra), (
+            "pasiflestirilen belge hala aramada donuyor"
+        )
+
+    def test_reactivating_brings_it_back(self, kb, workspace):
+        """Pasiflik geri alinabilir olmali; yoksa "sil"den farki kalmaz."""
+        kb.ingest_path(workspace / "docs")
+        kaynak = kb.store.list_documents()[0]["source"]
+        kb.deactivate(kaynak)
+        assert all(h.source != kaynak for h in kb.search("KVKK", k=5))
+
+        assert kb.store.set_active(kaynak, True) is True
+        assert any(h.source == kaynak for h in kb.search("KVKK", k=5))
+
+    def test_a_run_scope_cannot_undo_a_deactivation(self, kb, workspace):
+        """Kapsam bir DARALTMADIR, pasiflik bir DISLAMA.
+
+        Bir kosu kapsami "yalnizca su belgeye bak" der; kullanicinin
+        "hicbir kosuda buna bakma" kararini geri ALAMAZ. Ikisi
+        kesisir, kapsam ustun gelmez.
+        """
+        kb.ingest_path(workspace / "docs")
+        kaynak = kb.store.list_documents()[0]["source"]
+        kb.deactivate(kaynak)
+        assert kb.search("KVKK", k=5, sources=[kaynak]) == []
+
+    def test_the_interface_can_still_see_it_to_explain_why(self, kb, workspace):
+        """Bilgi tabani ekranindaki arama bir TANI aracidir.
+
+        "Neden bulunmuyor?" sorusunun cevabi cogu zaman "cunku
+        pasiflestirmissin" ve SIFIR SONUC bunu soylemez. Ekran icin
+        `include_inactive` acilir ve her isabet belgesinin etkin olup
+        olmadigini tasir.
+        """
+        kb.ingest_path(workspace / "docs")
+        kaynak = kb.store.list_documents()[0]["source"]
+        kb.deactivate(kaynak)
+
+        tani = kb.search("KVKK", k=5, include_inactive=True)
+        pasifler = [h for h in tani if h.source == kaynak]
+        assert pasifler, "tani aramasi pasif belgeyi de gormeli"
+        assert all(h.is_active is False for h in pasifler), (
+            "isabet, belgesinin pasif oldugunu tasimali"
+        )
+
+    def test_an_active_hit_says_so(self, kb, workspace):
+        """Bayrak sabit `False` degil: etkin belge `True` doner."""
+        kb.ingest_path(workspace / "docs")
+        assert all(h.is_active is True for h in kb.search("KVKK", k=5))
+
     def test_deactivating_a_document_keeps_its_chunks(self, kb, workspace):
         """Pasiflestirmek silmek DEGILDIR: geri almak yeniden
         indeksleme gerektirmemeli."""
