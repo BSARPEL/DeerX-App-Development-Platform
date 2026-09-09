@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ..config import Settings
 from ..errors import ApprovalDenied, ToolError, WorkspaceError
@@ -20,6 +20,12 @@ if TYPE_CHECKING:  # pragma: no cover
     from ..pipeline.state import ProjectState
     from ..rag.knowledge import KnowledgeBase
     from ..services import ServiceManager
+
+
+# `child()`in "devral" varsayilani. `None` kullanilamaz: `doc_scope`
+# icin `None` artik gecerli bir DEGER ("kapsam yok") ve iki anlami
+# tek isarete yuklemek, tam da bu dosyada duzeltilen hatanin kendisi.
+_DEVRAL = object()
 
 log = get_logger("tools")
 
@@ -88,8 +94,14 @@ class ToolContext:
     # belgelere bakayim?" diye sormak, kullanicinin bilerek disarida
     # biraktigi eski bir sartnameyi modelin geri getirmesine kapi acar --
     # ve bunun icin kotu niyet gerekmez, bir liste uydurmasi yeter.
-    # Bos demet "kapsam yok = tum korpus" demektir.
-    doc_scope: tuple[str, ...] = ()
+    # `None` "kapsam yok = tum korpus"; BOS DEMET "hicbir belge".
+    #
+    # Ikisi ayri seyler ve RAG katmani bu ayrimi zaten kuruyor
+    # (`test_an_empty_scope_means_no_document_not_every_document`). Once
+    # ikisi de `()` idi: Gelistirme ekraninda butun belgelerin secimini
+    # kaldiran kullaniciya "ajanlar belge okumadan calisacak" deniyor ve
+    # ajanlar tum korpusu okuyordu.
+    doc_scope: tuple[str, ...] | None = None
     # Onay isteme kancasi; None ise `approval_mode` uzerinden karar verilir.
     approval_hook: Callable[[str, str], bool] | None = None
     # Kosu suresince onaylanan tehlikeli islem imzalari (tekrar sormamak icin).
@@ -124,7 +136,7 @@ class ToolContext:
     def child(
         self,
         *,
-        doc_scope: tuple[str, ...] | None = None,
+        doc_scope: tuple[str, ...] | None | object = _DEVRAL,
         workflow_id: str | None = None,
     ) -> ToolContext:
         """Alt ajan icin turetilmis baglam.
@@ -152,7 +164,12 @@ class ToolContext:
             browser=self.browser,
             services=self.services,
             workflow_id=self.workflow_id if workflow_id is None else workflow_id,
-            doc_scope=self.doc_scope if doc_scope is None else doc_scope,
+            # Nobetci gerekli: `None` artik gecerli bir DEGER ("kapsam
+            # yok"), yani "devralma" anlamini tasiyamaz.
+            doc_scope=(
+                self.doc_scope if doc_scope is _DEVRAL
+                else cast("tuple[str, ...] | None", doc_scope)
+            ),
             approval_hook=self.approval_hook,
             spawn=self.spawn,
             depth=self.depth + 1,

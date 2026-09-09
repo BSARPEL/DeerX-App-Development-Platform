@@ -359,3 +359,49 @@ class TestKnowledgeBase:
         with pytest.raises(ConfigError, match="Gomme modeli degismis"):
             _ = second.embedder
         second.close()
+
+
+class TestBosKapsamHicbiriDemek:
+    """"Hicbir belge secmedim" ile "kapsam kullanmiyorum" ayri seyler.
+
+    RAG katmani bu ayrimi zaten kuruyor ve civiliyor
+    (`test_an_empty_scope_means_no_document_not_every_document`). Ama
+    USTUNDEKI iki katman onu cop ediyordu:
+
+      * `orchestrator._run` -> `tuple(doc_scope or [])`: `None` ile `[]`
+        ikisi de `()` oluyordu.
+      * `SearchKnowledge.run` -> `sources=list(ctx.doc_scope) or None`:
+        `()` yine `None`a donuyordu.
+
+    Sonuc: Gelistirme ekraninda butun belgelerin secimini kaldiran
+    kullaniciya "ajanlar belge okumadan calisacak" deniyor ve ajanlar
+    TUM KORPUSU okuyordu. Uyari yalandi.
+    """
+
+    def test_the_agent_tool_honours_an_empty_scope(self, ctx, kb, workspace):
+        """Aracin KENDISINI kostur: kapsam bos ise sonuc bos olmali."""
+        from deerx.tools.knowledge import SearchKnowledge
+
+        kb.ingest_path(workspace / "docs")
+        arac = SearchKnowledge()
+
+        ctx.doc_scope = None
+        genis = arac.run(ctx, query="KVKK", k=5)
+        assert "KVKK" in genis.content or genis.data, "kapsamsiz arama sonuc vermeli"
+
+        ctx.doc_scope = ()
+        dar = arac.run(ctx, query="KVKK", k=5)
+        assert not dar.data, (
+            "bos kapsam tum korpusa dondu: 'ajanlar belge okumadan "
+            "calisacak' uyarisi yalan"
+        )
+
+    def test_a_named_scope_still_narrows(self, ctx, kb, workspace):
+        """Duzeltme kapsami BOZMAMALI: adi verilen belge yine gorunur."""
+        from deerx.tools.knowledge import SearchKnowledge
+
+        kb.ingest_path(workspace / "docs")
+        kaynak = kb.store.list_documents()[0]["source"]
+        ctx.doc_scope = (kaynak,)
+        assert SearchKnowledge().run(ctx, query="KVKK", k=5).data
+

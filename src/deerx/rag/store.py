@@ -644,14 +644,28 @@ class VectorStore:
 
     def stats(self) -> dict[str, Any]:
         docs = self._conn.execute("SELECT COUNT(*) AS n FROM documents").fetchone()["n"]
+        # ETKIN sayisi ayrica. Toplam envanterdir; ajanlarin gordugu
+        # sayi ise budur ve ekran ikisini karistirirsa uc belgeyi
+        # pasiflestiren kullaniciya yine "27 belge" der.
+        active = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM documents WHERE is_active = 1"
+        ).fetchone()["n"]
         chunks = self._conn.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()["n"]
+        # Parcalar da ayni ayrimi tasir: 799 parcanin 640'i aranabilir
+        # olabilir ve "799" o farki gizler.
+        active_chunks = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM chunks c JOIN documents d ON d.id = c.doc_id "
+            "WHERE d.is_active = 1"
+        ).fetchone()["n"]
         by_kind = {
             r["kind"]: r["n"]
             for r in self._conn.execute("SELECT kind, COUNT(*) AS n FROM chunks GROUP BY kind")
         }
         return {
             "documents": docs,
+            "active_documents": active,
             "chunks": chunks,
+            "active_chunks": active_chunks,
             "by_kind": by_kind,
             "fts": self._fts_enabled,
             "db": str(self.db_path),

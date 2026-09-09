@@ -2300,7 +2300,11 @@ def build_app(settings: Settings) -> Starlette:
         query = str(body.get("query", "")).strip()
         if not query:
             return _error("Arama sorgusu bos.")
-        kinds = body.get("kinds") or None
+        # `or None` YOK: bos liste "hicbir tur" demek. Dort tur cipinin
+        # dordunu de kapatan kullanici bos liste gonderiyor ve suzgec
+        # dusuyordu -- kapattigi turler dahil her sey donuyordu.
+        ham_kinds = body.get("kinds")
+        kinds = None if ham_kinds is None else list(ham_kinds)
         try:
             limit = max(1, min(int(body.get("k", 8) or 8), 30))
         except (TypeError, ValueError):

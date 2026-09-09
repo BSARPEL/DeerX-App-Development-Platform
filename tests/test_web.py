@@ -431,6 +431,47 @@ class TestSettings:
         assert client.post("/api/settings", json={"cost_limit_usd": "abc"}).status_code == 400
 
 
+class TestBosTurListesiHicbirTurDemek:
+    """Dort tur cipinin dordunu de kapatan kullanici ne bekler?
+
+    OLCULDU: `/api/search` icinde `kinds = body.get("kinds") or None`
+    yaziyordu. Bos liste `None`a dusuyor, suzgec kalkiyor ve kullanicinin
+    KAPATTIGI turler dahil her sey donuyordu -- yani denetim tam tersini
+    yapiyordu.
+    """
+
+    @staticmethod
+    def _indeksle(client) -> int:
+        """Once korpus KURULUR. Bos bir bilgi tabaninda her sorgu bos
+        doner ve test hicbir sey olcmemis olur."""
+        client.post("/api/ingest", json={"path": "docs"})
+        hits = client.post("/api/search", json={"query": "KVKK", "k": 5}).json()["hits"]
+        assert hits, "korpus kurulamadi; test bir sey olcmuyor"
+        return len(hits)
+
+    def test_no_kind_field_still_means_every_kind(self, client, settings):
+        """Alanin HIC gonderilmemesi eskisi gibi 'suzgec yok' demek."""
+        assert self._indeksle(client) > 0
+
+    def test_an_empty_kind_list_returns_nothing(self, client, settings):
+        self._indeksle(client)
+        cevap = client.post(
+            "/api/search", json={"query": "KVKK", "k": 5, "kinds": []}
+        )
+        assert cevap.status_code == 200
+        assert cevap.json()["hits"] == [], (
+            "hicbir tur secilmemisken butun turler donuyor"
+        )
+
+    def test_a_named_kind_still_filters(self, client, settings):
+        """Duzeltme suzgeci BOZMAMALI: adi verilen tur yine doner."""
+        self._indeksle(client)
+        hits = client.post(
+            "/api/search", json={"query": "KVKK", "k": 5, "kinds": ["doc"]}
+        ).json()["hits"]
+        assert hits and all(h["kind"] == "doc" for h in hits)
+
+
 class TestKaydetYalnizcaDegiseni:
     """"Kaydet" degismeyeni degismis saymamali.
 

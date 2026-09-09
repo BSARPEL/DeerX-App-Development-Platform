@@ -160,6 +160,19 @@ class TestTuretilmisBaglam:
         assert ctx.child().doc_scope == ("a.md", "b.md")
         assert ctx.child(doc_scope=("a.md",)).doc_scope == ("a.md",)
 
+    def test_an_empty_scope_survives_the_handover(self, ctx):
+        """BOS kapsam ile KAPSAMSIZ ayni sey degil.
+
+        `None` "kapsam yok = tum korpus", bos demet "hicbir belge".
+        `child()`in "devral" varsayilani bir zamanlar `None` idi ve bu
+        iki anlami tek isarete yukluyordu; alt ajana bos kapsam
+        gecirmek imkansizdi.
+        """
+        ctx.doc_scope = ("a.md",)
+        assert ctx.child(doc_scope=()).doc_scope == ()
+        assert ctx.child(doc_scope=None).doc_scope is None
+        assert ctx.child().doc_scope == ("a.md",), "varsayilan hala devralmali"
+
 
 class TestRolKumeleri:
     def test_only_broad_roles_can_split_work(self):

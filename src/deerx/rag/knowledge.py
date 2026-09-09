@@ -227,7 +227,11 @@ class KnowledgeBase:
         if not query.strip():
             return []
 
-        kind_list = list(kinds) if kinds else None
+        # `if kinds else` YOK: bos liste "hicbir tur" demek, "suzgec yok"
+        # degil. Ayni cagri zincirinde bu ayrim UC KEZ cop ediliyordu
+        # (uc, bu satir, ve belge kapsami); depo katmani ise `is not None`
+        # ile bastan dogru yazilmisti.
+        kind_list = None if kinds is None else list(kinds)
         # Yol -> kimlik cevrimi BURADA yapilir, iki arama yolunda iki kez
         # degil: cevrim bir sorgu ve ikisi de ayni kumeyi kullaniyor.
         doc_ids = None if sources is None else self.store.doc_ids_for(sources)

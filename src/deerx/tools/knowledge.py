@@ -48,11 +48,14 @@ class SearchKnowledge(Tool):
         # Kapsam semada YOK: modele acilan bir parametre olsaydi model
         # kendi kapsamini secebilirdi ve kullanicinin secimi bir oneriye
         # donerdi.
+        # `or None` YOK: bos kapsam "hicbir belge" demek, "kapsam yok"
+        # degil. Once bos demet `None`a dusuyordu ve kullanicinin hicbir
+        # belge secmemesi tum korpusa donuyordu.
         hits = kb.search(
             query,
             k=max(1, min(k, 25)),
             kinds=kinds,
-            sources=list(ctx.doc_scope) or None,
+            sources=None if ctx.doc_scope is None else list(ctx.doc_scope),
         )
         if not hits:
             stats = kb.stats()

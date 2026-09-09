@@ -405,7 +405,11 @@ class Orchestrator:
         # Kapsam ARAC BAGLAMINA yazilir, prompt'a degil: bir prompt
         # satiri "yalnizca su belgelere bak" der ve model ona uymayabilir;
         # baglamdaki kapsam aramanin kendisini daraltir.
-        self.ctx.doc_scope = tuple(doc_scope or [])
+        # `None` ile `[]` AYRI gecer: birincisi "kapsam yok", ikincisi
+        # "hicbir belge". `tuple(doc_scope or [])` ikisini de `()` yapiyor
+        # ve kullanicinin "hicbirini secmedim" karari sessizce
+        # "hepsini oku"ya donuyordu.
+        self.ctx.doc_scope = None if doc_scope is None else tuple(doc_scope)
         if doc_scope:
             self.events.emit(
                 "phase", "run", t("run.doc_scope", n=len(doc_scope)), run_id=run_id
