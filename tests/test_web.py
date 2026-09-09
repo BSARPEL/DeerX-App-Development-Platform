@@ -2220,8 +2220,14 @@ class TestDesignScale:
     gorunmesini saglayan sey bu olcek.
     """
 
-    SIZES = {"11px", "12px", "13px", "14px", "17px", "22px", "26px"}
-    WEIGHTS = {"400", "500", "600", "700"}
+    # Olcek artik JETONDA duruyor; degerler tek yerde tanimli ve her adim
+    # gozle ayirt edilebilir olmak zorunda. Once yedi basamak vardi ama
+    # 11/12/13/14 oranlari 1.09/1.08/1.08 idi -- yani goz UC basamak
+    # goruyordu ve hiyerarsiyi tipografi kuramadigi icin kutu, buyuk harf
+    # ve renkli zemin o isi ustlenmisti.
+    OLCEK = ["--fs-micro", "--fs-meta", "--fs-body", "--fs-title",
+             "--fs-section", "--fs-page"]
+    WEIGHTS = {"400", "600"}
     SPACE = {"0", "4px", "8px", "12px", "16px", "20px", "24px", "28px", "32px"}
 
     @staticmethod
@@ -2230,50 +2236,115 @@ class TestDesignScale:
 
         return (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
 
-    def test_font_sizes_stay_on_the_scale(self):
-        import re
+    def _jetonlar(self) -> dict[str, int]:
+        css = self._css()
+        degerler = {}
+        for ad in self.OLCEK:
+            m = re.search(ad + r":\s*(\d+)px", css)
+            assert m, ad + " jetonu tanimli degil"
+            degerler[ad] = int(m.group(1))
+        return degerler
 
-        # `em` degerleri oransaldir (mono icin optik duzeltme) ve olcek disi
-        # sayilmaz; piksel degerleri olcege uymali.
-        used = set(re.findall(r"font-size:\s*([\d.]+px)", self._css()))
-        assert not (used - self.SIZES), f"olcek disi punto: {sorted(used - self.SIZES)}"
+    def test_font_sizes_come_from_the_scale(self):
+        """Ham piksel YOK: her punto jetondan gelir.
+
+        Once 18 farkli punto vardi ve her bilesen komsusuna bakmadan kendi
+        degerini seciyordu. Tek kaynak olmadan olcek her yamada biraz daha
+        dagilir -- nitekim dagilmisti.
+        """
+        css = self._css()
+        govde = css[css.index("body {"):]
+        ham = set(re.findall(r"font-size:\s*(\d+px)", govde))
+        assert not ham, "jeton disi punto: " + repr(sorted(ham))
+
+    def test_every_step_of_the_scale_is_visible(self):
+        """Iki komsu basamak arasindaki fark gozle SECILEBILMELI.
+
+        OLCULDU: 13 ile 14 arasindaki 1.077 orani bu puntolarda ayirt
+        edilemiyor; esik ~1.2. Olcek 1.25 ile kuruldu. Mikro->meta cifti
+        disarida: mikro yalnizca buyuk harfli tablo basligi ve buyuk harf
+        kendi ayrimini zaten yapiyor.
+        """
+        d = self._jetonlar()
+        adimlar = [d[a] for a in self.OLCEK]
+        ciftler = list(zip(adimlar[1:-1], adimlar[2:], strict=True))
+        for onceki, sonraki in ciftler:
+            oran = sonraki / onceki
+            assert oran >= 1.25, (
+                f"{onceki}px -> {sonraki}px orani {oran:.2f}; gozle ayirt "
+                "edilmesi icin en az 1.25 gerekiyor"
+            )
 
     def test_font_weights_stay_on_the_scale(self):
-        import re
-
         used = set(re.findall(r"font-weight:\s*(\d+)", self._css()))
-        assert not (used - self.WEIGHTS), f"olcek disi agirlik: {sorted(used - self.WEIGHTS)}"
+        assert not (used - self.WEIGHTS), (
+            "olcek disi agirlik: " + repr(sorted(used - self.WEIGHTS))
+        )
+
+    def test_weight_is_not_used_at_every_size(self):
+        """Agirlik BILGI tasimali.
+
+        OLCULDU: 600 agirligi 11px mikro etiketten 26px sayfa basligina
+        kadar butun olcegi kapliyordu -- 64 bildirim. Bir degisken her
+        seviyede ayni degeri aliyorsa hicbir sey soylemiyor demektir.
+        """
+        css = self._css()
+        # 600 govde puntosunda MESRU: orada agirlik sayfa katmanini degil,
+        # BIR SATIR ICINDEKI esitler arasini ayirir (gorev basligi ile
+        # yanindaki meta gibi). Yasak olan `--fs-meta`: meta zaten ikincil
+        # metin, kalinlastirmak rolunu ona karsi calistirir.
+        izinli = {"--fs-body", "--fs-title", "--fs-section", "--fs-page",
+                  "--fs-micro"}
+        sapan = []
+        for kural in re.findall(r"\{[^{}]*\}", css):
+            if "font-weight: 600" not in kural:
+                continue
+            m = re.search(r"font-size:\s*var\((--fs-\w+)\)", kural)
+            if m and m.group(1) not in izinli:
+                sapan.append(m.group(1) + ": " + kural.strip()[:70])
+        assert not sapan, "kucuk puntoda 600 agirlik: " + "; ".join(sapan[:5])
+
+    def test_uppercase_survives_in_exactly_one_place(self):
+        """Buyuk harf bir AYRISTIRMA aracidir; on dort yerde kullanildiginda
+        ayristirdigi bir sey kalmaz, geriye okunmasi zor bir doku kalir.
+
+        OLCULDU: tek ekranda 13 buyuk harfli etiket. Buyuk harf kelime
+        siluetini yok eder; yalnizca TARANAN metin icin dogru arac --
+        okunan metin icin degil. Geriye tablo sutun basligi kalir.
+        """
+        css = self._css()
+        kurallar = [k for k in re.findall(r"[^{}]*\{[^{}]*\}", css)
+                    if "text-transform: uppercase" in k]
+        assert len(kurallar) == 1, (
+            str(len(kurallar)) + " yerde buyuk harf: "
+            + "; ".join(k.split("{")[0].strip() for k in kurallar)
+        )
+        assert kurallar[0].split("{")[0].strip() == "thead th"
+
+    def test_the_corner_radius_comes_from_tokens(self):
+        """Alti farkli yaricap her kutuyu ayri bir nesne gibi gosteriyordu.
+        Otuz dort kutulu bir ekranda kose sessiz olmali."""
+        css = self._css()
+        govde = css[css.index("body {"):]
+        ham = set(re.findall(r"border-radius:\s*([\d.]+(?:px|%))", govde))
+        assert ham <= {"999px"}, "jetona baglanmamis yaricap: " + repr(sorted(ham))
 
     def test_gaps_stay_on_the_four_pixel_grid(self):
-        import re
-
         used: set[str] = set()
         for value in re.findall(r"\bgap:\s*([^;]+);", self._css()):
             used.update(value.strip().split())
         stray = {v for v in used if v.endswith("px") and v not in self.SPACE}
-        assert not stray, f"dort piksel izgarasi disi bosluk: {sorted(stray)}"
+        assert not stray, "dort piksel izgarasi disi bosluk: " + repr(sorted(stray))
 
     # Dolgu icin izin verilen kume. Dortun katlari izgaranin kendisi;
     # 1/2/3 sac teli ve optik nudge; 6 sikisik satirlarda yarim adim.
-    # 46/79 gibi "turetilmis" degerler burada YOK: bir girinti komsu
-    # olculerden hesaplanmali, elle secilmemeli -- yoksa komsu olcu
-    # degistiginde sessizce yanlis olur (gorev govdesinde tam bu oldu).
     PADDING = {0, 1, 2, 3, 4, 6, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 64, 80}
 
     def test_padding_stays_on_the_four_pixel_grid(self):
         """`gap` kilitliydi, `padding` serbestti -- ve orada 28 ayri deger
-        birikmisti (3, 5, 7, 9, 10, 11, 13, 14, 15, 18, 22, 26, 34, 79...).
-
-        En cok kullanilan uc deger 12px, 8px ve 14px idi: dosyanin kendisi
-        bile hangi ritmi izledigine karar verememis. Tek sayilar hicbir
-        yerde gerekcelendirilmemis ve yan yana duran kutular arasinda 1-2
-        piksellik farklar uretiyor; bunlar toplaninca hiza kaymasi olarak
-        gorunuyor. Arayuzun "toplanmis" degil "tasarlanmis" gorunmesini
-        saglayan sey, bir bilesenin komsusuna bakmadan kendi degerini
-        secmemesidir.
+        birikmisti. Tek sayilar yan yana duran kutular arasinda 1-2
+        piksellik farklar uretiyor; toplaninca hiza kaymasi olarak gorunur.
         """
-        import re
-
         stray: dict[int, list[str]] = {}
         for match in re.finditer(
             r"(padding(?:-top|-right|-bottom|-left|-inline-start)?):\s*([^;{}]+);",
@@ -2287,20 +2358,31 @@ class TestDesignScale:
             f"{n}px -> {ornek[0]}" for n, ornek in sorted(stray.items())
         )
 
-    def test_the_page_title_is_the_largest_text(self):
-        """Istatistik sayilari basligi bastirmamali.
-
-        24px sayilar 22px basligin yanindayken sayfa "sayilar hakkinda"
-        gorunuyordu; hiyerarsi tersine donmustu.
-        """
-        import re
-
+    def _punto(self, secici: str) -> int:
         css = self._css()
-        title = re.search(r"\.view-head h1 \{[^}]*font-size:\s*(\d+)px", css)
-        stat = re.search(r"\.stat-value \{[^}]*font-size:\s*(\d+)px", css)
-        assert title and stat
-        assert int(title.group(1)) > int(stat.group(1)), (
+        d = self._jetonlar()
+        m = re.search(
+            re.escape(secici) + r"\s*\{[^}]*font-size:\s*var\((--fs-\w+)\)", css)
+        assert m, secici + " puntosu jetondan gelmiyor"
+        return d[m.group(1)]
+
+    def test_the_page_title_is_the_largest_text(self):
+        """Istatistik sayilari basligi bastirmamali."""
+        assert self._punto(".view-head h1") > self._punto(".stat-value"), (
             "sayfa basligi istatistik sayilarindan buyuk olmali"
+        )
+
+    def test_the_thing_that_stops_you_outranks_the_numbers(self):
+        """Ekranin var olus sebebi olan cumle, yanindaki sayidan buyuk
+        olmali.
+
+        OLCULDU: "boru hatti durdu" 17px iken hemen altindaki "BOSLUK 3"
+        kartinin sayisi 22px idi -- yani sayfa "sayilar hakkinda"
+        gorunuyordu. Onceki test yalnizca h1'i koruyordu; alarm-vs-sayi
+        ekseni hic olculmemisti.
+        """
+        assert self._punto(".questions-head h2") >= self._punto(".stat-value"), (
+            "seni durduran seyin basligi istatistik sayisindan kucuk"
         )
 
 
