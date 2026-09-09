@@ -1611,6 +1611,10 @@ CATALOG: dict[str, dict[str, str]] = {
         "tr": "Bilinmeyen ayar: {name}",
         "en": "Unknown setting: {name}",
     },
+    "api.plan_deps_cleaned": {
+        "tr": "{count} gorevin bagimlilik listesinden silinen anahtarlar temizlendi.",
+        "en": "Removed deleted keys from {count} tasks' dependency lists.",
+    },
     "api.activity_admin_only": {
         "tr": "Baskasinin islerini yalnizca yonetici gorebilir.",
         "en": "Only an administrator can see someone else's work.",

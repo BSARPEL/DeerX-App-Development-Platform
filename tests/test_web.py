@@ -3950,3 +3950,164 @@ class TestRayRozetiEkraniSoyler:
             durum.add_task(Task(key=f"B-{i}", title=f"b{i}"), plan_id=b["id"])
 
         assert durum.counts()["tasks"] == 5
+
+
+class TestGorevPlaniIsAkisininIcinde:
+    """Gorev plani kendi ekraniydi; Is akisi ekranina tasindi.
+
+    Silinemezdi: uygulamada UC seyin tek gecis noktasi -- gorevin
+    `deps`/`files`/`acceptance`/`result` alanlarini gorebilecegin,
+    durumunu yazabilecegin ve tek bir gorevi kosturabilecegin tek yer.
+    `done -> pending` cekmek, bir isi YENIDEN kosturmanin tek yolu.
+
+    Ama kendi ekranini hak etmiyordu: gorev grafi, onu CALISTIRAN kosunun
+    yaninda durmali.
+    """
+
+    @staticmethod
+    def _varlik(ad):
+        from deerx.web.app import STATIC_DIR
+
+        return (STATIC_DIR / ad).read_text(encoding="utf-8")
+
+    def test_the_rail_no_longer_carries_a_plan_item(self):
+        html = self._varlik("index.html")
+        assert 'data-view="plan"' not in html
+        assert 'id="view-plan"' not in html
+
+    def test_the_tasks_live_inside_the_workflow_view(self):
+        """Bolum, Is akisi gorunumunun ICINDE olmali -- yaninda degil."""
+        html = self._varlik("index.html")
+        bas = html.index('id="view-workflow"')
+        son = html.index('class="view"', bas + 10)
+        icerik = html[bas:son]
+        for kimlik in ('id="wf-tasks"', 'id="plan-tabs"', 'id="task-list"',
+                       'id="task-filters"', 'id="lane-filters"'):
+            assert kimlik in icerik, f"{kimlik} is akisi gorunumunun icinde degil"
+
+    def test_the_old_address_still_lands_somewhere(self):
+        """Paylasilmis `#/p/x/plan` baglantisi bos ekrana dusmemeli."""
+        js = self._varlik("app.js")
+        assert "ESKI_GORUNUM" in js
+        assert 'plan: "workflow"' in js
+
+    def test_the_moved_controls_declare_their_role(self):
+        """Sablonla uretildikleri icin bu iki denetim rol testinin
+        tarayicisina gorunmuyordu -- yani sessizce korumasizdilar."""
+        js = self._varlik("app.js")
+        govde = js[js.index("function renderTaskPage("):]
+        govde = govde[: govde.index("\n}")]
+        assert 'data-status-for="${esc(task.key)}" data-needs-role="developer"' in govde
+        assert govde.count('data-needs-role="developer"') >= 2
+
+    def test_the_single_task_button_exists_in_every_approval_mode(self):
+        """`auto` modda dugme hic basilmiyordu: API acik, arayuz yolu yoktu."""
+        js = self._varlik("app.js")
+        govde = js[js.index("function renderTaskPage("):]
+        govde = govde[: govde.index("\n}")]
+        assert "data-run-task" in govde
+        assert 'approvalMode === "auto" ? ""' not in govde
+
+
+class TestBlokeFiltresiGercekteBlokeOlanlariGosterir:
+    """Planin neden ilerlemedigini gosterecek filtre, tam da onu
+    gostermiyordu.
+
+    `state.blocked_tasks()` -- "durumu pending AMA butun deps'i done
+    OLMAYAN" -- kodda vardi ve web katmani onu HIC cagirmiyordu. Cip
+    yalnizca durumu literal `blocked` olanlari suzuyor, bagimlilik
+    bekleyenler "Bekleyen" altinda gizli kaliyordu.
+    """
+
+    def test_the_endpoint_says_what_a_task_is_waiting_on(self, client, state_of):
+        durum = state_of
+        durum.add_task(Task(key="T-001", title="once"))
+        durum.add_task(Task(key="T-002", title="sonra", deps=["T-001"]))
+
+        gorevler = {
+            g["key"]: g for g in client.get("/api/state/tasks").json()["items"]
+        }
+        assert gorevler["T-002"]["waiting_on"] == ["T-001"]
+        assert gorevler["T-001"]["waiting_on"] == []
+
+        durum.update_task("T-001", status=Status.DONE)
+        gorevler = {
+            g["key"]: g for g in client.get("/api/state/tasks").json()["items"]
+        }
+        assert gorevler["T-002"]["waiting_on"] == [], "bagimlilik bitti, hala bekliyor"
+
+    def test_a_dependency_that_no_longer_exists_is_marked_apart(
+        self, client, state_of
+    ):
+        """"T-014 bekliyor" ile "T-014 YOK" ayni sey degil."""
+        durum = state_of
+        durum.add_task(Task(key="T-002", title="yetim", deps=["T-YOK"]))
+
+        gorev = client.get("/api/state/tasks").json()["items"][0]
+        assert gorev["waiting_on"] == ["T-YOK"]
+        assert gorev["missing_deps"] == ["T-YOK"]
+
+    def test_the_filter_covers_dependency_blocked_tasks(self):
+        js = TestGorevPlaniIsAkisininIcinde._varlik("app.js")
+        govde = js[js.index("function renderTaskPage("):]
+        govde = govde[: govde.index("\n}")]
+        assert 'state.taskFilter === "blocked"' in govde
+        assert "waiting_on" in govde, "cip hala yalnizca duruma bakiyor"
+
+
+class TestPlanSilinincePlanArkasindaOluAnahtarBirakmaz:
+    """Silinen bir planin gorevleri, BASKA planlardaki `deps`
+    listelerinde kaliyordu.
+
+    Anahtarlar proje capinda tekil ve `ready_tasks` bir bagimliligi
+    "done kumesinde mi" diye ariyor: var olmayan anahtar asla done
+    olmayacagi icin onu bekleyen gorev SONSUZA DEK hazir olmuyordu.
+    Sessizce.
+    """
+
+    def test_deleting_a_plan_cleans_the_dependencies_it_leaves_behind(
+        self, state_of
+    ):
+        durum = state_of
+        a = durum.create_plan("A")
+        b = durum.create_plan("B")
+        durum.add_task(Task(key="A-1", title="a"), plan_id=a["id"])
+        durum.add_task(Task(key="B-1", title="b", deps=["A-1"]), plan_id=b["id"])
+
+        assert durum.ready_tasks() == [] or all(
+            g.key != "B-1" for g in durum.ready_tasks()
+        )
+
+        silinen, temizlenen = durum.delete_plan(a["id"])
+        assert silinen == 1
+        assert temizlenen == 1, "olu anahtar temizlenmedi"
+        assert durum.get_task("B-1").deps == []
+        assert [g.key for g in durum.ready_tasks()] == ["B-1"], (
+            "gorev hala var olmayan bir anahtari bekliyor"
+        )
+
+    def test_the_cleanup_is_reported_not_silent(self, client, state_of):
+        """Sessiz bir veri degisikligi olmasin: kac gorevin etkilendigi
+        yanitla birlikte doner."""
+        durum = state_of
+        a = durum.create_plan("A")
+        b = durum.create_plan("B")
+        durum.add_task(Task(key="A-1", title="a"), plan_id=a["id"])
+        durum.add_task(Task(key="B-1", title="b", deps=["A-1"]), plan_id=b["id"])
+
+        veri = client.delete(f"/api/plans/{a['id']}").json()
+        assert veri["removed_tasks"] == 1
+        assert veri["cleaned_deps"] == 1
+
+    def test_an_untouched_dependency_is_left_alone(self, state_of):
+        """Temizlik yalnizca SILINEN anahtarlari alir."""
+        durum = state_of
+        a = durum.create_plan("A")
+        b = durum.create_plan("B")
+        durum.add_task(Task(key="B-1", title="b"), plan_id=b["id"])
+        durum.add_task(Task(key="B-2", title="b2", deps=["B-1"]), plan_id=b["id"])
+        durum.add_task(Task(key="A-1", title="a"), plan_id=a["id"])
+
+        _, temizlenen = durum.delete_plan(a["id"])
+        assert temizlenen == 0
+        assert durum.get_task("B-2").deps == ["B-1"]

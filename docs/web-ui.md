@@ -195,6 +195,21 @@ the button says how many tasks are ready, and why none are if that is the case.
 Task keys are unique project-wide, so a task in one plan can depend on a task in
 another with no ambiguity.
 
+The plan does not have its own screen. It lives inside **Runs**, under a single
+workflow — the task graph belongs next to the run that executes it, and on the
+workflow *list* the question "whose tasks?" has no answer. An old `#/p/<slug>/plan`
+link still lands there.
+
+**Blocked means blocked.** The *Blocked* filter covers tasks waiting on an
+unfinished dependency, not only those a run marked `blocked` — the filter meant to
+show why a plan is not moving was the one thing not showing it. A row says what it
+is waiting on, and a dependency that no longer exists is marked apart from one that
+is merely unfinished: "T-014 is gone" and "T-014 is pending" are different facts.
+
+Deleting a plan strips its keys from the dependency lists of tasks in other plans,
+and says how many it touched. Left behind, those keys were never going to be
+`done`, so the tasks waiting on them would never be ready — silently, forever.
+
 ## Analysis
 
 ![Analysis: requirements, questions, gaps, decisions and research](images/analysis-en.png)

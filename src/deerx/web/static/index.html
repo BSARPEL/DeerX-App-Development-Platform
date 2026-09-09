@@ -88,10 +88,6 @@
       <span class="rail-badge" id="badge-analysis"></span>
       <span class="rail-badge rail-badge-alert" id="badge-questions"></span>
     </button>
-    <button class="rail-item" data-view="plan" type="button" data-i18n-label="nav.plan" aria-label="Plan">
-      <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.6 7.2h14.8M4.6 12h14.8M4.6 16.8h8.8"/></svg><span class="rail-text" data-i18n="nav.plan">Plan</span>
-      <span class="rail-badge" id="badge-tasks"></span>
-    </button>
     <button class="rail-item" data-view="artifacts" type="button" data-i18n-label="nav.artifacts" aria-label="Çıktılar">
       <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13.4 4.6H7a1.6 1.6 0 0 0-1.6 1.6v11.6A1.6 1.6 0 0 0 7 19.4h10a1.6 1.6 0 0 0 1.6-1.6V9.8l-5.2-5.2Z"/><path d="M13.4 4.6v5.2h5.2"/></svg><span class="rail-text" data-i18n="nav.artifacts">Çıktılar</span>
       <span class="rail-badge" id="badge-artifacts"></span>
@@ -338,6 +334,46 @@
       <div class="wf-meta" id="workflow-meta"></div>
       <ol class="wf-steps" id="workflow-steps"></ol>
 
+      <!-- GOREVLER. Kendi ekraniydi; buraya tasindi cunku gorev grafi
+           onu CALISTIRAN kosunun yaninda durmali. Yalnizca tek is akisi
+           detayinda (Hal 2) gorunur: is akisi listesinde "hangisinin
+           gorevleri?" sorusunun cevabi yok. -->
+      <section class="wf-tasks" id="wf-tasks" hidden>
+        <header class="panel-head">
+          <h2 data-i18n="plan.title">Görev planı</h2>
+          <span class="panel-hint" id="plan-sub"></span>
+        </header>
+      <div class="plan-bar">
+        <div class="plan-tabs" id="plan-tabs"></div>
+        <div class="plan-bar-actions">
+          <button class="btn btn-ghost btn-sm" id="btn-new-plan" type="button" data-needs-role="developer" data-i18n="plan.newPlan">+ Yeni plan</button>
+          <button class="btn btn-ghost btn-sm" id="btn-rename-plan" type="button" data-needs-role="developer" data-i18n="app.rename">Adlandır</button>
+          <button class="btn btn-ghost btn-sm" id="btn-delete-plan" type="button" data-needs-role="developer" data-i18n="app.delete">Sil</button>
+          <button class="btn btn-primary btn-sm" id="btn-run-plan" type="button" data-needs-role="developer" data-i18n="plan.startPlan">▶ Başlat</button>
+        </div>
+      </div>
+      <p class="plan-note" id="plan-auto-note" data-i18n="plan.autoNote" hidden></p>
+      <div class="plan-toolbar">
+        <div class="chips" id="task-filters">
+          <button class="chip chip-btn is-active" data-status="" type="button" data-i18n="app.all">Tümü</button>
+          <button class="chip chip-btn" data-status="pending" type="button" data-i18n="plan.filterPending">Bekleyen</button>
+          <button class="chip chip-btn" data-status="done" type="button" data-i18n="plan.filterDone">Tamamlanan</button>
+          <button class="chip chip-btn" data-status="failed" type="button" data-i18n="plan.filterFailed">Başarısız</button>
+          <button class="chip chip-btn" data-status="blocked" type="button" data-i18n="plan.filterBlocked">Bloke</button>
+        </div>
+        <div class="chips" id="lane-filters">
+          <button class="chip chip-btn is-active" data-lane="" type="button" data-i18n="plan.allLanes">Tüm şeritler</button>
+          <button class="chip chip-btn" data-lane="backend" type="button" data-i18n="lane.backend">Backend</button>
+          <button class="chip chip-btn" data-lane="frontend" type="button" data-i18n="lane.frontend">Frontend</button>
+          <button class="chip chip-btn" data-lane="qa" type="button" data-i18n="lane.qa">QA</button>
+          <button class="chip chip-btn" data-lane="infra" type="button" data-i18n="lane.infra">Infra</button>
+          <button class="chip chip-btn" data-lane="docs" type="button" data-i18n="lane.docs">Docs</button>
+        </div>
+      </div>
+      <div id="task-list"></div>
+      <nav class="pager" id="task-pager" data-i18n-label="pager.aria"
+           aria-label="Sayfalama" hidden></nav>
+      </section>
     </section>
 
     <!-- Bilgi tabanı -->
@@ -410,42 +446,6 @@
     </section>
 
     <!-- Plan -->
-    <section class="view" id="view-plan">
-      <div class="view-head">
-        <h1 data-i18n="plan.title">Görev planı</h1>
-        <p class="view-sub" id="plan-sub">—</p>
-      </div>
-      <div class="plan-bar">
-        <div class="plan-tabs" id="plan-tabs"></div>
-        <div class="plan-bar-actions">
-          <button class="btn btn-ghost btn-sm" id="btn-new-plan" type="button" data-needs-role="developer" data-i18n="plan.newPlan">+ Yeni plan</button>
-          <button class="btn btn-ghost btn-sm" id="btn-rename-plan" type="button" data-needs-role="developer" data-i18n="app.rename">Adlandır</button>
-          <button class="btn btn-ghost btn-sm" id="btn-delete-plan" type="button" data-needs-role="developer" data-i18n="app.delete">Sil</button>
-          <button class="btn btn-primary btn-sm" id="btn-run-plan" type="button" data-needs-role="developer" data-i18n="plan.startPlan">▶ Başlat</button>
-        </div>
-      </div>
-      <p class="plan-note" id="plan-auto-note" data-i18n="plan.autoNote" hidden></p>
-      <div class="plan-toolbar">
-        <div class="chips" id="task-filters">
-          <button class="chip chip-btn is-active" data-status="" type="button" data-i18n="app.all">Tümü</button>
-          <button class="chip chip-btn" data-status="pending" type="button" data-i18n="plan.filterPending">Bekleyen</button>
-          <button class="chip chip-btn" data-status="done" type="button" data-i18n="plan.filterDone">Tamamlanan</button>
-          <button class="chip chip-btn" data-status="failed" type="button" data-i18n="plan.filterFailed">Başarısız</button>
-          <button class="chip chip-btn" data-status="blocked" type="button" data-i18n="plan.filterBlocked">Bloke</button>
-        </div>
-        <div class="chips" id="lane-filters">
-          <button class="chip chip-btn is-active" data-lane="" type="button" data-i18n="plan.allLanes">Tüm şeritler</button>
-          <button class="chip chip-btn" data-lane="backend" type="button" data-i18n="lane.backend">Backend</button>
-          <button class="chip chip-btn" data-lane="frontend" type="button" data-i18n="lane.frontend">Frontend</button>
-          <button class="chip chip-btn" data-lane="qa" type="button" data-i18n="lane.qa">QA</button>
-          <button class="chip chip-btn" data-lane="infra" type="button" data-i18n="lane.infra">Infra</button>
-          <button class="chip chip-btn" data-lane="docs" type="button" data-i18n="lane.docs">Docs</button>
-        </div>
-      </div>
-      <div id="task-list"></div>
-      <nav class="pager" id="task-pager" data-i18n-label="pager.aria"
-           aria-label="Sayfalama" hidden></nav>
-    </section>
 
     <!-- Çıktılar -->
     <section class="view" id="view-artifacts">

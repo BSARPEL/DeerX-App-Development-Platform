@@ -188,6 +188,22 @@ kaç görevin hazır olduğunu, hazır yoksa nedenini söyler.
 Görev anahtarları proje çapında tekildir, yani bir planın görevi başka bir
 planın görevine bağımlı olabilir ve belirsizlik kalmaz.
 
+Planın kendi ekranı yok. **Koşular** ekranının içinde, tek bir iş akışının altında
+duruyor — görev grafı, onu çalıştıran koşunun yanında olmalı, ve iş akışı
+*listesinde* "hangisinin görevleri?" sorusunun cevabı yok. Eski bir
+`#/p/<kısa-ad>/plan` bağlantısı yine oraya düşüyor.
+
+**Bloke, gerçekten bloke.** *Bloke* filtresi artık bağımlılığı bitmemiş görevleri
+de kapsıyor, yalnızca bir koşunun `blocked` yazdıklarını değil — planın neden
+ilerlemediğini gösterecek olan filtre, tam da onu göstermiyordu. Satır neyi
+beklediğini yazıyor ve artık var olmayan bir bağımlılık, yalnızca bitmemiş
+olandan ayrı işaretleniyor: "T-014 yok" ile "T-014 bekliyor" ayrı gerçekler.
+
+Bir planı silmek, onun anahtarlarını başka planlardaki görevlerin bağımlılık
+listelerinden de temizliyor ve kaç görevi etkilediğini söylüyor. Bırakıldıklarında
+o anahtarlar hiçbir zaman `done` olmayacaktı, yani onları bekleyen görevler
+sonsuza dek hazır olmuyordu — sessizce.
+
 ## Analiz
 
 ![Analiz: gereksinimler, sorular, boşluklar, kararlar ve araştırma](../images/analysis-tr.png)

@@ -794,19 +794,43 @@ class ProjectState:
             self._commit()
         return self.get_plan(plan_id)
 
-    def delete_plan(self, plan_id: str) -> int:
-        """Plani ve gorevlerini siler; silinen gorev sayisini doner."""
-        count = int(
-            self._conn.execute(
-                "SELECT COUNT(*) AS n FROM tasks WHERE plan_id = ?", (plan_id,)
-            ).fetchone()["n"]
-        )
+    def delete_plan(self, plan_id: str) -> tuple[int, int]:
+        """Plani ve gorevlerini siler; (silinen gorev, temizlenen bagimlilik).
+
+        Silinen anahtarlar BASKA planlardaki `deps` listelerinden de
+        temizlenir. Anahtarlar proje capinda tekil ve `ready_tasks` bir
+        bagimliligi "done kumesinde mi" diye ariyor: var olmayan anahtar
+        asla done olmayacagi icin onu bekleyen gorev SONSUZA DEK hazir
+        olmuyordu. Sessizce.
+
+        Temizlik sessiz bir veri degisikligi olmasin diye SAYISI doner ve
+        cagiran taraf kullaniciya soyler.
+        """
+        silinecek = [
+            r["key"] for r in self._conn.execute(
+                "SELECT key FROM tasks WHERE plan_id = ?", (plan_id,)
+            )
+        ]
+        count = len(silinecek)
         self._conn.execute("DELETE FROM tasks WHERE plan_id = ?", (plan_id,))
         self._conn.execute("DELETE FROM plans WHERE id = ?", (plan_id,))
+
+        temizlenen = 0
+        if silinecek:
+            olu = set(silinecek)
+            for row in self._conn.execute("SELECT key, deps FROM tasks").fetchall():
+                mevcut = json.loads(row["deps"] or "[]")
+                kalan = [d for d in mevcut if d not in olu]
+                if len(kalan) != len(mevcut):
+                    self._conn.execute(
+                        "UPDATE tasks SET deps = ? WHERE key = ?",
+                        (json.dumps(kalan, ensure_ascii=False), row["key"]),
+                    )
+                    temizlenen += 1
         self._commit()
         if self.get_meta("active_plan") == plan_id:
             self.set_meta("active_plan", None)
-        return count
+        return count, temizlenen
 
     def active_plan_id(self) -> str:
         """Yeni gorevlerin yazilacagi plan; yoksa olusturulur.

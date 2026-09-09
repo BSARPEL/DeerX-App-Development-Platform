@@ -1362,8 +1362,21 @@ def build_app(settings: Settings) -> Starlette:
             if wanted:
                 payload = [t for t in payload if t.get("plan_id") == wanted]
             ready = {t.key for t in project.ready_tasks()}
+            # Bagimlilik cozumu PROJE CAPINDA yapilir: bir planin gorevi
+            # baska bir planin gorevini bekleyebilir. Istemcinin elinde
+            # yalnizca secili planin gorevleri var, o yuzden "neyi
+            # bekliyor" burada hesaplanir.
+            tum = {t.key: t for t in project.list_tasks()}
+            biten = {k for k, t in tum.items() if t.status == Status.DONE}
             for task in payload:
                 task["ready"] = task["key"] in ready
+                bekleyen = [d for d in task.get("deps", []) if d not in biten]
+                task["waiting_on"] = bekleyen
+                # "T-014 bekliyor" ile "T-014 YOK" ayni sey degil: silinen
+                # bir plan, baska planlardaki gorevlerin `deps` listesinde
+                # olu anahtarlar birakabiliyordu ve o gorevler sessizce
+                # sonsuza dek hazir olmuyordu.
+                task["missing_deps"] = [d for d in bekleyen if d not in tum]
         return _json({"section": section, "items": payload})
 
     # ---------------------------------------------------------------- #
@@ -1436,9 +1449,18 @@ def build_app(settings: Settings) -> Starlette:
         # Son plani silmek gorevleri sahipsiz birakirdi.
         if len(project.list_plans()) <= 1:
             return _error(t("api.last_plan"), 400)
-        removed = project.delete_plan(plan_id)
+        removed, cleaned = project.delete_plan(plan_id)
         state.runner.emit("warn", "plan", t("api.plan_deleted", count=removed))
-        return _json({"ok": True, "removed_tasks": removed})
+        if cleaned:
+            # Sessiz bir veri degisikligi olmasin: baska planlardaki olu
+            # bagimlilik anahtarlari temizlendi ve kac gorevi etkiledigi
+            # soylenir.
+            state.runner.emit(
+                "warn", "plan", t("api.plan_deps_cleaned", count=cleaned)
+            )
+        return _json(
+            {"ok": True, "removed_tasks": removed, "cleaned_deps": cleaned}
+        )
 
 
     # ---------------------------------------------------------------- #

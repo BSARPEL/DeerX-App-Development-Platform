@@ -680,6 +680,12 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   50%      { opacity: .45; }
 }
 
+/* ── Is akisi icindeki gorevler ───────────────────────────────────────── */
+/* Gorev plani kendi ekraniydi; buraya tasindi. Bir bolum olarak durur:
+   kendi kutusu yok, ayrimi ustundeki cetvel ve bolum arasi ritim yapar. */
+.wf-tasks { margin-top: var(--stack-lg); }
+.wf-tasks .plan-bar { margin-top: 16px; }
+
 /* ── Istatistik kartlari ─────────────────────────────────────────────── */
 /* Sekiz kart. `auto-fit` genislige gore altiya bolup ikisini alt satira
    dusuruyordu; ragged 6+2 kazara duruyordu. Dorde sabitlemek 4x2 veriyor. */

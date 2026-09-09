@@ -272,8 +272,15 @@ async function changeLanguage(lang) {
 }
 
 // ─── Yonlendirme ──────────────────────────────────────────────────────────
+/* "plan" ARTIK YOK: gorev plani Is akisi ekraninin icinde. Eski
+   `#/p/<slug>/plan` adresleri `showView` tarafindan duzeltilerek
+   genel bakisa duser -- kirik bir adres birakmiyoruz. */
 const VIEWS = ["overview", "develop", "workflow", "knowledge", "analysis",
-               "plan", "artifacts", "stream", "env", "projects", "settings"];
+               "artifacts", "stream", "env", "projects", "settings"];
+
+// Eski adresi hedefine yollar: paylasilmis bir baglanti bos ekrana
+// dusmesin.
+const ESKI_GORUNUM = { plan: "workflow" };
 
 /* Adres iki katmanli: `#/p/<slug>/<gorunum>[/<detay>]`.
    `p/` oneki bilincli -- bir gun "plan" ya da "settings" slug'li bir proje
@@ -331,6 +338,7 @@ function writeRoute(r, { replace = false } = {}) {
 }
 
 function showView(name, detail = "") {
+  if (ESKI_GORUNUM[name]) { detail = ""; name = ESKI_GORUNUM[name]; }
   const duzeltildi = !VIEWS.includes(name);
   if (duzeltildi) { name = "overview"; detail = ""; }
   state.view = name;
@@ -345,7 +353,6 @@ function showView(name, detail = "") {
   if (name === "workflow")  loadWorkflow();
   if (name === "knowledge") loadDocuments();
   if (name === "analysis")  loadAnalysis();
-  if (name === "plan")      { loadPlans(); loadTasks(); }
   if (name === "artifacts") { loadArtifacts(); loadDelivery(); }
   if (name === "stream")    renderFeed();
   if (name === "projects")  loadProjects();
@@ -515,7 +522,10 @@ async function loadOverview() {
   $("#badge-analysis").textContent  = (counts.requirements + counts.gaps) || "";
   $("#badge-questions").textContent = counts.questions_open || "";
   $("#badge-questions").dataset.blocking = counts.questions_blocking ? "1" : "";
-  $("#badge-tasks").textContent     = counts.tasks || "";
+  // Gorev rozeti YOK: gorevler artik Is akisi ekraninda ve o maddenin
+  // sayisi "bu is akisinin gorevleri" demek olurdu -- oysa gorevler
+  // ETKIN PLANA ait, is akisina degil. Sayi genel bakistaki sayacta
+  // ve gorev bolumunun basliginda duruyor.
   $("#badge-artifacts").textContent = counts.artifacts || "";
   $("#c-req").textContent = counts.requirements;
   // Toplam soru sayisi tek basina bir sey soylemiyordu: kosuyu
@@ -672,7 +682,7 @@ function renderStats(data) {
      OLCULDU: sekiz kartin BESI ayni anda ekranda duran bir sayiyi tekrar
      ediyordu -- Dokuman, Gereksinim, Soru, Gorev ve Cikti rayda rozet
      olarak zaten yaziyor (#badge-docs, #badge-analysis, #badge-questions,
-     #badge-tasks, #badge-artifacts). "Maliyet" ise ayni ekranda iki kez:
+     #badge-artifacts). "Maliyet" ise ayni ekranda iki kez:
      ust barda ve kartta; ust bar her ekranda gorundugu icin karttaki
      gitti.
 
@@ -686,7 +696,7 @@ function renderStats(data) {
       view: "analysis" },
     { label: t("stat.tasks"), value: `${c.tasks_done}/${c.tasks}`,
       hint: t("stat.tasksHint"),
-      tone: c.tasks && c.tasks_done === c.tasks ? "ok" : "", view: "plan" },
+      tone: c.tasks && c.tasks_done === c.tasks ? "ok" : "", view: "workflow" },
   ];
   void kb;
   $("#stat-grid").innerHTML = cards.map((card) => `
@@ -2398,6 +2408,9 @@ async function loadWorkflowList() {
   $("#chat-open").hidden = true;
   closeChat();
   $("#workflow-expand-label").hidden = true;
+  // Gorevler bir IS AKISINA aittir; listede "hangisinin gorevleri?"
+  // sorusunun cevabi yok.
+  $("#wf-tasks").hidden = true;
   $("#workflow-meta").innerHTML = "";
   $("#workflow-steps").innerHTML = "";
 
@@ -2462,6 +2475,11 @@ async function loadWorkflowDetail(workflowId) {
   $("#workflow-new").hidden = true;
   $("#chat-open").hidden = false;
   loadChat(workflowId);
+  // Gorevler burada: bir is akisi bir gelistirme cabasi, gorevler de
+  // onun planlarina ait.
+  $("#wf-tasks").hidden = false;
+  loadPlans();
+  loadTasks();
   // Beklerken eski projenin verisi ekranda kalmaz.
   $("#workflow-steps").innerHTML = busyState();
   try {
@@ -2478,6 +2496,10 @@ function renderWorkflowDetail(data) {
   const list = $("#run-list");
   $("#workflow-title").textContent = t("wf.one", { seq: wf.seq });
   $("#workflow-sub").textContent = wf.title || wf.goal || t("runs.noGoal");
+
+  // Bu kutuya bir daha yazilmiyor; birakilan `busyState()` kalici bir
+  // "Yukleniyor" satiri olarak asili kaliyordu.
+  $("#workflow-steps").innerHTML = "";
 
   const done = data.steps.filter((s) => s.status === "done").length;
   $("#workflow-meta").innerHTML = `
@@ -2638,6 +2660,9 @@ async function loadRunDetail(runId) {
   $("#workflow-back").hidden = false;
   $("#workflow-new").hidden = true;
   $("#workflow-expand-label").hidden = false;
+  // Tek kosu detayinda gorev listesi yanlis kapsam: bir kosu bircok
+  // gorev kosturabiliyor ve orada faz kartlari var.
+  $("#wf-tasks").hidden = true;
   // Beklerken eski projenin verisi ekranda kalmaz.
   $("#workflow-steps").innerHTML = busyState();
   try {
@@ -3252,6 +3277,16 @@ async function loadPlans() {
     $$("[data-plan]", bar).forEach((tab) => {
       tab.addEventListener("click", () => {
         state.selectedPlan = tab.dataset.plan;
+        // Etkin plan da degisir: ajanin yazacagi YENI gorevler baktiginiz
+        // plana dussun. Once yalnizca istemci secimi degisiyordu ve yeni
+        // gorevler eski plana gidiyordu.
+        //
+        // Yalnizca yetkisi olan gonderir: sekme degistirmek bir OKUMA
+        // eylemi gibi hissettiriliyor ve bir izleyici 403 toast'i almamali.
+        if (yetkiVar("developer")) {
+          post(`/api/plans/${encodeURIComponent(tab.dataset.plan)}`, { active: true })
+            .catch(() => {});
+        }
         loadPlans();
         loadTasks();
       });
@@ -3362,7 +3397,17 @@ function renderTaskPage() {
   const all = state.taskItems;
 
   let items = all;
-  if (state.taskFilter) items = items.filter((task) => task.status === state.taskFilter);
+  /* "Bloke" cipi BAGIMLILIK BEKLEYENI de kapsar.
+
+     Once yalnizca durumu literal `blocked` olanlari suzuyordu; bagimliligi
+     bitmemis gorevler "Bekleyen" altinda gizli kaliyordu. Yani planin neden
+     ilerlemedigini gosterecek olan filtre, tam da onu gostermiyordu. */
+  if (state.taskFilter === "blocked") {
+    items = items.filter((task) =>
+      task.status === "blocked" || (task.waiting_on || []).length);
+  } else if (state.taskFilter) {
+    items = items.filter((task) => task.status === state.taskFilter);
+  }
   if (state.laneFilter) items = items.filter((task) => task.lane === state.laneFilter);
 
   const done = all.filter((task) => task.status === "done").length;
@@ -3406,7 +3451,12 @@ function renderTaskPage() {
                   status: tv("status", task.status), lane: tv("lane", task.lane) }))}">
           <span class="task-key">${esc(task.key)}</span>
           <span class="task-title">${esc(task.title)}</span>
-          ${task.deps.length ? `<span class="task-deps">← ${esc(task.deps.join(", "))}</span>` : ""}
+          ${task.deps.length ? `<span class="task-deps"${
+            (task.missing_deps || []).length ? ' data-missing="1"' : ""
+          } title="${esc((task.missing_deps || []).length
+              ? t("plan.depsMissing", { keys: task.missing_deps.join(", ") })
+              : t("plan.depsWaiting", { keys: (task.waiting_on || []).join(", ") || "—" }))
+          }">← ${esc(task.deps.join(", "))}</span>` : ""}
           <!-- Satirin sol kenari durumun rengini ZATEN tasiyor; ayrica
                renkli bir rozet basmak ayni bilgiyi ikinci kez kodlar.
                Geriye kelime kaliyor, duz meta olarak. "Hazir" da ucuncu
@@ -3422,11 +3472,12 @@ function renderTaskPage() {
           ${task.acceptance ? `<div class="task-accept"><strong>${esc(t("plan.acceptance"))}:</strong> ${esc(task.acceptance)}</div>` : ""}
           ${task.result ? `<p style="color:var(--text-3)"><strong>${esc(t("plan.result"))}:</strong> ${esc(task.result)}</p>` : ""}
           <div class="task-actions">
-            <select data-status-for="${esc(task.key)}">
+            <select data-status-for="${esc(task.key)}" data-needs-role="developer">
               ${TASK_STATUSES.map((status) => `<option value="${status}"${status === task.status ? " selected" : ""}>${esc(tv("status", status))}</option>`).join("")}
             </select>
-            ${state.approvalMode === "auto" ? "" :
-              `<button class="btn btn-sm" data-run-task="${esc(task.key)}" type="button">${esc(t("plan.runTask"))}</button>`}
+            <button class="btn btn-sm" data-needs-role="developer"
+                    data-run-task="${esc(task.key)}" type="button">${
+              esc(t("plan.runTask"))}</button>
           </div>
         </div>
       </article>`;
@@ -3455,7 +3506,11 @@ function renderTaskPage() {
   $$("[data-run-task]", target).forEach((button) => {
     button.addEventListener("click", async () => {
       try {
-        await post("/api/run", { phase: "implement", task_key: button.dataset.runTask });
+        const sonuc = await post(
+          "/api/run", { phase: "implement", task_key: button.dataset.runTask });
+        // Is akisi baglami korunur: once atanmadigi icin liste haline
+        // dusuluyor ve hangi gorevin kostugu kayboluyordu.
+        if (sonuc?.run?.workflow_id) state.activeWorkflow = sonuc.run.workflow_id;
         toast(t("plan.taskRunning", { key: button.dataset.runTask }), "ok");
         showView("workflow");
         loadOverview();
