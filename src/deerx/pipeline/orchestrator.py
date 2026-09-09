@@ -418,8 +418,8 @@ class Orchestrator:
         self._run_id = run_id
         self.events.emit(
             "phase", "run",
-            f"is akisi #{workflow['seq']} · adim #{seq}: "
-            + " -> ".join(str(p) for p in phases),
+            t("run.begins", wf=workflow["seq"], seq=seq,
+              phases=" -> ".join(str(p) for p in phases)),
             run_id=run_id, seq=seq, workflow_seq=workflow["seq"],
         )
 
@@ -572,7 +572,7 @@ class Orchestrator:
         if question is None:
             return None
         self._reindex_answers()
-        self.events.emit("done", "soru", f"{question.key} cevaplandi")
+        self.events.emit("done", "soru", t("run.question_answered", key=question.key))
         return question
 
     def skip_question(self, key: str, assumption: str = "") -> Question | None:
@@ -582,7 +582,9 @@ class Orchestrator:
             return None
         self._reindex_answers()
         self.events.emit(
-            "warn", "soru", f"{question.key} atlandi, varsayim: {question.suggestion or '(yok)'}"
+            "warn", "soru",
+            t("run.question_skipped", key=question.key,
+              assumption=question.suggestion or t("run.no_assumption")),
         )
         return question
 
@@ -690,7 +692,7 @@ class Orchestrator:
         self.events.emit(
             "needs_input",
             "kapi",
-            f"{len(pending)} cevaplanmamis soru boru hattini durdurdu",
+            t("run.pipeline_halted", n=len(pending)),
             questions=[q.key for q in pending],
         )
         return PhaseResult(
@@ -711,7 +713,7 @@ class Orchestrator:
         Sessizce engellemek, ajanin neden bos sayfa gordugunu kimseye
         anlatmaz; kullanici da ajanin nereye gitmeye calistigini gormeli.
         """
-        self.events.emit("warn", "browser", f"engellendi: {url[:160]}")
+        self.events.emit("warn", "browser", t("run.url_blocked", url=url[:160]))
 
     def _skip_reason(self, phase: Phase, force: bool) -> str | None:
         """Faz atlanacaksa gerekcesi, atlanmayacaksa None.
@@ -813,7 +815,7 @@ class Orchestrator:
         problems: list[str] = []
 
         for target in targets:
-            self.events.emit("phase", "ingest", f"taraniyor: {target}")
+            self.events.emit("phase", "ingest", t("run.scanning", target=target))
             for result in self.kb.ingest_path(Path(target), force=force):
                 if not result.ok:
                     failed += 1
@@ -959,7 +961,9 @@ class Orchestrator:
         # yazmak, paralel dalgada yarisa girecek ikinci bir yazma olurdu.
         console.rule(f"[agent]{task.key} · {role} · {task.title}[/agent]")
         self.events.emit(
-            "agent", role, f"{task.key} ustlenildi ({task.lane} seridi)", task=task.key
+            "agent", role,
+            t("run.task_taken", key=task.key, lane=task.lane),
+            task=task.key,
         )
 
         # Her gorev icin taze ajan: baglam temiz kalir, maliyet ongorulebilir olur.
@@ -991,7 +995,8 @@ class Orchestrator:
             return result.cost, True
         self.events.emit(
             "warn", "implement",
-            f"{task.key} tamamlanamadi ({current.status if current else '?'})",
+            t("run.task_incomplete", key=task.key,
+              status=current.status if current else "?"),
         )
         return result.cost, False
 

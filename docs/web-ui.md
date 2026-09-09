@@ -179,6 +179,23 @@ overview's *Recent events* fills in too. The stream had claimed to be persisted
 while showing nothing after a refresh; auditability that stops at the screen is
 not auditability.
 
+**Scope: the whole project, or one workflow.** The selector at the top narrows
+the feed to a single workflow. The filter runs on the server
+(`/api/events/history?workflow=`), not in the client: history is read from the
+end, and a third workflow's events can sit far behind the last 400 lines —
+filtering client-side would never see them. If the whole log was not scanned
+the screen says so; "older entries not scanned" and "no events" are not the
+same claim.
+
+Each row now also prints the event's **phase**. The field was in the record all
+along; the screen simply never drew it.
+
+**Search** runs over the message and the actor, client-side.
+
+**The connection is on screen.** A line appears when the feed drops and clears
+when it comes back. It used to reconnect silently: nothing on screen, and a
+stalled feed looked like "no events".
+
 ## Plan
 
 ![The task plan: lanes, dependencies and per-task status](images/plan-en.png)
@@ -218,6 +235,24 @@ Requirements, gaps, architectural decisions and research findings. Clicking a
 row opens its evidence and recommendation. Paginated (25/50/100/250); switching
 tabs returns to page one, and open detail rows do not bleed across pages.
 
+**Filters and search.** Each tab filters on its own categorical fields:
+priority and category for requirements, severity and area for gaps, status and
+blocking for questions, confidence for research. The chips are **derived from
+the data** — whatever values actually occur in that tab. Drawing a chip for a
+value that is not in the data would invite a click that can never return
+anything. The chips stay when a filter empties the list, or there would be no
+way back.
+
+**The counter and the table come from the same moment.** All five sections are
+fetched in a single `/api/state/all` call and the tab counters are the lengths
+of those lists. The counters used to come from `/api/overview` (refreshed every
+2.5s) while the table came from a separate call: mid-run the screen could say
+"Requirements 24" above "No requirements". A side benefit: switching tabs no
+longer costs a request.
+
+**What you typed survives.** The screen redraws every 2.5s during a run; open
+detail rows and text typed into an answer box are carried across.
+
 **Open questions are answerable here.** The Questions tab is not a read-only
 log: expanding an open question gives you the answer box, and the answer goes
 into the knowledge base like any other. Only *blocking* questions used to be
@@ -227,12 +262,35 @@ that it asks instead of guessing.
 
 ## Knowledge base
 
-What the model can actually search. Two panels.
+What the model can actually search.
+
+**Documents.** The inventory: what is indexed, of what kind, how many chunks.
+Search over name and path, chips for kind and state. The header line says how
+many documents are **active** — the number the agents can actually see. The
+total is the inventory; telling someone who deactivated three documents that
+they still have "27 documents" would be quoting a number they cannot use.
+
+**Deactivate really removes it.** "Stop looking at this" narrows both the
+search box and the corpus the agents read; the chunks stay, so undoing it does
+not need a re-index. A run's document scope cannot **undo** it: a scope is a
+narrowing ("in this run, look only at these"), deactivation is an exclusion
+("in no run, look at this").
+
+**Permanent delete stops at the workspace edge.** The index entry always goes;
+the file is only unlinked when it lives inside the workspace. The corpus can
+carry outside paths (`deerx index <dir>` will index anywhere), and deleting a
+file in someone else's directory is not the project's to do. When the file is
+left behind, the feed says so.
 
 **Search.** A query plus kind chips — document, code, web, data. The same
 hybrid search as `deerx search`: semantic plus BM25, fused by rank. Results
 name the source and the chunk, so "did it index my spec?" is answered here
 rather than forty minutes into a run.
+
+This box is a **diagnostic**: hits from deactivated documents come back too,
+dimmed and labelled "agents do not read this document". The answer to "why
+isn't this found?" is usually "because you deactivated it", and zero results
+never says that. The agent's own search never opens this door.
 
 **Indexing.** A path, an optional **Force**, and the list of documents already
 in the index, paginated. Uploading on **Develop** lands the file under `docs/`

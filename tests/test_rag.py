@@ -192,6 +192,51 @@ class TestKnowledgeBase:
         assert kb.search("KVKK", k=3) != []
         assert kb.search("KVKK", k=3, sources=[]) == []
 
+    def test_permanent_delete_stops_at_the_workspace_edge(self, kb, workspace, tmp_path):
+        """"Kalici sil" CALISMA ALANININ disina uzanmamali.
+
+        OLCULDU (calistirarak): uzaniyordu. Alan disindaki bir belgeyi
+        indeksleyip silince dosya DISKTEN gidiyordu -- ve bu uzak bir
+        ihtimal degil: `deerx index <dizin>` her yeri indeksleyebiliyor
+        ve gercek bir korpusta belgelerin kaynaklari baska projelerin
+        dizinlerini gosteriyor.
+
+        Indeksten cikarmak projenin hakki; baskasinin dosyasini diskten
+        silmek degil.
+        """
+        disarisi = tmp_path.parent / "BASKA-PROJE"
+        disarisi.mkdir(exist_ok=True)
+        yabanci = disarisi / "baskasinin-dosyasi.md"
+        yabanci.write_text("# Baskasinin sartnamesi\n\nKVKK maddeleri.\n",
+                           encoding="utf-8")
+        kb.ingest_path(yabanci)
+        kaynak = next(d["source"] for d in kb.store.list_documents()
+                      if "baskasinin" in d["source"])
+
+        silinen, dosya_silindi = kb.forget(kaynak, remove_file=True)
+
+        assert silinen > 0, "indeks kaydi yine de silinmeli"
+        assert dosya_silindi is False
+        assert yabanci.is_file(), "alan disindaki dosya diskten silindi"
+        assert not [d for d in kb.store.list_documents()
+                    if "baskasinin" in d["source"]], "belge indekste kaldi"
+
+    def test_permanent_delete_still_removes_a_file_that_is_ours(self, kb, workspace):
+        """Duzeltme, ISE YARAYAN halini bozmamali.
+
+        Dosya alan icindeyse "Kalici sil" gercekten siler: birakilsaydi
+        bir sonraki `ingest` belgeyi sessizce geri getirirdi.
+        """
+        kb.ingest_path(workspace / "docs")
+        kaynak = kb.store.list_documents()[0]["source"]
+        assert pathlib.Path(kaynak).is_file()
+
+        silinen, dosya_silindi = kb.forget(kaynak, remove_file=True)
+
+        assert silinen > 0
+        assert dosya_silindi is True
+        assert not pathlib.Path(kaynak).exists()
+
     def test_a_deactivated_document_disappears_from_search(self, kb, workspace):
         """OLCULDU: cikmiyordu. Dugme "Pasiflestir" diyor, `set_active`
         docstring'i "Belgeyi aramadan ve yeniden indekslemeden cikarir"
@@ -343,7 +388,7 @@ class TestKnowledgeBase:
     def test_forget_removes_document(self, kb, workspace):
         kb.ingest_path(workspace / "docs")
         source = kb.list_documents()[0]["source"]
-        assert kb.forget(source) > 0
+        assert kb.forget(source)[0] > 0
         assert kb.stats()["chunks"] == 0
 
     def test_dimension_change_is_detected(self, settings, workspace):

@@ -1019,3 +1019,97 @@ class TestCaprazTaramaYetkisi:
         )
         toplam_adsiz = sum(p["unattributed"] for p in veri["projects"])
         assert toplam_adsiz >= 1, "sahipsiz kosu hic sayilmamis"
+
+
+class TestAkisDogruProjeyiDinler:
+    """Canli akis YANLIS projenin olaylarini gosterebiliyordu.
+
+    Uygulamanin geri kalani projeyi `X-DeerX-Project` BASLIGIYLA tasiyor
+    ve gerekcesi kodda yaziyor: "Cerez tarayici genelidir: A sekmesinde
+    proje degistiren kisi B sekmesinin sonraki istegini de tasiyordu."
+
+    Ama `EventSource` baslik GONDEREMEZ -- web standardi izin vermiyor.
+    Akis, uygulamada baslik disiplininden muaf kalan tek istekti ve
+    cereze dusuyordu: iki sekme iki projede acikken ikisi de SON
+    etkinlestirilen projenin olaylarini aliyordu.
+
+    Cozum, baslik gonderemeyen istemci icin bir sorgu parametresi.
+    Dogrulama degismiyor; asagidaki ikinci test bunu civiliyor.
+    """
+
+    @pytest.fixture
+    def sunucu(self, settings):
+        from starlette.testclient import TestClient
+
+        from deerx.web.app import build_app
+
+        with TestClient(build_app(settings)) as client:
+            auth = client.app.state.deerx.auth
+            auth.create_first_admin(
+                auth.issue_setup_token(), "yonetici", "cok-uzun-parola-1"
+            )
+            client.post(
+                "/api/auth/login",
+                json={"username": "yonetici", "password": "cok-uzun-parola-1"},
+            )
+            yield client
+
+    @staticmethod
+    def _proje(client, alan, ad):
+        cevap = client.post("/api/projects", json={"path": str(alan(ad))})
+        assert cevap.status_code == 200, cevap.text
+        return cevap.json()["project"]
+
+    def test_the_query_parameter_beats_the_cookie(self, sunucu, alan):
+        """SSE baglantisi baslik koyamaz; sorgu onun yerini tutmali.
+
+        `/api/events` acilinca kapanmayan bir akis, o yuzden cozumlemeyi
+        ayni ara katmandan gecen `/api/overview` ile olcuyoruz.
+        """
+        a = self._proje(sunucu, alan, "proje-a")
+        b = self._proje(sunucu, alan, "proje-b")
+
+        # Cerez B'yi gosteriyor...
+        sunucu.post(f"/api/projects/{b['id']}/activate")
+        assert sunucu.get("/api/overview").json()["project"]["slug"] == b["slug"]
+
+        # ...ama sorgu A diyor ve A kazanmali.
+        cevap = sunucu.get(f"/api/overview?project={a['slug']}")
+        assert cevap.status_code == 200, cevap.text
+        assert cevap.json()["project"]["slug"] == a["slug"], (
+            "sorgu parametresi yok sayilip cereze dusuldu"
+        )
+
+    def test_the_header_still_wins_over_the_query(self, sunucu, alan):
+        """Sira: baslik -> sorgu -> cerez. Baslik en ustte kalmali;
+        sorgu yalnizca baslik GONDEREMEYEN istemci icin."""
+        a = self._proje(sunucu, alan, "ust-a")
+        b = self._proje(sunucu, alan, "ust-b")
+        cevap = sunucu.get(
+            f"/api/overview?project={b['slug']}",
+            headers={"X-DeerX-Project": a["slug"]},
+        )
+        assert cevap.json()["project"]["slug"] == a["slug"]
+
+    def test_the_query_is_not_a_new_door(self, sunucu, alan):
+        """Parametre yeni bir YETKI yuzeyi acmamali: uyelik yine araniyor.
+
+        Yonetici olmayan biri, uye olmadigi bir projenin slug'ini
+        sorguda yollayarak o projeye gecememeli.
+        """
+        ozel = self._proje(sunucu, alan, "ozel-proje")
+
+        auth = sunucu.app.state.deerx.auth
+        auth.create_user("yabanci", "cok-uzun-parola-2", role="user")
+        sunucu.post("/api/auth/logout")
+        sunucu.post(
+            "/api/auth/login",
+            json={"username": "yabanci", "password": "cok-uzun-parola-2"},
+        )
+
+        cevap = sunucu.get(f"/api/overview?project={ozel['slug']}")
+        # Uye olunmayan proje 0'a duser: acik proje yok demektir.
+        assert cevap.status_code != 200 or (
+            (cevap.json().get("project") or {}).get("slug") != ozel["slug"]
+        ), "sorgu parametresi uyelik denetimini atliyor"
+

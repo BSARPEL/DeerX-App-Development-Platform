@@ -2419,12 +2419,20 @@ def build_app(settings: Settings) -> Starlette:
 
         kb = state.orchestrator.kb
         if mode == "delete":
-            removed = kb.forget(source, remove_file=True)
+            removed, dosya_silindi = kb.forget(source, remove_file=True)
             state.runner.emit(
                 "tool", "rag", t("api.removed_chunks", source=source, count=removed)
             )
+            # Dosya alan disindaysa yerinde birakildi ve bu SOYLENIR:
+            # sessizce birakmak, "Kalici sil" diyen bir dugmenin ikinci
+            # bir yalani olurdu.
+            if not dosya_silindi:
+                state.runner.emit(
+                    "warn", "rag", t("api.file_kept_outside", source=source)
+                )
             _audit(request, "knowledge.delete", detail=source)
-            return _json({"ok": True, "mode": mode, "removed_chunks": removed})
+            return _json({"ok": True, "mode": mode, "removed_chunks": removed,
+                          "file_removed": dosya_silindi})
 
         aktif = mode == "activate"
         if not kb.deactivate(source, active=aktif):
@@ -3252,25 +3260,53 @@ def build_app(settings: Settings) -> Starlette:
             limit = 300
         limit = max(1, min(limit, 2000))
 
+        # KAPSAM. `workflow` bir is akisinin butun kosularini kapsar;
+        # `run` tek bir kosuyu. Ikisi de yoksa kapsam yok = her sey.
+        #
+        # Suzgec ISTEMCIDE olamazdi: gecmis sondan okunuyor ve ucuncu is
+        # akisinin olaylari son 400 satirin cok gerisinde olabilir.
+        wf = (request.query_params.get("workflow") or "").strip()
+        tek_kosu = (request.query_params.get("run") or "").strip()
+        kosular: set[str] | None = None
+        if tek_kosu:
+            kosular = {tek_kosu}
+        elif wf:
+            kosular = {
+                str(r["id"]) for r in state.orchestrator.state.workflow_runs(wf)
+            }
+            if not kosular:
+                # Is akisi var ama hic kosusu yok: bos kume "hicbir kosu"
+                # demek, "kapsam yok" degil -- yoksa tek kosusu olmayan
+                # bir is akisi butun projeyi gosterirdi.
+                return _json({
+                    "events": [], "total": 0, "path": str(state.settings.events_path),
+                    "scope": {"workflow": wf, "runs": []}, "truncated": False,
+                })
+
         yol = state.settings.events_path
         if not yol.is_file():
-            return _json({"events": [], "total": 0, "path": str(yol)})
+            return _json({"events": [], "total": 0, "path": str(yol),
+                          "truncated": False})
 
-        satirlar = _tail_lines(yol, limit)
-        olaylar: list[dict[str, Any]] = []
-        for satir in satirlar:
-            try:
-                kayit = json.loads(satir)
-            except (ValueError, TypeError):
-                # Kosu yarida kesildiyse son satir yarim kalmis olabilir;
-                # tek bozuk satir butun gecmisi goturmemeli.
-                continue
-            if isinstance(kayit, dict):
-                # `seq` canli tamponun sayacidir; gecmis kayitlarda yok.
-                # Bos birakilir ki istemci imlecini geriye kaydirmasin.
-                kayit.setdefault("seq", None)
-                olaylar.append(kayit)
-        return _json({"events": olaylar, "total": len(olaylar), "path": str(yol)})
+        def kabul(kayit: dict[str, Any]) -> bool:
+            if kosular is None:
+                return True
+            return str(kayit.get("run_id") or "") in kosular
+
+        olaylar, kesildi = _tail_records(yol, limit, kabul=kabul)
+        for kayit in olaylar:
+            # `seq` canli tamponun sayacidir; gecmis kayitlarda yok.
+            # Bos birakilir ki istemci imlecini geriye kaydirmasin.
+            kayit.setdefault("seq", None)
+        return _json({
+            "events": olaylar,
+            "total": len(olaylar),
+            "path": str(yol),
+            # "Daha eskisi taranmadi" ile "hic olay yok" ayni sey degil.
+            "truncated": kesildi,
+            "scope": ({"workflow": wf, "run": tek_kosu,
+                       "runs": sorted(kosular)} if kosular is not None else None),
+        })
 
     async def events_stream(request: Request) -> Response:
         denied = _require_role(request, "viewer")
@@ -3443,6 +3479,17 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # de tasiyordu ve B'deki "Baslat" baska projeyi kosturuyordu.
         # Hash sekmeye aittir; baslik onu sunucuya tasir.
         slug = request.headers.get(PROJECT_HEADER, "").strip()
+        # BASLIK GONDEREMEYEN istemci icin sorgu parametresi. Tek gercek
+        # ornegi `EventSource`: web standardi ona baslik koymaya izin
+        # vermiyor ve akis, uygulamada baslik disiplininden muaf kalan
+        # tek istek oluyordu -- yani iki sekme iki projede acikken ikisi
+        # de son etkinlestirilen projenin olaylarini aliyordu.
+        #
+        # Yeni bir yetki yuzeyi DEGIL: asagidaki `_uyeyse` yine uyelik
+        # ariyor. Parametre baslikla ayni bilgiyi tasiyor, daha fazlasini
+        # degil.
+        if not slug:
+            slug = request.query_params.get("project", "").strip()
         if slug and slug != "-":
             proje = self.state.projects.by_slug(slug)
             if proje is None or proje.archived:
@@ -3532,6 +3579,72 @@ def _tail_lines(path: Path, count: int, *, block: int = 64 * 1024) -> list[str]:
     ham = b"".join(reversed(parcalar))
     satirlar = ham.decode("utf-8", "replace").splitlines()
     return [s for s in satirlar[-count:] if s.strip()]
+
+
+def _tail_records(
+    path: Path,
+    count: int,
+    *,
+    kabul: Callable[[dict[str, Any]], bool] | None = None,
+    butce: int = 20000,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Sondan geriye dogru okuyup `count` KABUL EDILEN kayit toplar.
+
+    `_tail_lines` son N satiri verir; suzgec varken bu yetmez. Ucuncu
+    is akisinin olaylari son 400 satirin cok gerisinde olabilir ve
+    istemci tarafinda suzmek onlari hic goremezdi.
+
+    `butce` taranan SATIR sayisinin tavani. Gunluk 16 MB'a kadar
+    buyuyor ve hic olayi olmayan bir is akisi icin butun dosyayi
+    taramak, bir ekran suzgecinin odemesi gereken bedel degil. Butce
+    dolarsa ikinci deger `True` doner ve ekran "daha eskisi taranmadi"
+    der -- "hic olay yok" DEMEZ, cunku o yalan olurdu.
+
+    Doner: (eskiden yeniye sirali kayitlar, tarama kesildi mi)
+    """
+    kayitlar: list[dict[str, Any]] = []
+    tarandi = 0
+    kesildi = False
+    artik = b""
+    try:
+        with path.open("rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            kalan = fh.tell()
+            while kalan > 0 and len(kayitlar) < count and not kesildi:
+                adim = min(64 * 1024, kalan)
+                kalan -= adim
+                fh.seek(kalan)
+                blok = fh.read(adim) + artik
+                satirlar = blok.split(b"\n")
+                # Ilk parca yarim bir satir olabilir: bir sonraki (daha
+                # erken) bloga eklenmek uzere saklanir. Basa vardigimizda
+                # artik yarim degildir.
+                artik = satirlar[0] if kalan > 0 else b""
+                govde = satirlar[1:] if kalan > 0 else satirlar
+                for ham in reversed(govde):
+                    if not ham.strip():
+                        continue
+                    tarandi += 1
+                    if tarandi > butce:
+                        kesildi = True
+                        break
+                    try:
+                        kayit = json.loads(ham.decode("utf-8", "replace"))
+                    except (ValueError, TypeError):
+                        # Kosu yarida kesildiyse son satir yarim kalmis
+                        # olabilir; tek bozuk satir gecmisi goturmemeli.
+                        continue
+                    if not isinstance(kayit, dict):
+                        continue
+                    if kabul is not None and not kabul(kayit):
+                        continue
+                    kayitlar.append(kayit)
+                    if len(kayitlar) >= count:
+                        break
+    except OSError:
+        return [], False
+    kayitlar.reverse()
+    return kayitlar, kesildi
 
 
 def _artifact_format(name: str) -> str:

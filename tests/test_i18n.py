@@ -1267,3 +1267,432 @@ class TestYedekMetinSozlukleAyniSeyiSoyler:
             "kelime goruyor:\n  " + "\n  ".join(ayrilan)
         )
 
+
+def _kostur(parcalar: list[str], son: str):
+    """JS parcalarini Node ile kosturup son ifadenin JSON degerini alir."""
+    _node()
+    betik = "\n".join(parcalar) + f"\nprocess.stdout.write(JSON.stringify({son}));"
+    out = subprocess.run(
+        ["node", "-e", betik], capture_output=True, text=True, encoding="utf-8"
+    )
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout)
+
+
+def _fonksiyon(ad: str) -> str:
+    """app.js'ten tek bir fonksiyonun kaynagini keser."""
+    js = _asset("app.js")
+    bas = js.index(f"function {ad}(")
+    son = js.index("\n}\n", bas) + 3
+    return js[bas:son]
+
+
+class TestAkisKapsamiEkranda:
+    """Canli akis hem IS AKISI bazinda hem genel olmali.
+
+    Sunucu tarafi `TestAkisIsAkisiBazinda` ile olculuyor; burada
+    ISTEMCININ o kapsami dogru uyguladigi olculuyor.
+    """
+
+    def test_the_scoped_list_never_borrows_the_unscoped_buffer(self):
+        """Kapsam secilince ekran `state.events`ten OKUMAMALI.
+
+        `state.events` kapsamsizdir ve genel bakistaki ozet akisi
+        besler; kapsamli ekranin ondan okumasi, secilen is akisina ait
+        olmayan olaylari listeye sokardi.
+        """
+        kaynak = _fonksiyon("scopedEvents")
+        sonuc = _kostur(
+            [
+                "const state = { streamScope: 'wf-1',"
+                " streamEvents: [{message:'kapsamli'}],"
+                " events: [{message:'kapsamsiz'}] };",
+                kaynak,
+            ],
+            "scopedEvents().map(e => e.message)",
+        )
+        assert sonuc == ["kapsamli"]
+
+    def test_without_a_scope_it_uses_the_shared_buffer(self):
+        kaynak = _fonksiyon("scopedEvents")
+        sonuc = _kostur(
+            [
+                "const state = { streamScope: '',"
+                " streamEvents: [{message:'kapsamli'}],"
+                " events: [{message:'kapsamsiz'}] };",
+                kaynak,
+            ],
+            "scopedEvents().map(e => e.message)",
+        )
+        assert sonuc == ["kapsamsiz"]
+
+    def test_the_disk_history_and_the_live_buffer_are_not_doubled(self):
+        """OLCULDU: sayfa yenilenince her olay IKI KEZ gorunuyordu.
+
+        Disk gecmisi listenin basina ekleniyor, sonra SSE `since=0` ile
+        baglanip sunucunun tamponunu bastan gonderiyordu -- ve tamponun
+        tamami zaten diskteydi.
+        """
+        sonuc = _kostur(
+            [_fonksiyon("olayAnahtari"), _fonksiyon("olaylariBirlestir")],
+            "olaylariBirlestir("
+            "  [{ts:1,kind:'tool',actor:'a',message:'bir'},"
+            "   {ts:2,kind:'tool',actor:'a',message:'iki'}],"
+            "  [{ts:2,kind:'tool',actor:'a',message:'iki',seq:9},"
+            "   {ts:3,kind:'tool',actor:'a',message:'uc',seq:10}]"
+            ").map(e => e.message)",
+        )
+        assert sonuc == ["bir", "iki", "uc"], "ayni olay iki kez listede"
+
+    def test_the_merge_keeps_time_order(self):
+        sonuc = _kostur(
+            [_fonksiyon("olayAnahtari"), _fonksiyon("olaylariBirlestir")],
+            "olaylariBirlestir("
+            "  [{ts:5,kind:'k',actor:'a',message:'gec'}],"
+            "  [{ts:1,kind:'k',actor:'a',message:'erken'}]"
+            ").map(e => e.message)",
+        )
+        assert sonuc == ["erken", "gec"]
+
+    def test_the_row_draws_the_phase_it_has_always_carried(self):
+        """Olay `phase` alanini bastan beri tasiyordu; satir cizmiyordu."""
+        js = _asset("app.js")
+        govde = js[js.index("function eventRow("):js.index("function passesFilter(")]
+        assert "ev-phase" in govde, "faz sutunu cizilmiyor"
+        assert "event.phase" in govde
+
+    def test_turning_autoscroll_off_does_not_jump_to_the_top(self):
+        """OLCULDU: kapaliyken `scrollTop = 0` calisiyordu, yani onay
+        kutusu tam tersini yapiyordu."""
+        js = _asset("app.js")
+        govde = js[js.index("function renderFeed("):js.index("function renderStreamPager(")]
+        assert "feed.scrollTop = oncekiKaydirma" in govde
+        assert "else feed.scrollTop = 0;" not in govde
+
+
+class TestAnalizSuzulebilir:
+    """Bes sekmede sifir suzgec vardi; Plan ekraninda on bir cip."""
+
+    ORNEK = (
+        "const items = ["
+        " {key:'R-1',title:'a',priority:'must',category:'functional',description:'alfa'},"
+        " {key:'R-2',title:'b',priority:'should',category:'functional',description:'beta'},"
+        " {key:'R-3',title:'c',priority:'must',category:'constraint',description:'gama'}"
+        "];"
+    )
+
+    def _cevre(self, sekme="requirements", secili=None, ara=""):
+        js = _asset("app.js")
+        gorunumler = js[js.index("const ANALYSIS_VIEWS = {"):js.index("const ANALYSIS_SECTIONS")]
+        return [
+            "const t = (k, p) => k;",
+            "const tv = (g, v) => v;",
+            "const esc = (x) => x;",
+            f"const state = {{ analysisFilters: {{{sekme}: "
+            + json.dumps(secili or {}) + f"}}, analysisSearch: {json.dumps(ara)} }};",
+            gorunumler,
+            _fonksiyon("analizSuzulmus"),
+            self.ORNEK,
+        ]
+
+    def test_a_chip_narrows_the_list(self):
+        sonuc = _kostur(
+            self._cevre(secili={"priority": "must"}),
+            "analizSuzulmus('requirements', items).map(x => x.key)",
+        )
+        assert sonuc == ["R-1", "R-3"]
+
+    def test_two_chips_narrow_together(self):
+        sonuc = _kostur(
+            self._cevre(secili={"priority": "must", "category": "constraint"}),
+            "analizSuzulmus('requirements', items).map(x => x.key)",
+        )
+        assert sonuc == ["R-3"]
+
+    def test_an_empty_chip_means_no_filter(self):
+        sonuc = _kostur(
+            self._cevre(secili={"priority": ""}),
+            "analizSuzulmus('requirements', items).length",
+        )
+        assert sonuc == 3
+
+    def test_the_search_reaches_the_detail_pane(self):
+        """Arama, satirda VE ayrinti bolmesinde gorunen metinde.
+
+        Gormedigin bir alanda eslesen sonuc, sonuc gibi gorunmez --
+        ama ayrinti bolmesi tiklayinca aciliyor ve orasi da ekran.
+        """
+        sonuc = _kostur(
+            self._cevre(ara="gama"),
+            "analizSuzulmus('requirements', items).map(x => x.key)",
+        )
+        assert sonuc == ["R-3"]
+
+    def test_the_chips_are_derived_from_the_data(self):
+        """Sabit liste yazmak, veride hic gecmeyen bir deger icin bos bir
+        cip birakir ve kullaniciyi sonucsuz bir tiklamaya davet eder."""
+        sonuc = _kostur(
+            [_fonksiyon("suzgecDegerleri"), self.ORNEK],
+            "suzgecDegerleri(items, { field: 'priority' })",
+        )
+        assert sonuc == ["must", "should"], "cipler veriden turetilmiyor"
+
+    def test_the_tab_counts_come_from_the_loaded_lists(self):
+        """Sayac `/api/overview`den, tablo `/api/state/...`den gelince
+        ekran kendi kendisiyle celisebiliyordu."""
+        js = _asset("app.js")
+        govde = js[js.index("function renderAnalysisTabCounts("):
+                   js.index("function suzgecDegerleri(")]
+        assert "state.analysisAll" in govde
+        assert "counts." not in govde, "sayac hala /api/overview'dan geliyor"
+
+
+class TestBilgiTabaniSuzulebilir:
+    ORNEK = (
+        "const items = ["
+        " {source:'/a/spec.md', title:'spec.md', kind:'doc', is_active:1},"
+        " {source:'https://x/y', title:'https://x/y', kind:'web', is_active:1},"
+        " {source:'/a/eski.md', title:'eski.md', kind:'doc', is_active:0}"
+        "];"
+    )
+
+    def _cevre(self, ara="", kind="", durum=""):
+        return [
+            f"const state = {{ docFilter: {json.dumps(ara)},"
+            f" docKind: {json.dumps(kind)}, docState: {json.dumps(durum)} }};",
+            _fonksiyon("belgeSuz"),
+            self.ORNEK,
+        ]
+
+    def test_the_search_matches_name_and_path(self):
+        assert _kostur(self._cevre(ara="spec"), "belgeSuz(items).length") == 1
+        assert _kostur(self._cevre(ara="/a/"), "belgeSuz(items).length") == 2
+
+    def test_the_kind_chip_narrows(self):
+        assert _kostur(self._cevre(kind="web"), "belgeSuz(items).map(d=>d.title)") \
+            == ["https://x/y"]
+
+    def test_inactive_documents_can_be_isolated(self):
+        assert _kostur(self._cevre(durum="inactive"), "belgeSuz(items).map(d=>d.title)") \
+            == ["eski.md"]
+        assert _kostur(self._cevre(durum="active"), "belgeSuz(items).length") == 2
+
+    def test_the_row_hides_a_source_that_repeats_the_title(self):
+        """OLCULDU: web belgelerinde `title == source` ve her satir ayni
+        URL'yi IKI KEZ yaziyordu."""
+        js = _asset("app.js")
+        govde = js[js.index("function renderDocPage("):js.index("function initDocFilters(")]
+        assert "doc.source !== doc.title" in govde
+
+    def test_the_destructive_button_looks_destructive(self):
+        js = _asset("app.js")
+        govde = js[js.index("function renderDocPage("):js.index("function initDocFilters(")]
+        satir = govde[govde.index("data-delete-doc") - 400:govde.index("data-delete-doc")]
+        assert "btn-danger-ghost" in satir, "kalici sil, pasiflestirmeyle ayni gorunuyor"
+
+    def test_both_row_actions_declare_the_role_the_server_enforces(self):
+        js = _asset("app.js")
+        govde = js[js.index("function renderDocPage("):js.index("function initDocFilters(")]
+        assert govde.count('data-needs-role="developer"') == 2
+
+    def test_a_long_path_is_trimmed_from_the_front(self):
+        """Ayirt eden kisim yolun SONUNDA: `.../demo/docs/x.md` ile
+        `.../vllm/docs/x.md` yalnizca sondan ayrilir."""
+        uzun = "/" + "a" * 200 + "/demo/docs/x.md"
+        sonuc = _kostur([_fonksiyon("yoluKirp")], f"yoluKirp({json.dumps(uzun)})")
+        assert sonuc.endswith("/demo/docs/x.md")
+        assert sonuc.startswith("…")
+        assert len(sonuc) <= 72
+
+    def test_a_short_path_is_left_alone(self):
+        sonuc = _kostur([_fonksiyon("yoluKirp")], 'yoluKirp("/a/b.md")')
+        assert sonuc == "/a/b.md"
+
+
+class TestTazelemeKullanicininEmeginiKorur:
+    """Kosu surerken ekran 2,5 saniyede bir bastan cizilyor.
+
+    `refreshActiveView` (app.js) `loadAnalysis()`i cagiriyor ve
+    `renderAnalysisPage` `#analysis-body`yi bastan kuruyordu. Silinen
+    iki sey vardi ve ikisi de kullanicinin emegi: cevap kutusuna
+    YAZILMIS metin ve acik ayrinti satirlari.
+
+    Ayni sorunu `renderRunDetail` coktan cozmustu (`state.workflowOpen`);
+    bu testler ayni disiplinin Analiz ve Gorev listesine de gelmis
+    oldugunu civiliyor.
+    """
+
+    def test_the_analysis_row_id_is_the_record_key_not_its_position(self):
+        """Sira numarasi, sayfa ya da suzgec degisince BASKA bir kayda
+        denk geliyordu: acik birakilan satir, tazelemeden sonra baska
+        bir kaydin satiri olarak aciliyordu."""
+        js = _asset("app.js")
+        govde = js[js.index("function renderAnalysisPage("):
+                   js.index("function soruyuKapat(")]
+        assert "slice.start + index" not in govde, "satir kimligi hala sira"
+        assert "item.key || item.topic" in govde
+
+    def test_an_open_analysis_row_survives_a_refresh(self):
+        js = _asset("app.js")
+        govde = js[js.index("function renderAnalysisPage("):
+                   js.index("function soruyuKapat(")]
+        assert "state.analysisOpen.has(id)" in govde, "acik hal okunmuyor"
+        assert "state.analysisOpen.add" in govde, "acik hal kaydedilmiyor"
+        assert "state.analysisOpen.delete" in govde
+
+    def test_a_typed_answer_survives_a_refresh(self):
+        """Uc cumlelik bir cevabi yazarken kutu bosaliyordu."""
+        js = _asset("app.js")
+        govde = js[js.index("function renderAnalysisPage("):
+                   js.index("function soruyuKapat(")]
+        assert "state.analysisDrafts[anahtar]" in govde, "yazilan metin tasinmiyor"
+        assert "delete state.analysisDrafts[anahtar]" in govde, (
+            "gonderilen cevabin taslagi silinmiyor"
+        )
+
+    def test_an_open_task_survives_a_refresh(self):
+        js = _asset("app.js")
+        govde = js[js.index("function renderTaskPage("):js.index("function initPlan(")]
+        assert "state.taskOpen.has(id)" in govde
+        assert "slice.start + index" not in govde, "gorev kimligi hala sira"
+
+    def test_the_dead_plan_view_is_gone_from_the_refresh_loop(self):
+        """Plan ekrani Is akisina tasindi; tazeleme dongusundeki satiri
+        kalmisti ve her tazelemede olmayan bir ekrani yukluyordu."""
+        js = _asset("app.js")
+        govde = js[js.index("function refreshActiveView("):
+                   js.index("function refreshActiveView(") + 700]
+        assert 'state.view === "plan"' not in govde
+
+
+class TestBosSecimHerYoldanSoylenir:
+    """"Hicbir belge secili degil" uyarisi yalnizca "Tumu" kutusundan
+    tetikleniyordu.
+
+    Kutulari TEK TEK kaldirarak sifira inen kullanici hicbir uyari
+    almiyordu -- ve o kullanici, ajanlarin belge okumadan calisacagini
+    hic ogrenmiyordu.
+    """
+
+    def test_both_paths_warn(self):
+        js = _asset("app.js")
+        satir_dinleyici = js[js.index('$$("[data-pick]", target)'):
+                             js.index('async function loadDocuments(')]
+        assert 'toast(t("develop.pickNone")' in satir_dinleyici, (
+            "tek tek kaldirmada uyari yok"
+        )
+        tumu = js[js.index('$("#doc-pick-all").addEventListener'):
+                  js.index('$("#doc-pick-filter").addEventListener')]
+        assert 'toast(t("develop.pickNone")' in tumu
+
+
+class TestOlayMetinleriSozluktenGecer:
+    """Canli akis, uygulamanin en az cevrilmis yuzeyiydi.
+
+    Ekranda GORULDU: "is akisi #2 · adim #12: implement". Uc kusur tek
+    satirda -- sozlukten gecmiyor (Ingilizce arayuzde de aynen boyle
+    duruyor), Turkce diyakritikleri yok, ve ekranin geri kalani ayni
+    sayiyi "Kosu #12" diye yazarken burada "adim" deniyor.
+
+    `TestNoStrayTurkish` bunu yakalayamazdi: o test Turkceye ozgu
+    harfleri ariyor ve bu metinler ASCII'ye duzlenmis Turkce. O yuzden
+    olcu HARF degil YAPI: bir olay iletisi ya `t(...)` cagrisidir ya da
+    degismez bir tanimlayicidir.
+    """
+
+    # Olay ureten dosyalar. Ajanin urettigi metin degil, DEERX'in
+    # urettigi metin olculuyor.
+    KAYNAKLAR = (
+        "pipeline/orchestrator.py",
+        "web/runner.py",
+    )
+
+    @staticmethod
+    def _emit_iletileri(yol: str):
+        """`events.emit(kind, actor, MESAJ, ...)` ucuncu argumanlari."""
+        import ast
+
+        from deerx.web.app import STATIC_DIR
+
+        kok = STATIC_DIR.parent.parent          # src/deerx
+        agac = ast.parse((kok / yol).read_text(encoding="utf-8"))
+        for dugum in ast.walk(agac):
+            if not isinstance(dugum, ast.Call):
+                continue
+            f = dugum.func
+            if not isinstance(f, ast.Attribute) or f.attr != "emit":
+                continue
+            if len(dugum.args) < 3:
+                continue
+            yield dugum.lineno, dugum.args[2]
+
+    @staticmethod
+    def _cevrilmemis_duzyazi(dugum) -> list[str]:
+        """Ifadedeki, `t(...)` disinda kalan HARF ICEREN dizeler.
+
+        Olcu HARF SAYIMI degil YAPI ve sonra icerik: bir `t(...)`
+        cagrisinin icindeki her sey cevrilidir; disinda kalan bir dize
+        ise ancak noktalama tasiyorsa masumdur.
+
+        Bu ayrim bir istisnayi cizmek icin gerekli:
+            f"{gorev.key}: {type(exc).__name__}: {exc}"
+        duzyazi degil, bir hata yansimasi -- degismez parcalari yalnizca
+        ": ". Onu cevirmek, cevirecek bir sey olmadigi icin anlamsiz.
+        """
+        import ast
+
+        # `ast.walk` ALT AGACI BUDAMAZ: `t("phase.failed")` icindeki
+        # anahtar da ziyaret edilir ve cevrilmemis dize sanilir. Kendi
+        # yiginimizi surerek `t(...)` altini hic acmiyoruz.
+        suclu = []
+        yigin = [dugum]
+        while yigin:
+            alt = yigin.pop()
+            if isinstance(alt, ast.Call) and getattr(
+                alt.func, "id", getattr(alt.func, "attr", "")
+            ) == "t":
+                continue                     # cevrili: altina hic inme
+            if isinstance(alt, ast.Constant) and isinstance(alt.value, str):
+                if any(ch.isalpha() for ch in alt.value):
+                    suclu.append(alt.value)
+                continue
+            yigin.extend(ast.iter_child_nodes(alt))
+        return suclu
+
+    def test_every_event_message_comes_from_the_dictionary(self):
+        """Ham dize, akisa cevrilmemis metin dusurur."""
+        import ast
+
+        suclu = []
+        for yol in self.KAYNAKLAR:
+            for satir, mesaj in self._emit_iletileri(yol):
+                # `t(...)` -- dogru yol, tumuyle cevrili.
+                if isinstance(mesaj, ast.Call) and getattr(
+                    mesaj.func, "id", getattr(mesaj.func, "attr", "")
+                ) == "t":
+                    continue
+                for metin in self._cevrilmemis_duzyazi(mesaj):
+                    suclu.append(f"{yol}:{satir} {metin[:60]!r}")
+
+        assert not suclu, (
+            "olay iletisi sozlukten gecmiyor; Ingilizce arayuzde ham "
+            "Turkce gorunur:\n  " + "\n  ".join(suclu)
+        )
+
+    def test_the_run_banner_calls_a_run_a_run(self):
+        """Kural: "adim" YALNIZCA is akisinin adimi icin.
+
+        Kosu baslangici satiri kosuya "adim" diyordu, oysa ayni sayiyi
+        ekranin geri kalani "Kosu #12" diye yaziyor. Iki ad ayni seyi
+        gostermiyordu.
+        """
+        from deerx.i18n import CATALOG
+
+        giris = CATALOG["run.begins"]
+        assert "adım" not in giris["tr"] and "adim" not in giris["tr"], (
+            "kosu baslangici hala kosuya 'adim' diyor"
+        )
+        assert "koşu" in giris["tr"] or "kosu" in giris["tr"]
+        assert "step" not in giris["en"]
+        assert "run" in giris["en"]
+

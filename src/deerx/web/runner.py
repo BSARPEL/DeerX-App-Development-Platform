@@ -163,6 +163,13 @@ class RunManager:
                     "actor": event.actor,
                     "message": event.message,
                     "data": event.data,
+                    # Olayin KIMLIGI. Once bu iki alan burada
+                    # dusuruluyordu: diskteki kayit kosusunu biliyor,
+                    # canli akan kopyasi bilmiyordu. Ekran kapsam
+                    # suzgeci kuramiyordu cunku olay, akmaya basladigi
+                    # anda hangi kosuya ait oldugunu unutuyordu.
+                    "phase": event.phase,
+                    "run_id": event.run_id,
                 }
             )
 
@@ -205,7 +212,8 @@ class RunManager:
         self.orchestrator.events.emit(
             "tool" if granted else "warn",
             "onay",
-            f"{'onaylandi' if granted else 'reddedildi'}: {action[:120]}",
+            t("run.approval_granted" if granted else "run.approval_denied",
+              action=action[:120]),
             approval_id=request.id,
         )
         return granted
@@ -396,7 +404,7 @@ class RunManager:
         # Bekleyen onaylar reddedilir; aksi halde thread onay kapisinda asili kalir.
         self._reject_all_approvals()
         self.orchestrator.events.emit(
-            "warn", "run", "durdurma istendi; suregelen adim bitince durulacak"
+            "warn", "run", t("run.stop_requested")
         )
         return True
 

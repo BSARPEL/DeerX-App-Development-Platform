@@ -127,6 +127,20 @@ const state = {
   taskFilter: "",
   laneFilter: "",
   streamFilter: "",
+  // Kapsam: "" = tum proje, aksi halde bir is akisi kimligi.
+  streamScope: "",
+  // Kapsam bir is akisiysa: o akisin kosu kimlikleri. Canli gelen olay
+  // bu kumeye bakilarak suzuluyor.
+  streamRuns: null,
+  streamSearch: "",
+  // Kapsamli gecmis. `state.events` KAPSAMSIZ kalir cunku genel bakis
+  // ve gelistirme ekranlarindaki ozet akislar ondan besleniyor.
+  streamEvents: null,
+  streamNote: "",
+  streamNoteTone: "",
+  // SSE baglantisi kopuk mu. Genel bakisin cevrimdisi seridi yalnizca
+  // yoklamaya bakiyor; akis kendi baglantisini kendisi soylemeli.
+  streamOffline: false,
   events: [],
   lastSeq: 0,
   source: null,
@@ -138,6 +152,12 @@ const state = {
   // bos bir kume "hicbir belge" demek ve o mesru bir secim.
   docScope: null,
   docPickFilter: "",
+  // Bilgi tabani tablosunun suzgecleri (Gelistirme ekranindaki
+  // seciciden AYRI: orada "kosuya hangi belgeler girsin", burada
+  // "envanterde ne var").
+  docFilter: "",
+  docKind: "",
+  docState: "",
   // Adresteki proje kisa adi ve gorunum detayi.
   projectSlug: "",
   routeDetail: "",
@@ -153,6 +173,22 @@ const state = {
   questionDrafts: {},
   // Sayfalama. `streamPage === null` "canli": her zaman son sayfayi gosterir.
   analysisItems: [],
+  // Bes bolumun TEK anlik goruntusu. Sekme sayaclari da tablo da bundan
+  // beslenir; once sayac `/api/overview`den, tablo `/api/state/...`den
+  // geliyordu ve ikisi ayrisabiliyordu.
+  analysisAll: null,
+  // Sekme basina suzgec: {sekme: {alan: deger}}. Sekmeye geri
+  // dondugunuzde birakti giniz suzgeci bulursunuz.
+  analysisFilters: {},
+  analysisSearch: "",
+  // Acik ayrinti satirlari ve yazilmakta olan cevaplar. Ekran kosu
+  // surerken 2,5 saniyede bir bastan cizilyor; bunlar tasinmazsa
+  // kullanicinin yazdigi metin ortadan kayboluyor.
+  analysisOpen: new Set(),
+  analysisDrafts: {},
+  // Ayni gerekce gorev listesi icin: koşu surerken 2,5 saniyede bir
+  // bastan cizilyor ve acilan gorev kendiliginden kapaniyordu.
+  taskOpen: new Set(),
   analysisPage: 1,
   analysisSize: 25,
   taskItems: [],
@@ -354,7 +390,7 @@ function showView(name, detail = "") {
   if (name === "knowledge") loadDocuments();
   if (name === "analysis")  loadAnalysis();
   if (name === "artifacts") { loadArtifacts(); loadDelivery(); }
-  if (name === "stream")    renderFeed();
+  if (name === "stream")    { renderStreamScope(); renderFeed(); }
   if (name === "projects")  loadProjects();
   if (name === "env")       loadEnvironment();
   // Form `state.overview.settings`ten dolar, ama bu sekme genel durumu HIC
@@ -974,7 +1010,6 @@ function syncRunState(run) {
 
 function refreshActiveView() {
   if (state.view === "analysis")  loadAnalysis();
-  if (state.view === "plan")      { loadPlans(); loadTasks(); }
   if (state.view === "artifacts") loadArtifacts();
   if (state.view === "knowledge") loadDocuments();
   if (state.view === "develop")   loadDocuments();
@@ -1127,6 +1162,13 @@ function renderUploadedDocs(documents) {
       if (box.checked) state.docScope.add(box.dataset.pick);
       else state.docScope.delete(box.dataset.pick);
       renderUploadedDocs(state.docItems || documents);
+      // Uyari, secim SIFIRA indiginde verilir -- nasil indigine
+      // bakilmaksizin. Once yalnizca "Tumu" kutusundan tetikleniyordu ve
+      // kutulari tek tek kaldirarak sifira inen kullanici, ajanlarin
+      // belge okumayacagini hic ogrenmiyordu.
+      if (!state.docScope.size && secilebilir.length) {
+        toast(t("develop.pickNone"), "warn");
+      }
     });
   });
 }
@@ -1138,8 +1180,15 @@ async function loadDocuments() {
   try {
     const data = await api("/api/documents");
     const stats = data.stats;
-    $("#kb-sub").textContent = t("kb.stats", {
-      docs: stats.documents, chunks: stats.chunks, model: stats.embedding_model });
+    // Toplam ENVANTER, etkin ise AJANLARIN GORDUGU. Ikisi ayni degilse
+    // ikisi de yazilir: "27 belge" demek, uc belgeyi pasiflestiren
+    // kullaniciya onun goremedigi bir sayiyi soylemek olurdu.
+    const pasifVar = stats.active_documents !== undefined
+      && stats.active_documents !== stats.documents;
+    $("#kb-sub").textContent = t(pasifVar ? "kb.statsPartial" : "kb.stats", {
+      docs: stats.documents, active: stats.active_documents,
+      chunks: stats.chunks, activeChunks: stats.active_chunks,
+      model: stats.embedding_model });
     renderUploadedDocs(data.documents);
     state.docItems = data.documents;
     renderDocPage();
@@ -1149,11 +1198,65 @@ async function loadDocuments() {
   }
 }
 
+/* Envanter suzgeci: arama + tur + durum. */
+function belgeSuz(items) {
+  const ara = state.docFilter;
+  return items.filter((doc) => {
+    if (state.docKind && doc.kind !== state.docKind) return false;
+    if (state.docState === "inactive" && doc.is_active !== 0) return false;
+    if (state.docState === "active" && doc.is_active === 0) return false;
+    if (!ara) return true;
+    return `${doc.title} ${doc.source}`.toLowerCase().includes(ara);
+  });
+}
+
+/* Cipler VERIDEN turetilir: korpusta gercekten gecen turler.
+
+   Tek turlu bir korpusta tur cipi hic cizilmez -- 27 satirin 27'sinde
+   "web" yazan bir sutunun suzgec hali de ayni sey soylerdi. */
+function renderDocChips(items) {
+  const bar = $("#doc-chips");
+  if (!bar) return;
+  const turler = [...new Set(items.map((d) => d.kind).filter(Boolean))].sort();
+  const pasifSayisi = items.filter((d) => d.is_active === 0).length;
+  const parcalar = [];
+  if (turler.length > 1) {
+    parcalar.push(
+      `<button class="chip chip-btn${state.docKind ? "" : " is-active"}"
+               data-doc-kind="" type="button">${esc(t("app.all"))}</button>`
+      + turler.map((k) =>
+        `<button class="chip chip-btn${state.docKind === k ? " is-active" : ""}"
+                 data-doc-kind="${esc(k)}" type="button">${esc(tv("kind", k))}</button>`
+      ).join(""));
+  }
+  // Durum cipi yalnizca pasif belge VARSA: yoksa iki secenekten biri
+  // hicbir zaman sonuc vermez.
+  if (pasifSayisi) {
+    parcalar.push(
+      `<button class="chip chip-btn${state.docState ? "" : " is-active"}"
+               data-doc-state="" type="button">${esc(t("app.all"))}</button>`
+      + `<button class="chip chip-btn${state.docState === "active" ? " is-active" : ""}"
+               data-doc-state="active" type="button">${esc(t("kb.onlyActive"))}</button>`
+      + `<button class="chip chip-btn${state.docState === "inactive" ? " is-active" : ""}"
+               data-doc-state="inactive" type="button">${esc(t("kb.onlyInactive"))}</button>`);
+  }
+  bar.innerHTML = parcalar.join("");
+}
+
 function renderDocPage() {
   const target = $("#doc-table");
-  const all = state.docItems;
+  const ham = state.docItems;
+  const all = belgeSuz(ham);
+  renderDocChips(ham);
+  $("#doc-count").textContent = ham.length === all.length
+    ? "" : t("kb.filtered", { n: all.length, total: ham.length });
+
   if (!all.length) {
-    target.innerHTML = emptyState(t("kb.empty"), t("kb.emptyHint"));
+    // Suzgecin bosalttigi liste ile BOS BILGI TABANI ayni sey degil.
+    const [baslik, ipucu] = ham.length
+      ? [t("kb.noMatch"), t("kb.noMatchHint")]
+      : [t("kb.empty"), t("kb.emptyHint")];
+    target.innerHTML = emptyState(baslik, ipucu);
     $("#doc-pager").hidden = true;
     return;
   }
@@ -1176,18 +1279,26 @@ function renderDocPage() {
             doc.is_active === 0
               ? ` <span class="badge">${esc(t("kb.inactive"))}</span>`
               : ""
-          }</div>
-              <div class="doc-row-source">${esc(doc.source)}</div></td>
-          <td><span class="badge">${esc(doc.kind)}</span></td>
+          }</div>${
+            // Kaynak satiri YALNIZCA basliktan farkliysa. Web
+            // belgelerinde ikisi ayni URL ve satirin yarisi hicbir sey
+            // soylemeden yer kapliyordu.
+            doc.source && doc.source !== doc.title
+              ? `<div class="doc-row-source">${esc(doc.source)}</div>` : ""
+          }</td>
+          <td><span class="badge">${esc(tv("kind", doc.kind))}</span></td>
           <td>${esc(doc.uploaded_by || "—")}</td>
           <td class="num">${doc.n_chunks}</td>
           <td class="doc-row-actions">
             <button class="btn btn-ghost btn-sm" type="button"
+                    data-needs-role="developer"
                     data-toggle-doc="${esc(doc.source)}"
                     data-next="${doc.is_active === 0 ? "activate" : "deactivate"}">${
               esc(t(doc.is_active === 0 ? "kb.activate" : "kb.deactivate"))
             }</button>
-            <button class="btn btn-ghost btn-sm" type="button"
+            <!-- Geri alinamaz eylem, geri alinabilirle ayni gorunmemeli. -->
+            <button class="btn btn-ghost btn-danger-ghost btn-sm" type="button"
+                    data-needs-role="developer"
                     data-delete-doc="${esc(doc.source)}"
                     data-title="${esc(doc.title)}">${esc(t("kb.deleteFile"))}</button>
           </td>
@@ -1225,6 +1336,10 @@ function renderDocPage() {
     });
   });
 
+  // Sablonla uretilen denetimler her cizimde yeniden dogar; yetki
+  // uygulanmazsa izleyici onlari acik gorur ve tiklayinca 403 alir.
+  applyPermissions();
+
   renderPager($("#doc-pager"), {
     total: all.length,
     page: slice.page,
@@ -1240,6 +1355,22 @@ function renderDocPage() {
       state.docPage = 1;
       renderDocPage();
     },
+  });
+}
+
+function initDocFilters() {
+  $("#doc-filter").addEventListener("input", (event) => {
+    state.docFilter = event.target.value.trim().toLowerCase();
+    state.docPage = 1;
+    renderDocPage();
+  });
+  $("#doc-chips").addEventListener("click", (event) => {
+    const chip = event.target.closest(".chip-btn");
+    if (!chip) return;
+    if (chip.dataset.docKind !== undefined) state.docKind = chip.dataset.docKind;
+    if (chip.dataset.docState !== undefined) state.docState = chip.dataset.docState;
+    state.docPage = 1;
+    renderDocPage();
   });
 }
 
@@ -1504,6 +1635,9 @@ async function switchProject(slug) {
     await post(`/api/projects/${proje.id}/activate`);
     state.projectSlug = slug;
     resetProjectState();
+    // Acik baglanti ESKI projeye bagli. Kapatilmazsa onun olaylari yeni
+    // projenin ekranina akmaya devam eder.
+    connectStream();
     // Gorunum KORUNUR, detay DUSER: detay kimlikleri projeye ozgudur ve
     // tasimak yanlis veriyi dogru baslikla gostermek olurdu.
     writeRoute({ slug, view: state.view, detail: "" });
@@ -1522,6 +1656,17 @@ function resetProjectState() {
   state.events = [];
   state.lastSeq = 0;
   state.approvals = [];
+  state.streamEvents = null;
+  state.streamScope = "";
+  state.streamRuns = null;
+  state.streamNote = "";
+  state.streamNoteTone = "";
+  // Ozet akislarin DOM'u da bosalir: `state.events` sifirlaniyordu ama
+  // ekrandaki satirlar eski projenin olaylariydi ve orada duruyordu.
+  for (const selector of ["#feed", "#mini-feed", "#develop-feed"]) {
+    const kutu = $(selector);
+    if (kutu) kutu.innerHTML = "";
+  }
 }
 
 async function loadProjects() {
@@ -1594,11 +1739,32 @@ function initKnowledge() {
         target.innerHTML = emptyState(t("kb.noResults"), t("kb.noResultsHint"));
         return;
       }
+      // Arama burada bir TANI aracidir: "bu neden bulunmuyor?" sorusunun
+      // cevabi cogu zaman "cunku pasiflestirmissin" ve sifir sonuc bunu
+      // soylemez. Uc `include_inactive` ile cagriliyor ve pasif isabet
+      // ISARETLI donuyor.
+      //
+      // Ham skor gitti: RRF fuzyon degeri, mutlak olcegi olmayan bir
+      // sayi. Dort haneli basmak, kullaniciya karsilastiramayacagi bir
+      // kesinlik vaat ediyordu; siralama zaten sonucun kendisi.
       target.innerHTML = data.hits.map((hit) => `
-        <article class="result" data-kind="${esc(hit.kind)}">
+        <article class="result" data-kind="${esc(hit.kind)}"
+                 data-inactive="${hit.is_active === false ? 1 : 0}">
           <div class="result-head">
-            <span class="result-cite">${esc(hit.citation)}</span>
-            <span class="result-score">${hit.score.toFixed(4)} · ${esc(hit.kind)}</span>
+            <span class="result-cite">${esc(hit.citation)}${
+              // Kaynak yolu, basliktan farkliysa. OLCULDU: bu korpusta
+              // IKI ayri belge `ornek-sartname.md` adini tasiyor ve
+              // atif yalnizca basligi yaziyordu -- iki farkli belgeden
+              // gelen iki isabet ekranda AYNI gorunuyordu.
+              hit.source && hit.source !== hit.title
+                ? `<span class="result-src" title="${esc(hit.source)}">${
+                    esc(yoluKirp(hit.source))}</span>` : ""
+            }</span>
+            <span class="result-meta">${
+              hit.is_active === false
+                ? `<span class="badge" data-v="blocked">${esc(t("kb.hitInactive"))}</span> `
+                : ""
+            }${esc(tv("kind", hit.kind))}</span>
           </div>
           <div class="result-body">${esc(hit.text)}</div>
         </article>`).join("");
@@ -3073,6 +3239,7 @@ const ANALYSIS_VIEWS = {
       [t("analysis.evidence"), item.source_ref],
     ],
     label: (item) => `${item.key}: ${item.title}`,
+    filters: [{ field: "priority", tv: "priority" }, { field: "category", tv: "category" }],
     empty: () => [t("analysis.emptyRequirements"), t("analysis.emptyRequirementsHint")],
   },
   questions: {
@@ -3090,6 +3257,13 @@ const ANALYSIS_VIEWS = {
       [t("analysis.askedBy"), item.asked_by],
     ],
     label: (item) => `${item.key}: ${item.question}`,
+    filters: [
+      { field: "status", tv: "status" },
+      // Tureti lmis alan: modelde `blocking` bir bayrak, cip olarak tek
+      // degerli olmali ("engelleyen"), yoksa "true/false" yazardi.
+      { field: "blocking", turet: (item) => (item.blocking ? "blocking" : ""),
+        etiket: () => t("analysis.filterBlocking") },
+    ],
     empty: () => [t("analysis.emptyQuestions"), t("analysis.emptyQuestionsHint")],
     // Acik soru buradan cevaplanir. Kapanmis soruda kutu gosterilmez:
     // cevabi zaten yukarida, ayrinti listesinde duruyor.
@@ -3120,6 +3294,7 @@ const ANALYSIS_VIEWS = {
       [t("analysis.evidence"), item.evidence],
     ],
     label: (item) => `${item.key}: ${item.title}`,
+    filters: [{ field: "severity", tv: "severity" }, { field: "area" }],
     empty: () => [t("analysis.emptyGaps"), t("analysis.emptyGapsHint")],
   },
   decisions: {
@@ -3141,11 +3316,31 @@ const ANALYSIS_VIEWS = {
     row: (item) => `
       <td>${esc(item.topic)}</td>
       <td>${esc(item.finding)}</td>
-      <td><span class="badge" data-v="${item.confidence === "high" ? "done" : item.confidence === "low" ? "high" : "medium"}">${esc(item.confidence)}</span></td>`,
+      <td><span class="badge" data-v="${item.confidence === "high" ? "done" : item.confidence === "low" ? "high" : "medium"}">${
+        esc(tv("confidence", item.confidence))}</span></td>`,
     detail: (item) => [[t("analysis.source"), item.url || t("analysis.noSource")]],
     label: (item) => item.topic,
+    filters: [{ field: "confidence", tv: "confidence" }],
     empty: () => [t("analysis.emptyResearch"), t("analysis.emptyResearchHint")],
   },
+};
+
+/* Bes bolumun tamami, TEK istekle.
+
+   Once sekme sayaclari `/api/overview`den (2,5 saniyede bir tazelenen),
+   tablo `/api/state/{section}`dan (yalnizca sekmeye basinca) geliyordu:
+   kosu surerken ekran "Gereksinimler 24" derken altinda "Gereksinim
+   yok" yazabiliyordu. Ayni ekranda iki ayri an.
+
+   Olculdu: `/api/state/all` 70 KB / 27 ms; bes ayri cagri 61 KB / 13 ms.
+   Fark, tek bir tutarli anlik goruntunun bedeli olarak ucuz -- ustelik
+   sekme degistirmek artik istek gerektirmiyor. */
+const ANALYSIS_SECTIONS = {
+  requirements: "requirements",
+  questions: "questions",
+  gaps: "gaps",
+  decisions: "decisions",
+  research: "research_notes",
 };
 
 async function loadAnalysis() {
@@ -3153,23 +3348,124 @@ async function loadAnalysis() {
   // Beklerken eski projenin verisi ekranda kalmaz.
   target.innerHTML = busyState();
   try {
-    const data = await api(`/api/state/${state.analysisTab}`);
-    state.analysisItems = data.items;
+    const data = await api("/api/state/all");
+    state.analysisAll = {};
+    for (const [sekme, alan] of Object.entries(ANALYSIS_SECTIONS)) {
+      state.analysisAll[sekme] = data[alan] || [];
+    }
+    renderAnalysisTabCounts();
     renderAnalysisPage();
   } catch (error) {
+    state.analysisAll = null;
     target.innerHTML = hataDurumu(error);
     $("#analysis-pager").hidden = true;
+    $("#analysis-filters").innerHTML = "";
+    $("#analysis-count").textContent = "";
   }
+}
+
+/* Sekme sayaclari YUKLENEN listelerden yazilir.
+
+   `/api/overview`in `counts`u ayri bir istek, ayri bir an. Ayni ekranda
+   iki kaynagi uzlastirmanin tek durust yolu, ikisini bir kaynak
+   yapmak. */
+function renderAnalysisTabCounts() {
+  const hepsi = state.analysisAll;
+  if (!hepsi) return;
+  $("#c-req").textContent = hepsi.requirements.length;
+  const acik = hepsi.questions.filter((q) => q.status === "open").length;
+  $("#c-q").textContent = `${acik}/${hepsi.questions.length}`;
+  $("#c-q").dataset.alert =
+    hepsi.questions.some((q) => q.blocking && q.status === "open") ? "1" : "";
+  $("#c-gap").textContent = hepsi.gaps.length;
+  $("#c-dec").textContent = hepsi.decisions.length;
+  $("#c-res").textContent = hepsi.research.length;
+}
+
+/* O sekmedeki bir alanin GERCEKTEN gecen degerleri.
+
+   Sabit bir liste yazmak, veride hic bulunmayan bir deger icin bos bir
+   cip birakir ve kullaniciyi hicbir zaman sonuc vermeyecek bir
+   tiklamaya davet ederdi. */
+function suzgecDegerleri(items, suzgec) {
+  const cikar = suzgec.turet || ((item) => item[suzgec.field] ?? "");
+  const gorulen = new Set();
+  for (const item of items) {
+    const deger = String(cikar(item) || "");
+    if (deger) gorulen.add(deger);
+  }
+  return [...gorulen].sort();
+}
+
+function suzgecEtiketi(suzgec, deger) {
+  if (suzgec.etiket) return suzgec.etiket(deger);
+  return suzgec.tv ? tv(suzgec.tv, deger) : deger;
+}
+
+/* Sekmenin suzgeclerini ve aramasini uygular. */
+function analizSuzulmus(sekme, items) {
+  const view = ANALYSIS_VIEWS[sekme];
+  const secili = state.analysisFilters[sekme] || {};
+  const ara = state.analysisSearch;
+  return items.filter((item) => {
+    for (const suzgec of view.filters || []) {
+      const istenen = secili[suzgec.field];
+      if (!istenen) continue;
+      const cikar = suzgec.turet || ((x) => x[suzgec.field] ?? "");
+      if (String(cikar(item) || "") !== istenen) return false;
+    }
+    if (!ara) return true;
+    // Arama, satirda ve ayrinti bolmesinde GORUNEN metnin uzerinde:
+    // gormedigin bir alanda eslesen sonuc, sonuc gibi gorunmez.
+    const yigin = [view.label(item), ...view.detail(item).map(([, v]) => v)]
+      .filter(Boolean).join(" ").toLowerCase();
+    return yigin.includes(ara);
+  });
+}
+
+/* Cip cubugu. Bos sonuc verse bile cipler KALIR: yoksa geri donulemez. */
+function renderAnalysisFilters(sekme, items) {
+  const bar = $("#analysis-filters");
+  const view = ANALYSIS_VIEWS[sekme];
+  const secili = state.analysisFilters[sekme] || {};
+  const parcalar = [];
+  for (const suzgec of view.filters || []) {
+    // Degerler SUZULMEMIS listeden turetilir: bir cipe basmak digerlerini
+    // ortadan kaldirsaydi secimi degistirmek imkansiz olurdu.
+    const degerler = suzgecDegerleri(items, suzgec);
+    if (degerler.length < 2 && !secili[suzgec.field]) continue;
+    parcalar.push(
+      `<button class="chip chip-btn${secili[suzgec.field] ? "" : " is-active"}"
+               data-filter="${esc(suzgec.field)}" data-value="" type="button"
+               >${esc(t("app.all"))}</button>`
+      + degerler.map((deger) =>
+        `<button class="chip chip-btn${secili[suzgec.field] === deger ? " is-active" : ""}"
+                 data-filter="${esc(suzgec.field)}" data-value="${esc(deger)}"
+                 type="button">${esc(suzgecEtiketi(suzgec, deger))}</button>`
+      ).join(""));
+  }
+  bar.innerHTML = parcalar.join("");
 }
 
 function renderAnalysisPage() {
   const view = ANALYSIS_VIEWS[state.analysisTab];
   const target = $("#analysis-body");
-  const all = state.analysisItems;
+  const ham = state.analysisAll?.[state.analysisTab] || [];
+  const all = analizSuzulmus(state.analysisTab, ham);
+  state.analysisItems = all;
+
+  renderAnalysisFilters(state.analysisTab, ham);
+  $("#analysis-count").textContent = ham.length === all.length
+    ? "" : t("analysis.filtered", { n: all.length, total: ham.length });
 
   const columns = view.columns();
   if (!all.length) {
-    const [title, hint] = view.empty();
+    // Suzgecin bosalttigi liste ile HIC KAYIT OLMAYAN liste ayni sey
+    // degil: birincisinde kullanicinin yapacagi sey suzgeci gevsetmek,
+    // ikincisinde bir faz kosturmak.
+    const [title, hint] = ham.length
+      ? [t("analysis.noMatch"), t("analysis.noMatchHint")]
+      : view.empty();
     target.innerHTML = emptyState(title, hint);
     $("#analysis-pager").hidden = true;
     return;
@@ -3183,13 +3479,16 @@ function renderAnalysisPage() {
   target.innerHTML = `
     <div class="table-wrap"><table>
       <thead><tr>${columns.map((column) => `<th>${esc(column)}</th>`).join("")}</tr></thead>
-      <tbody>${slice.items.map((item, index) => {
-        const id = slice.start + index;
+      <tbody>${slice.items.map((item) => {
+        // Kimlik SIRA DEGIL: sayfa degisince ya da suzgec daralinca
+        // ayni sira numarasi baska bir kayda denk geliyordu.
+        const id = item.key || item.topic || view.label(item);
+        const acik = state.analysisOpen.has(id);
         return `
-        <tr class="clickable" data-row="${id}" tabindex="0" role="button"
-            aria-expanded="false"
+        <tr class="clickable" data-row="${esc(id)}" tabindex="0" role="button"
+            aria-expanded="${acik}"
             aria-label="${esc(view.label(item))}">${view.row(item)}</tr>
-        <tr class="row-detail" data-detail="${id}" hidden>
+        <tr class="row-detail" data-detail="${esc(id)}"${acik ? "" : " hidden"}>
           <td colspan="${columns.length}">
             <dl class="detail-grid">${view.detail(item)
               .filter(([, value]) => value)
@@ -3203,9 +3502,12 @@ function renderAnalysisPage() {
     </table></div>`;
 
   const toggleRow = (row) => {
-    const detail = $(`[data-detail="${row.dataset.row}"]`, target);
+    const detail = $(`[data-detail="${CSS.escape(row.dataset.row)}"]`, target);
     detail.hidden = !detail.hidden;
     row.setAttribute("aria-expanded", String(!detail.hidden));
+    // Acik/kapali KAYDEDILIR: yoksa bir sonraki tazeleme onu kapatir.
+    if (detail.hidden) state.analysisOpen.delete(row.dataset.row);
+    else state.analysisOpen.add(row.dataset.row);
   };
   $$(".row-answer", target).forEach((box) => {
     box.addEventListener("click", (event) => event.stopPropagation());
@@ -3214,6 +3516,14 @@ function renderAnalysisPage() {
     const gonder = $("[data-answer-send]", box);
     const atla = $("[data-answer-skip]", box);
     const anahtar = box.dataset.answerKey;
+
+    // YAZILAN METIN TASINIR. Ekran kosu surerken 2,5 saniyede bir bastan
+    // cizilyor; tasinmazsa uc cumlelik bir cevabi yazarken kutu
+    // bosaliyor ve sebebi ekranda gorunmuyor.
+    if (state.analysisDrafts[anahtar]) kutu.value = state.analysisDrafts[anahtar];
+    kutu.addEventListener("input", () => {
+      state.analysisDrafts[anahtar] = kutu.value;
+    });
 
     kutu.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -3228,6 +3538,7 @@ function renderAnalysisPage() {
         kutu.focus();
         return;
       }
+      delete state.analysisDrafts[anahtar];
       soruyuKapat(box, anahtar, "answer", metin);
     });
     atla.addEventListener("click", () =>
@@ -3297,7 +3608,27 @@ function initAnalysis() {
     state.analysisTab = tab.dataset.tab;
     state.analysisPage = 1;  // yeni sekme, bastan basla
     $$(".tab", $("#analysis-tabs")).forEach((node) => node.classList.toggle("is-active", node === tab));
-    loadAnalysis();
+    // Istek YOK: bes bolum de elde. Once her sekme degisimi bir cagri
+    // aciyordu ve gelen yanit, kullanici bu arada baska bir sekmeye
+    // gectiyse yanlis tabloyu ciziyordu.
+    if (state.analysisAll) renderAnalysisPage();
+    else loadAnalysis();
+  });
+
+  $("#analysis-filters").addEventListener("click", (event) => {
+    const chip = event.target.closest(".chip-btn");
+    if (!chip) return;
+    const secili = state.analysisFilters[state.analysisTab] || {};
+    secili[chip.dataset.filter] = chip.dataset.value;
+    state.analysisFilters[state.analysisTab] = secili;
+    state.analysisPage = 1;
+    renderAnalysisPage();
+  });
+
+  $("#analysis-search").addEventListener("input", (event) => {
+    state.analysisSearch = event.target.value.trim().toLowerCase();
+    state.analysisPage = 1;
+    renderAnalysisPage();
   });
 }
 
@@ -3495,12 +3826,16 @@ function renderTaskPage() {
   const slice = slicePage(items, state.taskPage, state.taskSize);
   state.taskPage = slice.page;
 
-  target.innerHTML = `<div class="tasks">${slice.items.map((task, index) => {
-    const id = slice.start + index;
+  target.innerHTML = `<div class="tasks">${slice.items.map((task) => {
+    // Kimlik SIRA DEGIL: ekran kosu surerken 2,5 saniyede bir bastan
+    // cizilyor ve sayfa/suzgec degisince ayni sira baska bir goreve
+    // denk geliyordu. Anahtar gorev boyunca sabit.
+    const id = task.key;
+    const acik = state.taskOpen.has(id);
     return `
       <article class="task" data-status="${esc(task.status)}" data-ready="${task.ready ? 1 : 0}">
-        <button class="task-head" data-toggle="${id}" type="button"
-                aria-expanded="false" aria-label="${esc(t("plan.taskLabel", {
+        <button class="task-head" data-toggle="${esc(id)}" type="button"
+                aria-expanded="${acik}" aria-label="${esc(t("plan.taskLabel", {
                   key: task.key, title: task.title,
                   status: tv("status", task.status), lane: tv("lane", task.lane) }))}">
           <span class="task-key">${esc(task.key)}</span>
@@ -3520,7 +3855,7 @@ function renderTaskPage() {
             esc(tv("status", task.status))}</span>
           <span class="task-lane">${esc(tv("lane", task.lane))}</span>
         </button>
-        <div class="task-body" data-body="${id}" hidden>
+        <div class="task-body" data-body="${esc(id)}"${acik ? "" : " hidden"}>
           ${task.description ? `<p>${esc(task.description)}</p>` : ""}
           ${task.files.length ? `<div class="task-files">${task.files.map((file) => `<span class="task-file">${esc(file)}</span>`).join("")}</div>` : ""}
           ${task.acceptance ? `<div class="task-accept"><strong>${esc(t("plan.acceptance"))}:</strong> ${esc(task.acceptance)}</div>` : ""}
@@ -3539,8 +3874,12 @@ function renderTaskPage() {
 
   $$("[data-toggle]", target).forEach((button) => {
     button.addEventListener("click", () => {
-      const body = $(`[data-body="${button.dataset.toggle}"]`, target);
+      const body = $(`[data-body="${CSS.escape(button.dataset.toggle)}"]`, target);
       body.hidden = !body.hidden;
+      // Acik hal KAYDEDILIR: yoksa bir sonraki tazeleme onu kapatir ve
+      // kullanici okudugu gorevi kaybeder.
+      if (body.hidden) state.taskOpen.delete(button.dataset.toggle);
+      else state.taskOpen.add(button.dataset.toggle);
       button.setAttribute("aria-expanded", String(!body.hidden));
     });
   });
@@ -3946,11 +4285,58 @@ function renderAttachment(data) {
 
    `seq` YOK bu kayitlarda; `state.lastSeq` bilerek elle surulmez, yoksa
    canli akis kendi imlecini gecmise kaydirip yeni olaylari atlardi. */
+/* Bir olayin KIMLIGI.
+
+   Disk kaydinda `seq` yok, canli kayitta var; ikisi ayni olayin iki
+   kopyasi olabilir. Zaman damgasi + tur + aktor + ileti, pratikte tek
+   bir olayi belirler: ayni mikrosaniyede ayni aktorden ayni iletiyi
+   iki kez yayan bir kod yolu yok. */
+function olayAnahtari(event) {
+  return `${event.ts}|${event.kind}|${event.actor}|${event.message}`;
+}
+
+/* Iki listeyi zaman sirasinda birlestirir, kopyalari atar.
+
+   OLCULDU: sayfa yenilendiginde her olay IKI KEZ gorunuyordu. Disk
+   gecmisi `state.events`in basina ekleniyor, sonra SSE `since=0` ile
+   baglanip sunucunun tamponunu bastan gonderiyordu -- ve tamponun
+   tamami zaten diskte de vardi. */
+function olaylariBirlestir(...listeler) {
+  const gorulen = new Set();
+  const hepsi = [];
+  for (const liste of listeler) {
+    for (const event of liste || []) {
+      const anahtar = olayAnahtari(event);
+      if (gorulen.has(anahtar)) continue;
+      gorulen.add(anahtar);
+      hepsi.push(event);
+    }
+  }
+  return hepsi.sort((a, b) => a.ts - b.ts);
+}
+
 async function loadStreamHistory() {
+  const kapsam = state.streamScope
+    ? `&workflow=${encodeURIComponent(state.streamScope)}` : "";
   try {
-    const data = await api("/api/events/history?limit=400");
-    if (!data.events?.length) return;
-    state.events = data.events.concat(state.events);
+    const data = await api(`/api/events/history?limit=400${kapsam}`);
+    state.streamNote = "";
+    state.streamNoteTone = "";
+    // Kapsam bir is akisiysa kosu kumesi buradan gelir: canli olaylar
+    // bununla suzuluyor.
+    state.streamRuns = data.scope ? new Set(data.scope.runs || []) : null;
+    if (data.truncated) {
+      // "Daha eskisi taranmadi" ile "hic olay yok" ayni sey degil.
+      state.streamNote = t("stream.truncated", { n: data.events.length });
+    }
+    if (state.streamScope) {
+      state.streamEvents = data.events || [];
+      renderFeed();
+      return;
+    }
+    state.streamEvents = null;
+    if (!data.events?.length) { renderFeed(); return; }
+    state.events = olaylariBirlestir(data.events, state.events);
     renderFeed();
     // Genel bakistaki ve gelistirme sekmesindeki ozet akislar da dolsun:
     // sayfa yenilendiginde "Henuz olay yok" yaziyorlardi, oysa gunluk
@@ -3962,15 +4348,26 @@ async function loadStreamHistory() {
       mini.innerHTML = son;
       mini.scrollTop = mini.scrollHeight;
     }
-  } catch {
-    /* Gunluk okunamiyorsa canli akis yine calisir; sessizce gecilir. */
+  } catch (error) {
+    /* Sessizce gecmek, 403 alan bir izleyiciye "hic olay yok" demekti.
+       Gunluk okunamiyorsa canli akis yine calisir ama ekran SEBEBINI
+       soyler. */
+    state.streamNote = error.message;
+    state.streamNoteTone = "err";
+    if (state.streamScope) state.streamEvents = [];
+    renderFeed();
   }
 }
 
 function connectStream() {
   if (state.source) state.source.close();
 
-  const source = new EventSource(`/api/events?since=${state.lastSeq}`);
+  // Proje SORGUDA: `EventSource` baslik gonderemiyor ve cerez tarayici
+  // genelinde tek -- iki sekme iki projede acikken ikisi de son
+  // etkinlestirilen projenin olaylarini aliyordu.
+  const proje = state.projectSlug && state.projectSlug !== "-"
+    ? `&project=${encodeURIComponent(state.projectSlug)}` : "";
+  const source = new EventSource(`/api/events?since=${state.lastSeq}${proje}`);
   state.source = source;
 
   source.addEventListener("deerx", (message) => {
@@ -3980,6 +4377,7 @@ function connectStream() {
     state.lastSeq = Math.max(state.lastSeq, event.seq);
     state.events.push(event);
     if (state.events.length > 3000) state.events.splice(0, state.events.length - 3000);
+    kapsamaEkle(event);
 
     appendEvent(event);
     if (event.kind === "approval") loadOverview();
@@ -3988,26 +4386,77 @@ function connectStream() {
 
   source.addEventListener("ping", () => { state.reconnectDelay = 1000; });
 
+  source.addEventListener("open", () => {
+    // Kopukluk BITTI: not silinir. Sessizce geri gelmek, kullaniciya
+    // hangi olaylarin kacirildigini bilmeden guvenmeyi ogretirdi.
+    if (state.streamOffline) {
+      state.streamOffline = false;
+      if (state.view === "stream") renderFeed();
+    }
+  });
+
   source.onerror = () => {
     source.close();
     state.source = null;
+    // Kopukluk EKRANDA. Genel bakisin cevrimdisi seridi yalnizca 2,5
+    // saniyelik yoklamaya bakiyor; akis kopup da yoklama surerken ekran
+    // "olay yok" gibi duruyordu ve bu bir yalandi.
+    state.streamOffline = true;
+    if (state.view === "stream") renderFeed();
     // Ustel geri cekilme; sunucu yeniden basladiginda kendiliginden baglanir.
     setTimeout(connectStream, state.reconnectDelay);
     state.reconnectDelay = Math.min(state.reconnectDelay * 2, 15000);
   };
 }
 
+/* Canli olayi, acik kapsama aitse kapsamli listeye de koyar.
+
+   Bilinmeyen bir kosu gorunce kapsam bir kez tazelenir: o is akisinda
+   YENI bir kosu baslamis olabilir ve kosu kumesi gecmis cekilirken
+   donmustu. Tazeleme kisilir, yoksa bu akisa ait olmayan her olay bir
+   istek dogururdu. */
+let kapsamTazeleme = null;
+function kapsamaEkle(event) {
+  if (!state.streamScope || !state.streamEvents) return;
+  const kosu = event.run_id || "";
+  if (state.streamRuns?.has(kosu)) {
+    state.streamEvents.push(event);
+    return;
+  }
+  if (!kosu || kapsamTazeleme) return;
+  kapsamTazeleme = setTimeout(() => {
+    kapsamTazeleme = null;
+    loadStreamHistory();
+  }, 2000);
+}
+
+/* Uzun bir yolun AYIRT EDEN kismi sonundadir: `.../demo/docs/x.md` ile
+   `.../vllm/docs/x.md` yalnizca sondan birkac parcada ayrilir. Bastan
+   kirpiyoruz. Tam yol `title` ipucunda duruyor. */
+function yoluKirp(yol, tavan = 72) {
+  const metin = String(yol || "");
+  return metin.length <= tavan ? metin : "…" + metin.slice(-(tavan - 1));
+}
+
 function eventRow(event) {
   const glyph = GLYPH[event.kind] || "·";
+  // Faz: kayit bu alani bastan beri tasiyordu, ekran hic cizmiyordu.
+  const faz = event.phase ? t(`phase.${event.phase}`) : "";
   return `<div class="ev" data-kind="${esc(event.kind)}">
     <span class="ev-time">${fmtTime(event.ts)}</span>
     <span class="ev-glyph">${esc(glyph)}</span>
     <span class="ev-actor">${esc(event.actor)}</span>
+    <span class="ev-phase">${esc(faz)}</span>
     <span class="ev-msg">${esc(event.message)}</span>
   </div>`;
 }
 
 function passesFilter(event) {
+  const ara = state.streamSearch;
+  if (ara) {
+    const yigin = `${event.message} ${event.actor}`.toLowerCase();
+    if (!yigin.includes(ara)) return false;
+  }
   if (!state.streamFilter) return true;
   if (state.streamFilter === "error") return ["error", "tool_error"].includes(event.kind);
   if (state.streamFilter === "tool")  return ["tool", "tool_error"].includes(event.kind);
@@ -4040,16 +4489,42 @@ function streamIsLive() {
   return state.streamPage === null;
 }
 
+/* Kapsamdaki olaylar. Kapsam bir is akisiysa SUNUCUDAN gelen liste,
+   degilse kapsamsiz tampon. `state.events` her zaman kapsamsiz kalir:
+   genel bakistaki ve gelistirme sekmesindeki ozet akislar ondan
+   besleniyor ve onlarin kapsami yok. */
+function scopedEvents() {
+  return state.streamScope ? (state.streamEvents || []) : state.events;
+}
+
 function visibleEvents() {
-  return state.events.filter(passesFilter);
+  return scopedEvents().filter(passesFilter);
 }
 
 function renderFeed() {
   const feed = $("#feed");
   const visible = visibleEvents();
 
+  const not = $("#stream-note");
+  if (not) {
+    // Kopuk baglanti once soylenir: tarama notu dogru olabilir ama
+    // kullanicinin bilmesi gereken sey, akisin durdugudur.
+    not.textContent = state.streamOffline ? t("stream.offline") : state.streamNote;
+    not.dataset.tone = state.streamOffline ? "err" : state.streamNoteTone;
+  }
+
   if (!visible.length) {
-    feed.innerHTML = emptyState(t("stream.empty"), t("stream.emptyHint"));
+    // Uc ayri bos hal, uc ayri sebep. "Olay yok" demek, suzgeci daraltan
+    // kullaniciya da gunlugu okuyamayan sunucuya da yanlis cevap.
+    const suzgecVar = state.streamFilter || state.streamSearch;
+    const [baslik, ipucu] = state.streamNoteTone === "err"
+      ? [t("stream.failed"), state.streamNote]
+      : suzgecVar
+        ? [t("stream.noMatch"), t("stream.noMatchHint")]
+        : state.streamScope
+          ? [t("stream.emptyScope"), t("stream.emptyScopeHint")]
+          : [t("stream.empty"), t("stream.emptyHint")];
+    feed.innerHTML = emptyState(baslik, ipucu);
     $("#stream-pager").hidden = true;
     return;
   }
@@ -4058,11 +4533,16 @@ function renderFeed() {
   const page = streamIsLive() ? pages : Math.min(state.streamPage, pages);
   const slice = slicePage(visible, page, state.streamSize);
 
+  const oncekiKaydirma = feed.scrollTop;
   feed.innerHTML = slice.items.map(eventRow).join("");
-  // Otomatik kaydirma yalnizca canli sayfada anlamli; gecmis sayfada kullanici
-  // nereye baktiysa orada kalmali.
+  // Otomatik kaydirma yalnizca canli sayfada anlamli.
+  //
+  // OLCULDU: kapaliyken `scrollTop = 0` calisiyordu, yani "otomatik
+  // kaydirma"yi KAPATAN kullanici her olayda listenin en ustune
+  // ziplatiliyordu -- onay kutusu tam tersini yapiyordu. Artik kapaliyken
+  // kullanici nerede birakdiysa orada kalir.
   if (streamIsLive() && $("#autoscroll").checked) feed.scrollTop = feed.scrollHeight;
-  else feed.scrollTop = 0;
+  else feed.scrollTop = oncekiKaydirma;
 
   renderStreamPager();
 }
@@ -4093,7 +4573,55 @@ function renderStreamPager() {
   live.hidden = streamIsLive();
 }
 
+/* Kapsam secicisini is akislariyla doldurur.
+
+   Liste her acilista tazelenir: yeni bir is akisi baslamis olabilir ve
+   donuk bir secici, olmayan bir kapsami sunardi. */
+async function renderStreamScope() {
+  const secici = $("#stream-scope");
+  if (!secici) return;
+  let akislar = [];
+  try {
+    akislar = (await api("/api/workflows")).workflows || [];
+  } catch {
+    /* Liste alinamadiysa yalnizca "tum proje" kalir: kapsamsiz akis
+       her zaman calisir ve secici olmadan da ekran isini gorur. */
+  }
+  const mevcut = state.streamScope;
+  secici.innerHTML = `<option value="">${esc(t("stream.scopeAll"))}</option>`
+    + akislar.map((wf) => {
+      const ad = wf.title || wf.goal || "";
+      const etiket = t("stream.scopeWorkflow", { seq: wf.seq })
+        + (ad ? ` · ${ad.slice(0, 48)}` : "");
+      return `<option value="${esc(wf.id)}"${wf.id === mevcut ? " selected" : ""}
+              >${esc(etiket)}</option>`;
+    }).join("");
+  // Secili kapsam silinmisse "tum proje"ye duser; ekran bos kalmaz.
+  if (mevcut && secici.value !== mevcut) {
+    state.streamScope = "";
+    state.streamRuns = null;
+    state.streamEvents = null;
+    loadStreamHistory();
+  }
+}
+
 function initStream() {
+  $("#stream-scope").addEventListener("change", (event) => {
+    state.streamScope = event.target.value;
+    state.streamPage = null;   // kapsam degisti; kuyruga geri don
+    state.streamEvents = state.streamScope ? [] : null;
+    state.streamRuns = null;
+    renderFeed();              // once bosalt: eski kapsamin olaylari kalmasin
+    loadStreamHistory();
+  });
+
+  // Arama istemcide: yeni uc yok, gunluk zaten elde.
+  $("#stream-search").addEventListener("input", (event) => {
+    state.streamSearch = event.target.value.trim().toLowerCase();
+    state.streamPage = null;
+    renderFeed();
+  });
+
   $("#stream-filters").addEventListener("click", (event) => {
     const chip = event.target.closest(".chip-btn");
     if (!chip) return;
@@ -4108,6 +4636,8 @@ function initStream() {
   });
   $("#clear-feed").addEventListener("click", () => {
     state.events = [];
+    // Kapsamli liste de temizlenir; yoksa "Temizle" ekrani degistirmezdi.
+    if (state.streamEvents) state.streamEvents = [];
     renderFeed();
   });
 }
@@ -4195,6 +4725,7 @@ function boot() {
   initEnvironment();
   initProjects();
   initDocPicker();
+  initDocFilters();
   initKnowledge();
   initAnalysis();
   initPlan();

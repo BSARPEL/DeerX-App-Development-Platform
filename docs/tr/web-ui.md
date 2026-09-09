@@ -172,6 +172,22 @@ bakıştaki *Son olaylar* da dolar. Akış "saklanıyor" diyor ama sayfa
 yenilendiğinde hiçbir şey göstermiyordu; ekranda bitmeyen denetlenebilirlik
 denetlenebilirlik değildir.
 
+**Kapsam: tüm proje ya da tek bir iş akışı.** Üstteki seçici akışı bir iş
+akışına daraltır. Süzgeç sunucuda uygulanır (`/api/events/history?workflow=`),
+istemcide değil: geçmiş sondan okunuyor ve üçüncü bir iş akışının olayları son
+400 satırın çok gerisinde kalabilir — istemcide süzmek onları hiç göremezdi.
+Günlüğün tamamı taranmadıysa ekran bunu söyler; "daha eskisi taranmadı" ile
+"hiç olay yok" aynı şey değildir.
+
+Her satır artık olayın **fazını** da yazar. Alan kayıtta baştan beri vardı,
+ekran onu hiç çizmiyordu.
+
+**Arama** ileti ve aktör üzerinde çalışır, istemcide.
+
+**Bağlantı ekranda.** Akış koptuğunda satır belirir ve geri gelince silinir.
+Eskiden sessizce yeniden bağlanılıyordu: ekranda hiçbir işaret yoktu ve durmuş
+bir akış "olay yok" gibi duruyordu.
+
 ## Plan
 
 ![Görev planı: şeritler, bağımlılıklar ve görev başına durum](../images/plan-tr.png)
@@ -213,6 +229,23 @@ tıklamak dayanağını ve önerisini açar. Sayfalanır (25/50/100/250); sekme
 değiştirmek ilk sayfaya döner ve açık ayrıntı satırları sayfalar arasında
 karışmaz.
 
+**Süzgeç ve arama.** Her sekme kendi kategorik alanlarına göre süzülür:
+gereksinimde öncelik ve kategori, boşlukta önem ve alan, soruda durum ve
+engelleyicilik, araştırmada güven. Çipler **veriden türetilir** — o sekmede
+gerçekten geçen değerler ne ise onlar; veride bulunmayan bir değer için çip
+çizmek, kullanıcıyı hiçbir zaman sonuç vermeyecek bir tıklamaya davet etmek
+olurdu. Süzgeç listeyi boşaltsa bile çipler kalır, yoksa geri dönülemez.
+
+**Sayaç ile tablo aynı andan gelir.** Beş bölümün tamamı tek bir
+`/api/state/all` çağrısıyla çekilir ve sekme sayaçları o listelerin
+uzunluğudur. Önce sayaç `/api/overview`den (2,5 saniyede bir tazelenen),
+tablo ayrı bir çağrıdan geliyordu: koşu sürerken ekran "Gereksinimler 24"
+derken altında "Gereksinim yok" yazabiliyordu. Yan fayda: sekme değiştirmek
+istek gerektirmiyor.
+
+**Yazdığınız kaybolmaz.** Koşu sürerken ekran 2,5 saniyede bir yeniden
+çizilir; açık ayrıntı satırları ve cevap kutusuna yazılmış metin taşınır.
+
 **Açık sorular buradan cevaplanır.** Sorular sekmesi salt okunur bir kayıt
 değil: açık bir soruyu genişletmek cevap kutusunu verir ve cevap her cevap gibi
 bilgi tabanına yazılır. Eskiden yalnızca boru hattını *durduran* sorular, o da
@@ -222,12 +255,35 @@ yakışmıyordu.
 
 ## Bilgi tabanı
 
-Modelin gerçekten arayabileceği şey. İki panel.
+Modelin gerçekten arayabileceği şey.
+
+**Belgeler.** Envanter: ne indekslenmiş, hangi türde, kaç parça. Ad ve yol
+üzerinde arama, türe ve duruma göre çipler. Başlık satırı kaç belgenin
+**etkin** olduğunu söyler — yani ajanların gerçekten görebildiği sayıyı;
+toplam envanterdir, üç belgeyi pasifleştiren kullanıcıya yine "27 belge"
+demek onun göremediği bir sayıyı söylemek olurdu.
+
+**Pasifleştir gerçekten çıkarır.** "Artık buna bakma" kararı aramayı ve
+ajanların gördüğü korpusu daraltır; parçalar durur, yani geri almak yeniden
+indeksleme gerektirmez. Koşu başına belge kapsamı bunu **geri alamaz**:
+kapsam bir daraltmadır ("bu koşuda yalnızca şunlara bak"), pasiflik bir
+dışlamadır ("hiçbir koşuda buna bakma").
+
+**Kalıcı sil çalışma alanında durur.** İndeks kaydı her zaman silinir; dosya
+yalnızca çalışma alanının içindeyse diskten gider. Korpus dışarıdaki yolları
+da taşıyabiliyor (`deerx index <dizin>` her yeri indeksleyebilir) ve
+başkasının dizinindeki bir dosyayı silmek projenin hakkı değil. Dosya
+bırakıldıysa akışta yazar.
 
 **Arama.** Bir sorgu ve tür yongaları — doküman, kod, web, veri. `deerx
 search` ile aynı hibrit arama: anlamsal artı BM25, sıra bazlı füzyon.
 Sonuçlar kaynağı ve parçayı adlandırır; "şartnamemi indeksledi mi?" sorusu
 kırk dakika sonra değil burada cevaplanır.
+
+Bu kutu bir **tanı aracıdır**: pasifleştirilmiş belgelerden gelen isabetler de
+döner, solgun ve "ajanlar bu belgeyi okumuyor" etiketiyle. "Neden bulunmuyor?"
+sorusunun cevabı çoğu zaman "çünkü pasifleştirmişsin" ve sıfır sonuç bunu
+söylemez. Ajanın araması bunu hiç açmaz.
 
 **İndeksleme.** Bir yol, isteğe bağlı **Zorla**, ve indeksteki belgeler,
 sayfalanmış. **Geliştirme** ekranından yüklemek dosyayı `docs/` altına

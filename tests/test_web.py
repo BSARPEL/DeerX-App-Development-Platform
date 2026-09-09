@@ -2765,6 +2765,189 @@ class TestTheSettingsEventIsReadable:
         assert "gizli-anahtar" not in mesaj
 
 
+class TestKaliciSilAlanSinirindaDurur:
+    """"Kalici sil" calisma alaninin DISINA uzanmamali.
+
+    Cekirdek davranis `tests/test_rag.py` icinde olculuyor; burada
+    UCUN kullaniciya ne soyledigi olculuyor. Dosyayi sessizce
+    birakmak, "Kalici sil" diyen bir dugmenin ikinci bir yalani
+    olurdu.
+    """
+
+    def test_the_endpoint_says_the_file_was_left_behind(self, client, settings, tmp_path):
+        """Alan disi belge korpusta GERCEKTEN bulunuyor.
+
+        `/api/ingest` alan disini indekslemiyor (`_alan_ici_yol`), ama
+        `deerx index <dizin>` indeksliyor: gercek bir korpusta olculdu,
+        belgelerin kaynaklari baska projelerin dizinlerini gosteriyor.
+        Bu yuzden test dosyayi UCTAN degil, dogrudan depoya yaziyor --
+        olculmek istenen sey silme yolunun davranisi.
+        """
+        disarisi = tmp_path.parent / "BASKA-PROJE-2"
+        disarisi.mkdir(exist_ok=True)
+        yabanci = disarisi / "yabanci.md"
+        yabanci.write_text(
+            "# Yabanci\n\nKVKK maddeleri burada.\n", encoding="utf-8")
+
+        kb = client.app.state.deerx.orchestrator.kb
+        kb.ingest_path(yabanci)
+        kayit = next(d for d in kb.store.list_documents() if "yabanci" in d["source"])
+
+        cevap = client.post(
+            "/api/forget", json={"source": kayit["source"], "mode": "delete"}
+        ).json()
+
+        assert cevap["ok"] is True
+        assert cevap["removed_chunks"] > 0, "indeks kaydi yine de silinmeli"
+        assert cevap["file_removed"] is False, "uc, dosyayi sildigini soyluyor"
+        assert yabanci.is_file(), "alan disindaki dosya diskten silindi"
+
+
+class TestAkisIsAkisiBazinda:
+    """Akis hem IS AKISI bazinda hem GENEL olabilmeli.
+
+    Kullanicinin istegi buydu. Olculdu: `Event` (logging.py:99-113)
+    `run_id` ve `phase` alanlarini bastan beri tasiyor ve diske de oyle
+    yaziliyor -- ama web tamponu (`WebRunner._on_event`) sozlugu alan
+    alan kuruyor ve bu ikisini disarida birakiyordu:
+
+        diskteki kayit : actor data kind message phase run_id seq ts
+        canli SSE yuku : actor data kind message           seq ts
+
+    Yani ekran, sayfayi acarken gordugu gecmis olaylarin kosusunu
+    biliyor, canli gelenlerinkini bilmiyordu; kapsam suzgeci
+    kurulamazdi. Sema degismedi: `runs.workflow_id` sutunu ve
+    `runs_by_workflow` indeksi zaten vardi.
+    """
+
+    @staticmethod
+    def _gunluk(settings, kayitlar):
+        yol = settings.events_path
+        yol.parent.mkdir(parents=True, exist_ok=True)
+        yol.write_text(
+            "\n".join(json.dumps(k, ensure_ascii=False) for k in kayitlar) + "\n",
+            encoding="utf-8",
+        )
+
+    def test_a_live_event_says_which_run_it_belongs_to(self, client):
+        """Tamponun DUSURDUGU iki alan geri geldi."""
+        durum = client.app.state.deerx
+        durum.orchestrator.events.current_run = "kosu-7"
+        durum.orchestrator.events.current_phase = "implement"
+        durum.orchestrator.events.emit("tool", "shell", "bir sey oldu")
+
+        taze, _ = durum.runner.events_since(0)
+        son = taze[-1]
+        assert son["run_id"] == "kosu-7", "canli olay kosusunu tasimiyor"
+        assert son["phase"] == "implement", "canli olay fazini tasimiyor"
+
+    def test_the_history_can_be_scoped_to_one_workflow(self, client, settings):
+        """Suzgec SUNUCUDA: gecmis sondan okunuyor ve ucuncu is akisinin
+        olaylari son 400 satirin cok gerisinde olabilir."""
+        proje = client.app.state.deerx.orchestrator.state
+        a = proje.create_workflow("birinci hedef")
+        b = proje.create_workflow("ikinci hedef")
+        proje.start_run("kosu-a", goal="g", workflow_id=a["id"])
+        proje.start_run("kosu-b", goal="g", workflow_id=b["id"])
+
+        self._gunluk(settings, [
+            {"kind": "tool", "actor": "shell", "message": "A-1", "ts": 1.0,
+             "run_id": "kosu-a", "phase": "implement"},
+            {"kind": "tool", "actor": "shell", "message": "B-1", "ts": 2.0,
+             "run_id": "kosu-b", "phase": "implement"},
+            {"kind": "tool", "actor": "shell", "message": "A-2", "ts": 3.0,
+             "run_id": "kosu-a", "phase": "qa"},
+            {"kind": "phase", "actor": "web", "message": "sunucu", "ts": 4.0,
+             "run_id": None, "phase": None},
+        ])
+
+        hepsi = client.get("/api/events/history?limit=100").json()
+        assert [e["message"] for e in hepsi["events"]] == ["A-1", "B-1", "A-2", "sunucu"]
+
+        sadece_a = client.get(
+            f"/api/events/history?limit=100&workflow={a['id']}").json()
+        assert [e["message"] for e in sadece_a["events"]] == ["A-1", "A-2"]
+        assert sorted(sadece_a["scope"]["runs"]) == ["kosu-a"]
+
+        sadece_b = client.get(
+            f"/api/events/history?limit=100&workflow={b['id']}").json()
+        assert [e["message"] for e in sadece_b["events"]] == ["B-1"]
+
+    def test_a_workflow_with_no_runs_shows_nothing_not_everything(
+        self, client, settings
+    ):
+        """Bos kume "hicbir kosu" demek, "kapsam yok" degil.
+
+        Ayni tuzagin bir baskasi: kosusu olmayan bir is akisi butun
+        projenin olaylarini gosterseydi, kapsam secmek onu genisletirdi.
+        """
+        proje = client.app.state.deerx.orchestrator.state
+        bos = proje.create_workflow("hic kosmadi")
+        self._gunluk(settings, [
+            {"kind": "tool", "actor": "shell", "message": "X", "ts": 1.0,
+             "run_id": "baska-kosu"},
+        ])
+        d = client.get(f"/api/events/history?limit=100&workflow={bos['id']}").json()
+        assert d["events"] == []
+
+    def test_an_unknown_workflow_is_not_a_wildcard(self, client, settings):
+        self._gunluk(settings, [
+            {"kind": "tool", "actor": "shell", "message": "X", "ts": 1.0,
+             "run_id": "k1"},
+        ])
+        d = client.get("/api/events/history?limit=100&workflow=yokboyle").json()
+        assert d["events"] == []
+
+    def test_a_scoped_read_reaches_past_the_tail(self, client, settings):
+        """Kapsamli okuma, son N satirin GERISINE uzanmali.
+
+        Istemci tarafinda suzmek bunu yapamazdi: aranan is akisinin
+        olaylari cekilen pencerenin disinda kalirdi.
+        """
+        proje = client.app.state.deerx.orchestrator.state
+        wf = proje.create_workflow("eski")
+        proje.start_run("eski-kosu", goal="g", workflow_id=wf["id"])
+        kayitlar = [
+            {"kind": "tool", "actor": "shell", "message": "eski", "ts": 1.0,
+             "run_id": "eski-kosu"},
+        ]
+        kayitlar += [
+            {"kind": "tool", "actor": "shell", "message": f"gurultu {i}",
+             "ts": 100.0 + i, "run_id": "baska"}
+            for i in range(800)
+        ]
+        self._gunluk(settings, kayitlar)
+
+        d = client.get(
+            f"/api/events/history?limit=50&workflow={wf['id']}").json()
+        assert [e["message"] for e in d["events"]] == ["eski"], (
+            "kapsamli okuma son satirlarin gerisine uzanmiyor"
+        )
+
+    def test_a_truncated_scan_says_so(self, client, settings):
+        """"Daha eskisi taranmadi" ile "hic olay yok" ayni sey degil.
+
+        Sessizce kesilen bir tarama, kullaniciya "bu is akisinin hic
+        olayi yok" der ve bu yalan olur.
+        """
+        from deerx.web.app import _tail_records
+
+        yol = settings.events_path
+        yol.parent.mkdir(parents=True, exist_ok=True)
+        yol.write_text(
+            "\n".join(
+                json.dumps({"kind": "tool", "actor": "s", "message": str(i),
+                            "ts": float(i), "run_id": "yok"})
+                for i in range(500)
+            ) + "\n",
+            encoding="utf-8",
+        )
+        kayitlar, kesildi = _tail_records(
+            yol, 10, kabul=lambda k: k.get("run_id") == "aranan", butce=100)
+        assert kayitlar == []
+        assert kesildi is True, "butce doldu ama yanit bunu soylemiyor"
+
+
 class TestTheEventLogIsReadableFromTheInterface:
     """Canli akis "`.deerx/events.jsonl` dosyasinda saklanir" diyordu.
 

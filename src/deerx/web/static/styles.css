@@ -1084,7 +1084,24 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
   font-size: var(--fs-meta);
 }
 .result-cite { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
-.result-score { font-family: var(--mono); font-size: var(--fs-micro); color: var(--text-3); white-space: nowrap; }
+.result-meta { font-size: var(--fs-micro); color: var(--text-3); white-space: nowrap; }
+/* Kaynak yolu: atifi ayirt eden sey. Baslik cogu zaman yeter, ama
+   ayni adi tasiyan iki belge oldugunda yalnizca yol ayirir.
+   Kirpma CSS'te degil JS'te: `direction: rtl` hilesi Latin yollarda
+   satir sonu noktalamasini kaydirabiliyor ve gorsel olarak
+   dogrulanamadan birakilamaz. Tam yol `title` ipucunda duruyor. */
+.result-src {
+  display: block;
+  font-size: var(--fs-micro);
+  font-weight: 400;
+  color: var(--text-3);
+  overflow: hidden;
+  white-space: nowrap;
+}
+/* Pasif belgeden gelen isabet: gorunur ama solgun. Tani icin
+   gerekli ("neden bulunmuyor?"), ama ajanin okudugu seyle
+   karistirilmamali. */
+.result[data-inactive="1"] { opacity: .68; }
 .result-body {
   font-family: var(--font);
   font-size: var(--fs-body);
@@ -1355,9 +1372,56 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
   background: var(--surface);
   box-shadow: var(--shadow-sm);
 }
+/* Kapsam cubugu: "neyin akisi" sorusu, tur ciplerinden once. */
+/* Bilgi tabani suzgec cubugu -- Analiz'dekiyle ayni desen. Ayni ise
+   iki farkli duzen uydurmak, ekranlari birbirine yabanci kilar. */
+.doc-bar {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 8px;
+}
+.doc-filter { min-width: 200px; flex: 1 1 240px; max-width: 420px; }
+.doc-count { font-size: var(--fs-meta); color: var(--text-3); }
+#doc-chips:empty { display: none; }
+#doc-chips { margin-bottom: var(--stack); }
+
+/* Kalici sil GERI ALINAMAZ; pasiflestirmek alinabilir. Ikisi ayni gri
+   hayalet dugme olarak yan yana durunca hangisinin ne oldugu yalnizca
+   metinden okunuyordu. */
+.btn-danger-ghost { color: var(--err); }
+.btn-danger-ghost:hover:not(:disabled) { background: var(--err-soft); color: var(--err); }
+
+/* Analiz suzgec cubugu: arama solda, sonuc sayisi sagda. */
+.analysis-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: var(--stack) 0 8px;
+}
+.analysis-search { min-width: 200px; flex: 1 1 240px; max-width: 420px; }
+.analysis-count { font-size: var(--fs-meta); color: var(--text-3); }
+/* Cip cubugu bos oldugunda hic yer kaplamaz: suzulecek kategorik alani
+   olmayan sekmede (kararlar, arastirma) bos bir serit birakmak
+   gurultudur. */
+#analysis-filters:empty { display: none; }
+#analysis-filters { margin-bottom: var(--stack); }
+
+.stream-scopebar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.stream-scope { display: flex; align-items: center; gap: 8px; }
+.stream-scope > span { font-size: var(--fs-meta); color: var(--text-2); }
+.stream-search { min-width: 200px; flex: 1 1 200px; max-width: 360px; }
+/* Kesilen tarama ve okunamayan gunluk buradan konusur: "daha eskisi
+   taranmadi" ile "hic olay yok" ayni sey degil. */
+.stream-note { font-size: var(--fs-meta); color: var(--text-3); }
+.stream-note[data-tone="err"] { color: var(--err); }
+
 .ev {
   display: grid;
-  grid-template-columns: 58px 20px 88px minmax(0, 1fr);
+  grid-template-columns: 58px 20px 88px 72px minmax(0, 1fr);
   gap: 8px;
   padding: 4px 8px;
   border-radius: var(--r-sm);
@@ -1367,6 +1431,12 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
 .ev-time  { color: var(--text-3); font-size: var(--fs-micro); }
 .ev-glyph { text-align: center; font-weight: 600; }
 .ev-actor { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Olayin boru hattindaki yeri. Kayit bu alani BASTAN BERI tasiyordu ve
+   ekran onu hic cizmiyordu. Ozet akislarda gizli: orada 300 pikselde
+   dort sutun zaten sikisik. */
+.ev-phase { color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feed-compact .ev-phase { display: none; }
+.feed-compact .ev { grid-template-columns: 58px 20px 88px minmax(0, 1fr); }
 .ev-msg   { color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .ev[data-kind="phase"]      .ev-glyph, .ev[data-kind="phase"] .ev-msg      { color: var(--accent); }
@@ -1385,7 +1455,11 @@ td.num { font-family: var(--mono); text-align: right; font-variant-numeric: tabu
   border-left: 2px solid var(--accent);
   background: var(--surface-2);
 }
-.ev[data-kind="message"] .ev-actor { display: none; }
+/* Aktor VE faz gizli: model iletisi tam genislikte bir bloktur.
+   Sifir genislikli bir hucrede birakilan faz metni, her harfi ayri
+   satira dusen dikey bir sutun olarak ciziliyordu. */
+.ev[data-kind="message"] .ev-actor,
+.ev[data-kind="message"] .ev-phase { display: none; }
 .ev[data-kind="message"] .ev-msg {
   font-family: var(--font);
   font-size: var(--fs-body);
@@ -1585,7 +1659,7 @@ body[data-blocked] .view.is-active { display: none; }
   .phase { flex: 1 0 auto; min-width: 72px; }
   .field-row { grid-template-columns: 1fr; }
   .ev { grid-template-columns: 48px 18px minmax(0, 1fr); }
-  .ev-actor { display: none; }
+  .ev-actor, .ev-phase { display: none; }
   .task-body { padding-left: 16px; }
 }
 
@@ -2960,7 +3034,7 @@ body[data-blocked] .view.is-active { display: none; }
 .phase-summary-cost, .phase-count, .phase-blocked, .artifact-meta,
 .doc-chip-meta, .package-meta, .attachment-meta, .step-count,
 .modal-count, .rail-badge, .tab-count, .phase-stage-count,
-.result-score, .queue-dot { font-variant-numeric: tabular-nums; }
+.queue-dot { font-variant-numeric: tabular-nums; }
 
 /* ─── Kırpılan odak halkaları ──────────────────────────────────────────── */
 /* Tam genişlikli satır başlıklarının halkası gövde kutusunun DIŞINA

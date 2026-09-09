@@ -395,6 +395,15 @@
                   data-i18n="kb.uploadLink">Belge yükle →</button>
         </header>
         <div class="panel-body">
+          <!-- Suzgec cubugu. Cipler VERIDEN turetiliyor: korpusta gercekten
+               gecen turler ne ise onlar. Tur bilgisi boylece her satiri
+               ayni rozetle kirletmek yerine bir suzgec olarak ise yariyor. -->
+          <div class="doc-bar">
+            <input type="search" id="doc-filter" class="doc-filter"
+                   data-i18n-placeholder="kb.filter">
+            <span class="doc-count" id="doc-count"></span>
+          </div>
+          <div class="chips" id="doc-chips"></div>
           <div id="doc-table"></div>
           <nav class="pager" id="doc-pager" data-i18n-label="pager.aria"
                aria-label="Sayfalama" hidden></nav>
@@ -443,6 +452,15 @@
         <button class="tab" data-tab="decisions" type="button"><span data-i18n="analysis.decisions">Kararlar</span> <span class="tab-count" id="c-dec">0</span></button>
         <button class="tab" data-tab="research" type="button"><span data-i18n="analysis.research">Araştırma</span> <span class="tab-count" id="c-res">0</span></button>
       </div>
+      <!-- Suzgec cubugu. Cipler VERIDEN turetiliyor (o sekmede gercekten
+           gecen degerler), arama kutusu isaretlemede sabit durur: her
+           cizimde yeniden kurulsaydi yazarken odak kaybolurdu. -->
+      <div class="analysis-bar">
+        <input type="search" id="analysis-search" class="analysis-search"
+               data-i18n-placeholder="analysis.search">
+        <span class="analysis-count" id="analysis-count"></span>
+      </div>
+      <div class="chips" id="analysis-filters"></div>
       <div id="analysis-body"></div>
       <nav class="pager" id="analysis-pager" data-i18n-label="pager.aria" aria-label="Sayfalama" hidden></nav>
     </section>
@@ -487,6 +505,18 @@
         <h1 data-i18n="stream.title">Canlı akış</h1>
         <p class="view-sub"><span data-i18n="stream.lead"></span>
            <code>.deerx/events.jsonl</code></p>
+      </div>
+      <!-- Kapsam ve arama, tur ciplerinin USTUNDE: once "neyin akisi",
+           sonra "hangi turler". Ters sira, kullaniciya once ayrintiyi
+           sorup sonra konuyu sormak olurdu. -->
+      <div class="stream-scopebar">
+        <label class="stream-scope">
+          <span data-i18n="stream.scope">Kapsam</span>
+          <select id="stream-scope"></select>
+        </label>
+        <input type="search" id="stream-search" class="stream-search"
+               data-i18n-placeholder="stream.search">
+        <span class="stream-note" id="stream-note"></span>
       </div>
       <div class="stream-toolbar">
         <div class="chips" id="stream-filters">

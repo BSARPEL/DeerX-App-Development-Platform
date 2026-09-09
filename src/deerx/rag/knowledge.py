@@ -175,20 +175,45 @@ class KnowledgeBase:
         """
         return self.store.set_active(source, active)
 
-    def forget(self, source: str, *, remove_file: bool = False) -> int:
+    def owns_file(self, source: str) -> bool:
+        """Bu dosya PROJENIN mi -- yani calisma alaninin icinde mi?
+
+        Korpus calisma alani disindaki yollari da tasiyabiliyor
+        (`deerx index <dizin>` her yeri indeksleyebilir). Boyle bir
+        belgeyi indeksten cikarmak projenin hakki; onu DISKTEN silmek
+        degil.
+        """
+        try:
+            cozulen = Path(source).expanduser().resolve()
+        except (OSError, ValueError):  # pragma: no cover - bozuk yol
+            return False
+        return cozulen.is_relative_to(self.settings.workspace.resolve())
+
+    def forget(self, source: str, *, remove_file: bool = False) -> tuple[int, bool]:
         """Belgeyi dizinden siler; istenirse dosyayi da.
 
         Dosya birakildiginda bir sonraki `ingest` onu YENIDEN indeksler --
         diskte duran bir dosyayi gormemek icin bir sebep yok. Kullanici
         "bir daha kullanma" demek istiyorsa `deactivate` dogru arac;
         "tamamen git" demek istiyorsa dosya da gitmeli.
+
+        AMA yalnizca CALISMA ALANI ICINDEKI dosya silinir. OLCULDU: once
+        denetim yoktu ve alan disindaki bir belgeyi "Kalici sil" ile
+        kaldirmak, baskasinin dizinindeki dosyayi diskten siliyordu.
+        Ayni dosyanin bir katman yukarisi bu disiplini zaten biliyor
+        (`_alan_ici_yol`, app.py): "ajanin uydugu kurala HTTP ucunun
+        uymamasi icin bir sebep yok".
+
+        Doner: (silinen parca sayisi, dosya diskten silindi mi)
         """
         removed = self.store.delete_document(source)
-        if remove_file:
+        silindi = False
+        if remove_file and self.owns_file(source):
             yol = Path(source)
             if yol.is_file():
                 yol.unlink()
-        return removed
+                silindi = True
+        return removed, silindi
 
     # ------------------------------------------------------------------ #
     # Arama

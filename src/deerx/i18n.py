@@ -1725,9 +1725,63 @@ CATALOG: dict[str, dict[str, str]] = {
     },
     "api.not_found": {"tr": "'{name}' bulunamadi.", "en": "'{name}' not found."},
     "api.file_missing": {"tr": "Dosya diskte yok: {path}", "en": "File not on disk: {path}"},
+    # Kosu baslangici. "adim" DEGIL "kosu": kural "adim"i yalnizca is
+    # akisinin adimi icin ayiriyor ve ekranin geri kalani ayni sayiyi
+    # "Kosu #12" diye yaziyor.
+    "run.begins": {
+        "tr": "iş akışı #{wf} · koşu #{seq}: {phases}",
+        "en": "workflow #{wf} · run #{seq}: {phases}",
+    },
+    "run.question_answered": {
+        "tr": "{key} cevaplandı",
+        "en": "{key} answered",
+    },
+    "run.url_blocked": {
+        "tr": "engellendi: {url}",
+        "en": "blocked: {url}",
+    },
+    "run.scanning": {
+        "tr": "taranıyor: {target}",
+        "en": "scanning: {target}",
+    },
+    "run.approval_granted": {
+        "tr": "onaylandı: {action}",
+        "en": "approved: {action}",
+    },
+    "run.approval_denied": {
+        "tr": "reddedildi: {action}",
+        "en": "denied: {action}",
+    },
+    "run.question_skipped": {
+        "tr": "{key} atlandı, varsayım: {assumption}",
+        "en": "{key} skipped, assuming: {assumption}",
+    },
+    "run.no_assumption": {"tr": "(yok)", "en": "(none)"},
+    "run.pipeline_halted": {
+        "tr": "{n} cevaplanmamış soru boru hattını durdurdu",
+        "en": "{n} unanswered question(s) halted the pipeline",
+    },
+    "run.task_taken": {
+        "tr": "{key} üstlenildi ({lane} şeridi)",
+        "en": "{key} taken ({lane} lane)",
+    },
+    "run.task_incomplete": {
+        "tr": "{key} tamamlanamadı ({status})",
+        "en": "{key} did not complete ({status})",
+    },
+    "run.stop_requested": {
+        "tr": "durdurma istendi; süregelen faz bitince durulacak",
+        "en": "stop requested; will halt once the current phase ends",
+    },
     "api.removed_chunks": {
         "tr": "kaldirildi: {source} ({count} parca)",
         "en": "removed: {source} ({count} chunks)",
+    },
+    # Calisma alani disindaki dosya indeksten cikar ama DISKTEN SILINMEZ:
+    # projenin sahip olmadigi bir dosyayi silmek onun hakki degil.
+    "api.file_kept_outside": {
+        "tr": "dosya yerinde bırakıldı (çalışma alanı dışında): {source}",
+        "en": "file left in place (outside the workspace): {source}",
     },
     "api.upload_received": {
         "tr": "{name} alindi ({size} bayt)",
