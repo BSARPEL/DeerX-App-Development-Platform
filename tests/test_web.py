@@ -431,6 +431,85 @@ class TestSettings:
         assert client.post("/api/settings", json={"cost_limit_usd": "abc"}).status_code == 400
 
 
+class TestKaydetYalnizcaDegiseni:
+    """"Kaydet" degismeyeni degismis saymamali.
+
+    OLCULDU: istemcinin `collectSettings(scope)` fonksiyonu o kapsamin
+    BUTUN alanlarini gonderiyor -- kullanici tek bir alani degistirse de
+    govdede otuz alan var. Sunucu ise gelen her alani kosulsuz `changed`e
+    yaziyordu ve zincir soyle gidiyordu:
+
+      * bildirim "30 ayar kaydedildi" diyor, oysa bir tanesi degisti
+      * denetim gunlugune otuz alan adi dusuyor
+      * `set(changed) & MODEL_FIELDS` her zaman dolu: hicbir sey
+        degismese bile LLM istemcisi yeniden kuruluyor
+      * ayar dosyasi her tiklamada bastan yaziliyor
+
+    En gorunur hali Hesap sekmesiydi: oradaki TEK alan `language` ve o
+    alan `change` olayinda zaten kendini kaydediyor. Yani "Hesap
+    ayarlarimi kaydet" dugmesi hicbir sey degistirmeden bir denetim
+    satiri yaziyordu -- ve bir denetim gunlugunun tek isi guvenilir
+    olmak.
+    """
+
+    def test_the_same_value_again_is_not_a_change(self, client):
+        client.post("/api/settings", json={"model_lead": "ayni-model"})
+        ikinci = client.post("/api/settings", json={"model_lead": "ayni-model"})
+        assert ikinci.status_code == 200
+        assert ikinci.json()["changed"] == {}, (
+            "degismeyen deger 'kaydedildi' diye bildiriliyor"
+        )
+
+    def test_only_the_field_that_moved_is_reported(self, client, settings):
+        """Istemcinin yaptigini yapar: kapsamin hepsini gonderir."""
+        client.post("/api/settings", json={"model_lead": "a", "model_worker": "b"})
+        sonuc = client.post(
+            "/api/settings", json={"model_lead": "a", "model_worker": "DEGISTI"}
+        ).json()
+        assert set(sonuc["changed"]) == {"model_worker"}
+
+    def test_a_no_op_writes_no_audit_row(self, client):
+        """Denetim gunlugu, olmayan bir degisikligi kaydetmemeli."""
+        client.post("/api/settings", json={"max_iterations": 9})
+        once = client.get("/api/events/history?limit=500").json()["events"]
+        client.post("/api/settings", json={"max_iterations": 9})
+        sonra = client.get("/api/events/history?limit=500").json()["events"]
+        assert len(sonra) == len(once), (
+            "degismeyen bir kaydetme olay gunlugune satir dusuruyor"
+        )
+
+    def test_a_no_op_does_not_rebuild_the_llm_client(self, client, monkeypatch):
+        """Istemciyi yeniden kurmak ucuz degil ve gereksiz yere yapiliyordu."""
+        durum = client.app.state.deerx
+        sayac = {"n": 0}
+        gercek = durum.orchestrator.reset_client
+        monkeypatch.setattr(
+            durum.orchestrator, "reset_client",
+            lambda *a, **k: (sayac.__setitem__("n", sayac["n"] + 1), gercek(*a, **k))[1],
+        )
+        client.post("/api/settings", json={"model_lead": "ilk"})
+        assert sayac["n"] == 1, "gercek degisiklikte istemci kurulmali"
+        client.post("/api/settings", json={"model_lead": "ilk"})
+        assert sayac["n"] == 1, "degismeyen kaydetme istemciyi yeniden kuruyor"
+
+    def test_a_no_op_leaves_the_file_alone(self, client, settings):
+        """Bellekte olan ama dosyada OLMAYAN bir deger, dokunulmadan
+        gonderildiginde dosyaya yazilmamali.
+
+        Dosyaya her tiklamada butun kapsami basmak, kullanicinin hic
+        secmedigi degerleri sessizce civilerdi: bir gun varsayilan
+        degisir ve kullanici eski varsayilanla kalir.
+        """
+        dosya = settings.workspace / "deerx.toml"
+        if dosya.exists():
+            dosya.unlink()
+        mevcut = settings.model_lead
+        assert client.post(
+            "/api/settings", json={"model_lead": mevcut}
+        ).json()["changed"] == {}
+        assert not dosya.exists(), "degismeyen kaydetme ayar dosyasi olusturdu"
+
+
 class TestStaticFiles:
     def test_index_served(self, client):
         response = client.get("/")

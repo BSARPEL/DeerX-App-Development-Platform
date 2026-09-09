@@ -813,7 +813,31 @@ def build_app(settings: Settings) -> Starlette:
 
         changed: dict[str, Any] = {}
         kisisel = state.auth.is_configured and getattr(request.state, "user", None)
+        # Kullanicinin kendi dosyasi: `hesap` alanlarinin dogru "onceki"si
+        # ortak `Settings` nesnesi DEGIL, bu tablodur.
+        hesap_onceki = _hesap_ayarlari(request) if kisisel else {}
+        # Gercekten degisenler. `temiz` her zaman kapsamin BUTUN alanlarini
+        # tasir (istemci hepsini gonderiyor); diske de olay akisina da
+        # yalnizca bu liste gider.
+        degisen: list[tuple[str, Any, SettingField]] = []
         for name, cleaned, spec in temiz:
+            # DEGISMEYEN ALAN DEGISMIS SAYILMAZ.
+            #
+            # Once her gelen alan `changed`e yaziliyordu: tek bir ayari
+            # degistiren kullaniciya "30 alan kaydedildi" deniyor, denetim
+            # gunlugune otuz ad dusuyor ve `set(changed) & MODEL_FIELDS`
+            # her zaman dolu oldugu icin LLM istemcisi bos yere yeniden
+            # kuruluyordu. Sirlar geri okunmadigi icin karsilastirilamaz:
+            # gonderilen bir sir her zaman degisiklik sayilir.
+            if not spec.secret:
+                onceki = (
+                    hesap_onceki.get(name, getattr(settings, name))
+                    if spec.scope == "hesap" and kisisel
+                    else getattr(settings, name)
+                )
+                if onceki == cleaned:
+                    continue
+            degisen.append((name, cleaned, spec))
             # HESAP ayari ortak nesneye YAZILMAZ. `Settings` sunucuda tek
             # ve paylasilan: oraya yazmak, tercihi hic belirtmemis herkesin
             # ekranini son kaydedenin diline cevirirdi. Ortak deger
@@ -842,7 +866,7 @@ def build_app(settings: Settings) -> Starlette:
         if set(changed) & SANDBOX_FIELDS:
             state.orchestrator.reset_sandbox()
 
-        _kalici_yaz(temiz, request)
+        _kalici_yaz(degisen, request)
 
         if changed:
             # Olay akisina Python sozlugunun `repr`i dusuyordu:

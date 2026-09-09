@@ -1038,6 +1038,17 @@ function initRunControls() {
 
 // ─── Bilgi tabani ─────────────────────────────────────────────────────────
 // Gelistirme sekmesindeki kompakt liste: "modele su an ne verilmis durumda".
+/* Suzgecten gecen belgeler. Hem cizim hem "Tumu" dinleyicisi buradan
+   sorar: iki ayri kopya, biri degisince digeri sessizce ayrilirdi ve
+   ayrilan sey "hangi belgeye dokunuluyor" olurdu. */
+function suzulenBelgeler(documents) {
+  const suzgec = state.docPickFilter.toLowerCase();
+  if (!suzgec) return documents;
+  return documents.filter((doc) =>
+    doc.title.toLowerCase().includes(suzgec)
+    || doc.source.toLowerCase().includes(suzgec));
+}
+
 function renderUploadedDocs(documents) {
   const target = $("#uploaded-docs");
   if (!target) return;
@@ -1054,10 +1065,7 @@ function renderUploadedDocs(documents) {
     return;
   }
 
-  const suzgec = state.docPickFilter.toLowerCase();
-  const gorunen = documents.filter((doc) =>
-    !suzgec || doc.title.toLowerCase().includes(suzgec)
-             || doc.source.toLowerCase().includes(suzgec));
+  const gorunen = suzulenBelgeler(documents);
 
   const secili = (doc) =>
     doc.is_active !== 0 && (state.docScope === null || state.docScope.has(doc.source));
@@ -1072,18 +1080,43 @@ function renderUploadedDocs(documents) {
                    ${doc.is_active === 0 ? "disabled" : ""}>
             <span class="doc-pick-name">${esc(doc.title)}</span>
           </label>
-          <span class="badge">${esc(tv("kind", doc.kind))}</span>
-          <span class="doc-chip-meta">${esc(t(doc.n_chunks === 1 ? "stat.chunkOne" : "stat.chunks", { n: doc.n_chunks }))}</span>
+          <!-- Tur rozeti YALNIZCA belge OLMAYANLARDA. Listedeki her sey
+               bir belge; her satira "dokuman" basmak hicbir sey soylemez
+               ve uc satirda uc renkli hap birakir.
+
+               "N parca" da gitti: indeksleme ayrintisi, kullanicinin bir
+               karari degil. Gerekirse Bilgi tabani ekraninda duruyor. -->
+          ${doc.kind && doc.kind !== "doc"
+            ? `<span class="doc-kind">${esc(tv("kind", doc.kind))}</span>` : ""}
         </li>`).join("")}</ul>`
     : `<p class="empty">${esc(t("develop.pickNoMatch"))}</p>`;
 
+  // Sayac KURESEL kalir: kosuya giden sayi budur, suzgec bir bakis
+  // acisi -- kapsam degil.
   const secilenSayisi = secilebilir.filter(secili).length;
   $("#doc-pick-count").textContent = t("develop.pickCount", {
     n: secilenSayisi, total: secilebilir.length,
   });
-  $("#doc-pick-all").checked = secilenSayisi === secilebilir.length;
-  $("#doc-pick-all").indeterminate =
-    secilenSayisi > 0 && secilenSayisi < secilebilir.length;
+
+  // "Tumu" ise GORDUGUNU yonetir, o yuzden hali de gorunene bakar.
+  // Once butun listeye bakiyordu: suzgec aciktayken kutu isaretli
+  // gorunup ekrandaki satirlarin secili olmamasi mumkundu.
+  const gorunenSecilebilir = gorunen.filter((doc) => doc.is_active !== 0);
+  const gorunenSecili = gorunenSecilebilir.filter(secili).length;
+  const kutu = $("#doc-pick-all");
+  kutu.checked = gorunenSecilebilir.length > 0
+    && gorunenSecili === gorunenSecilebilir.length;
+  kutu.indeterminate =
+    gorunenSecili > 0 && gorunenSecili < gorunenSecilebilir.length;
+  kutu.disabled = gorunenSecilebilir.length === 0;
+
+  // Etiket ne yapacagini SOYLER. Suzgec aciktayken "Tumu" demek, yirmi
+  // belgeden ikisine dokunan bir dugmeye yanlis ad takmak olurdu.
+  const etiket = $("#doc-pick-all-text");
+  const anahtar = state.docPickFilter
+    ? "develop.pickShown" : "develop.pickAll";
+  etiket.dataset.i18n = anahtar;     // dil degisince de dogru kalsin
+  etiket.textContent = t(anahtar);
 
   $$("[data-pick]", target).forEach((box) => {
     box.addEventListener("change", () => {
@@ -1212,14 +1245,29 @@ function renderDocPage() {
 
 function initDocPicker() {
   $("#doc-pick-all").addEventListener("change", (event) => {
-    const secilebilir = (state.docItems || []).filter((d) => d.is_active !== 0);
-    state.docScope = event.target.checked
-      ? null
-      : new Set();
-    renderUploadedDocs(state.docItems || []);
+    const belgeler = state.docItems || [];
+    const secilebilir = belgeler.filter((d) => d.is_active !== 0);
+    // YALNIZCA GORUNENLER. Once butun liste degistiriliyordu: suzgec
+    // aciktayken kullanici gormedigi on sekiz belgenin kapsamini
+    // gormeden degistiriyordu.
+    const dokunulacak = suzulenBelgeler(secilebilir);
+
+    // `null` "hepsi" demek; somut kumeye cevrilmeden suzgec disindakiler
+    // korunamaz.
+    if (state.docScope === null) {
+      state.docScope = new Set(secilebilir.map((d) => d.source));
+    }
+    for (const doc of dokunulacak) {
+      if (event.target.checked) state.docScope.add(doc.source);
+      else state.docScope.delete(doc.source);
+    }
+
+    renderUploadedDocs(belgeler);
     // Hicbir belge secili degilse bu MESRU bir secim: ajanlar belge
-    // okumaz. Engellemek yerine soylenir.
-    if (!event.target.checked && secilebilir.length) {
+    // okumaz. Engellemek yerine soylenir -- ama yalnizca KURESEL secim
+    // bosaldiginda: suzgecteki ikisini birakip on sekizi secili tutmak
+    // bir uyari sebebi degil.
+    if (!state.docScope.size && secilebilir.length) {
       toast(t("develop.pickNone"), "warn");
     }
   });
@@ -2193,10 +2241,16 @@ function initSaveButton(scope) {
     dugme.disabled = true;
     try {
       const sonuc = await post("/api/settings", govde);
-      toast(t("settings.savedScope", {
-        scope: tv("settingsScope", scope),
-        n: Object.keys(sonuc.changed).length,
-      }), "ok");
+      // Kapsamin BUTUN alanlari her tiklamada gonderilir; sunucu bunlarin
+      // hangisinin gercekten degistigini soyler. Sifir, "kaydedilmedi"
+      // degil "degisecek bir sey yoktu" demek.
+      const kac = Object.keys(sonuc.changed).length;
+      toast(
+        kac
+          ? t("settings.savedScope", { scope: tv("settingsScope", scope), n: kac })
+          : t("settings.noChange"),
+        kac ? "ok" : "info",
+      );
       await loadOverview();
       renderSettings();
     } catch (error) {

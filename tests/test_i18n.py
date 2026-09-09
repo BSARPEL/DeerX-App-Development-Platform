@@ -777,8 +777,11 @@ class TestSingularForms:
     sayilarin gorundugu obur yerlerde uygulanmasiydi.
     """
 
+    # `stat.chunkOne` KALKTI: "N parca" indeksleme ayrintisiydi ve tek
+    # cagri yeri olan belge satirindan cikarildi -- kullanicinin bir
+    # karari degil. Turkcede iki dize zaten AYNIYDI, yani cogul dali hic
+    # calismiyordu.
     TEKILLER = {
-        "stat.chunkOne": "stat.chunks",
         "runs.stepOne": "runs.steps",
         "artifacts.fileOne": "artifacts.files",
         "questions.countOne": "questions.count",
@@ -801,8 +804,7 @@ class TestSingularForms:
 
     @pytest.mark.parametrize(
         "tekil,cogul",
-        [("stat.chunkOne", "stat.chunks"),
-         ("runs.stepOne", "runs.steps"),
+        [("runs.stepOne", "runs.steps"),
          ("artifacts.fileOne", "artifacts.files")],
     )
     def test_no_call_site_forgets_the_singular(self, tekil, cogul):
@@ -1033,3 +1035,235 @@ class TestCiktiGruplariGorunurAciliyor:
         gorunmeyen bir ekran, cok sey gorunen ekrandan kotudur."""
         assert self._acilis([500])[0] is True
         assert self._acilis([500, 3])[0] is True
+
+
+class TestAdimTekBirSeyDemek:
+    """Sozlukte "adim" DORT ayri seyi anlatiyordu.
+
+    Kavram hiyerarsisi koddan kesin:
+      IS AKISI -- hedef kimligi; ADIMLARI kosulardir
+      KOSU     -- bir yurutme; icinde bir ya da cok FAZ kosar
+      FAZ      -- boru hattinin on uc adimindan biri
+
+    OLCULDU: ayni ekranda, ayni `renderWorkflowDetail` icinde ust rozet
+    "2/3 adim" (kosu sayiyor) derken hemen altindaki satir "5/7 adim"
+    (faz sayiyor) diyordu. Ayni kelime, ayni kutu, iki birim -- kullanici
+    iki sayinin ayni seyi saydigini sanar.
+
+    KURAL: "adim" yalnizca IS AKISININ adimi icin, yani kosu icin.
+    Kosunun icindekilere FAZ denir.
+    """
+
+    # Kosunun ICINDEKILERI sayan anahtarlar: bunlar FAZ demek.
+    FAZ_ANAHTARLARI = [
+        "runs.steps", "runs.stepOne", "runs.stepsDone",
+        "runs.noSteps", "runs.noEvents", "runs.events",
+        "runs.retryRun", "runs.retryFromHint",
+    ]
+    # Is akisinin adimlarini sayan anahtarlar: bunlar KOSU demek.
+    KOSU_ANAHTARLARI = ["wf.stepsDone", "wf.noSteps", "wf.noStepsHint",
+                        "wf.stalledNote", "runs.one"]
+
+    @pytest.mark.parametrize("anahtar", FAZ_ANAHTARLARI)
+    def test_a_phase_is_never_called_a_step(self, i18n, anahtar):
+        assert "adım" not in i18n["tr"][anahtar].lower(), (
+            f"{anahtar} faz sayiyor ama 'adım' diyor: {i18n['tr'][anahtar]!r}"
+        )
+        assert "step" not in i18n["en"][anahtar].lower(), (
+            f"{anahtar}: {i18n['en'][anahtar]!r}"
+        )
+
+    @pytest.mark.parametrize("anahtar", KOSU_ANAHTARLARI)
+    def test_a_run_is_never_called_a_phase(self, i18n, anahtar):
+        assert "faz" not in i18n["tr"][anahtar].lower(), (
+            f"{anahtar} kosu sayiyor ama 'faz' diyor: {i18n['tr'][anahtar]!r}"
+        )
+        assert "phase" not in i18n["en"][anahtar].lower()
+
+    def test_the_two_counters_on_one_screen_differ(self, i18n):
+        """`renderWorkflowDetail` ikisini de ayni kutuya basiyor
+        (app.js: wf.stepsDone ust rozette, runs.stepsDone satirda).
+        Ayni dize olmalari, iki farkli birimi ayirt edilemez kiliyordu."""
+        for dil in LANGS:
+            assert i18n[dil]["wf.stepsDone"] != i18n[dil]["runs.stepsDone"], (
+                f"{dil}: iki sayac ayni dizeyi kullaniyor -- biri kosu, oteki faz"
+            )
+
+    def test_the_run_title_reads_as_a_run(self, i18n):
+        """`runs.one` KURESEL kosu numarasini basiyor (`MAX(seq) FROM runs`,
+        is akisi suzgeci YOK) ama liste `index + 1` gosteriyor. Kelime
+        "kosu" oldugunda #7 bir kosu kimligi olarak okunur ve celiski
+        biter; "Adim #7" ise "yedinci adim" diye okunuyordu."""
+        assert i18n["tr"]["runs.one"].startswith("Koşu")
+        assert i18n["en"]["runs.one"].startswith("Run")
+
+
+class TestTumuGorduguneDokunur:
+    """"Tumu" onay kutusu suzgeci yok sayiyordu.
+
+    OLCULDU: yirmi belge var, kullanici "sozlesme" yaziyor, listede iki
+    satir kaliyor. "Tumu"ye basinca YIRMISI birden secime giriyordu;
+    kaldirinca yirmisi birden cikiyordu. Kullanicinin GORMEDIGI on sekiz
+    belgenin kapsami, gormedigi bir anda degisiyordu -- ve bunu ona
+    soyleyen tek sey, suzgeci temizlediginde karsilastigi manzaraydi.
+
+    Buradaki testler dinleyicinin GOVDESINI Node ile kosturur: kapsamin
+    ne oldugunu okumak degil, ne olduguna bakmak.
+    """
+
+    BELGELER = [
+        {"source": "a.md", "title": "sozlesme taslagi", "is_active": 1},
+        {"source": "b.md", "title": "sozlesme eki", "is_active": 1},
+        {"source": "c.md", "title": "toplanti notu", "is_active": 1},
+        {"source": "d.md", "title": "yol haritasi", "is_active": 1},
+        {"source": "e.md", "title": "pasif belge", "is_active": 0},
+    ]
+
+    @staticmethod
+    def _kapsam(*, suzgec: str, isaretli: bool, onceki) -> list[str]:
+        """`#doc-pick-all` dinleyicisinin govdesini gercekten kosturur."""
+        _node()
+        src = _asset("app.js")
+
+        # Saf yardimci: iki dinleyici de suzgeci buradan soruyor.
+        yb = src.index("function suzulenBelgeler(documents) {")
+        ys = src.index("\n}\n", yb) + 3
+        yardimci = src[yb:ys]
+
+        # Dinleyicinin govdesi -- DOM'a dokunan ilk satira kadar.
+        db = src.index('$("#doc-pick-all").addEventListener("change", (event) => {')
+        db = src.index("{", db + 55) + 1
+        ds = src.index("renderUploadedDocs(belgeler);", db)
+        govde = src[db:ds]
+
+        durum = {
+            "docPickFilter": suzgec,
+            "docItems": TestTumuGorduguneDokunur.BELGELER,
+        }
+        betik = (
+            "const state = " + json.dumps(durum) + ";\n"
+            "state.docScope = " + (
+                "null" if onceki is None else "new Set(" + json.dumps(onceki) + ")"
+            ) + ";\n"
+            "const event = { target: { checked: "
+            + ("true" if isaretli else "false") + " } };\n"
+            + yardimci + "\n"
+            + govde + "\n"
+            "process.stdout.write(JSON.stringify([...state.docScope].sort()));"
+        )
+        out = subprocess.run(
+            ["node", "-e", betik], capture_output=True, text=True, encoding="utf-8"
+        )
+        assert out.returncode == 0, out.stderr
+        return json.loads(out.stdout)
+
+    def test_clearing_under_a_filter_spares_what_you_cannot_see(self):
+        """Bildirilen hata. Suzgec "sozlesme": ekranda iki satir var.
+
+        Kutuyu kaldirmak yalnizca o ikisini birakmali; goze gorunmeyen
+        c.md ile d.md secili kalmali.
+        """
+        kalan = self._kapsam(suzgec="sozlesme", isaretli=False, onceki=None)
+        assert kalan == ["c.md", "d.md"], (
+            "suzgec disindaki belgelerin kapsami da degistirildi"
+        )
+
+    def test_checking_under_a_filter_adds_only_what_you_see(self):
+        kapsam = self._kapsam(suzgec="sozlesme", isaretli=True, onceki=["d.md"])
+        assert kapsam == ["a.md", "b.md", "d.md"], (
+            "gorunmeyen belgeler de secime alindi"
+        )
+
+    def test_without_a_filter_it_still_means_everything(self):
+        """Suzgec yokken davranis degismez: hepsi ya da hicbiri."""
+        assert self._kapsam(suzgec="", isaretli=False, onceki=None) == []
+        assert self._kapsam(suzgec="", isaretli=True, onceki=[]) == [
+            "a.md", "b.md", "c.md", "d.md"
+        ], "pasif belge secime alinmamali"
+
+    def test_an_inactive_document_is_never_picked_by_the_filter(self):
+        """Pasif belge listede GORUNUR ama secilemez; suzgece uysa bile."""
+        assert self._kapsam(suzgec="pasif", isaretli=True, onceki=[]) == []
+
+    def test_the_label_says_which_set_it_touches(self):
+        """Denetim ne yapacagini SOYLER: suzgec aciktayken adi degisir."""
+        js = _asset("app.js")
+        govde = js[js.index("function renderUploadedDocs("):
+                   js.index("async function loadDocuments(")]
+        assert "develop.pickShown" in govde and "state.docPickFilter" in govde, (
+            "etiket suzgece gore degismiyor"
+        )
+        for dil, sozluk in _dictionaries().items():
+            assert sozluk["develop.pickShown"] != sozluk["develop.pickAll"], (
+                f"{dil}: iki etiket ayni kelime"
+            )
+
+    def test_the_checkbox_state_is_computed_from_the_visible_rows(self):
+        """Kutunun isaretli/belirsiz hali de gorunene bakmali; yoksa
+        suzgec aciktayken 'isaretli' gorunup ekrandaki satirlarin secili
+        olmamasi mumkun olurdu."""
+        js = _asset("app.js")
+        govde = js[js.index("function renderUploadedDocs("):
+                   js.index("async function loadDocuments(")]
+        assert "gorunenSecilebilir" in govde
+        assert "kutu.checked = gorunenSecilebilir.length > 0" in govde
+        assert "secilenSayisi === secilebilir.length" not in govde, (
+            "kutunun hali hala butun listeden hesaplaniyor"
+        )
+
+
+class TestYedekMetinSozlukleAyniSeyiSoyler:
+    """index.html sozlugun IKINCI bir kopyasidir ve ondan ayrilmisti.
+
+    `data-i18n` tasiyan bir dugumun ici, hidrasyon kosana kadar ekranda
+    duran metindir. Sozluk degisip yedek metin kalirsa kullanici ilk
+    karede ESKI kelimeyi gorur, sonra kelime gozunun onunde degisir.
+
+    OLCULDU: otuz iki dugum sozlukten ayrilmisti. Cogu kisaltmaydi
+    ("(analiz)" ile "(analiz, mimari, plan, QA)"), ama uc tanesi duz
+    celiskiydi: baslik "2 · Koşu başlat" derken sozluk "2 · İş akışı
+    oluştur" diyordu, dugme "Yeni koşu başlat" derken sozluk "Yeni iş
+    akışı", ve serit cipleri Turkce sayfada "Backend/Frontend/QA" diye
+    Ingilizce duruyordu.
+
+    Bosluk sayilmaz: HTML'in satir kirmasi ve girintisi bicimdir, metin
+    degil.
+    """
+
+    @staticmethod
+    def _duz_metin_dugumler() -> list[tuple[str, str]]:
+        """Ici DUZ METIN olan `data-i18n` dugumleri: (anahtar, metin).
+
+        `</` ile biten eslesme cocugu olmayan bir dugumdur; icinde baska
+        etiket olanlarin metni zaten tek parca degil ve `applyI18n` de
+        onlara ayni sekilde davranmaz.
+        """
+        html = _asset("index.html")
+        desen = re.compile(r'data-i18n="([^"]+)"[^>]*>([^<]*)</')
+        return [
+            (m.group(1), m.group(2))
+            for m in desen.finditer(html)
+            if m.group(2).strip()
+        ]
+
+    def test_every_key_used_in_the_markup_exists(self):
+        sozluk = _dictionaries()["tr"]
+        eksik = sorted({a for a, _ in self._duz_metin_dugumler() if a not in sozluk})
+        assert not eksik, f"sozlukte olmayan anahtarlar: {eksik}"
+
+    def test_the_fallback_text_matches_the_turkish_entry(self):
+        """Yedek metin, hidrasyondan sonra gelecek metinle AYNI olmali."""
+        sozluk = _dictionaries()["tr"]
+        ayrilan = []
+        for anahtar, yedek in self._duz_metin_dugumler():
+            if anahtar not in sozluk:
+                continue
+            if " ".join(sozluk[anahtar].split()) != " ".join(yedek.split()):
+                ayrilan.append(
+                    f"{anahtar}: html={yedek.strip()!r} i18n={sozluk[anahtar]!r}"
+                )
+        assert not ayrilan, (
+            "index.html sozlukten ayrilmis; kullanici ilk karede baska bir "
+            "kelime goruyor:\n  " + "\n  ".join(ayrilan)
+        )
+

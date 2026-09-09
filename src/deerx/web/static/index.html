@@ -243,7 +243,9 @@
             <div class="doc-pick-bar" id="doc-pick-bar" hidden>
               <label class="check">
                 <input type="checkbox" id="doc-pick-all" checked>
-                <span data-i18n="develop.pickAll">Tümü</span>
+                <!-- Etiket suzgece gore degisir: suzgec aciktayken kutu
+                     yalnizca GORUNENLERE dokunur ve adi bunu soyler. -->
+                <span id="doc-pick-all-text" data-i18n="develop.pickAll">Tümü</span>
               </label>
               <input type="search" id="doc-pick-filter" class="doc-pick-filter"
                      data-i18n-placeholder="develop.pickFilter">
@@ -255,7 +257,7 @@
 
         <section class="panel panel-run">
           <header class="panel-head">
-            <h2 data-i18n="develop.step2">2 · Koşu başlat</h2>
+            <h2 data-i18n="develop.step2">2 · İş akışı oluştur</h2>
             <span class="panel-hint" id="run-hint"></span>
           </header>
           <div class="panel-body">
@@ -266,7 +268,7 @@
             </label>
             <label class="field">
               <span><span data-i18n="develop.brief">Analiste talimat</span>
-                    <em data-i18n="develop.briefHint">(neye dikkat etsin)</em></span>
+                    <em data-i18n="develop.briefHint">(neye dikkat etsin, neyi önceliklendirsin)</em></span>
               <textarea id="run-brief" rows="4"
                 data-i18n-placeholder="develop.briefPlaceholder"></textarea>
             </label>
@@ -320,7 +322,7 @@
         </div>
         <div class="wf-actions">
           <button class="btn btn-primary btn-sm" id="workflow-new" data-view="develop"
-                  type="button" data-i18n="wf.newRun">Yeni koşu başlat →</button>
+                  type="button" data-i18n="wf.newRun">Yeni iş akışı →</button>
           <button class="btn btn-ghost btn-sm" id="workflow-back" type="button" hidden
                   data-i18n="app.back">← Geri</button>
           <label class="check" id="workflow-expand-label" hidden>
@@ -363,11 +365,11 @@
         </div>
         <div class="chips" id="lane-filters">
           <button class="chip chip-btn is-active" data-lane="" type="button" data-i18n="plan.allLanes">Tüm şeritler</button>
-          <button class="chip chip-btn" data-lane="backend" type="button" data-i18n="lane.backend">Backend</button>
-          <button class="chip chip-btn" data-lane="frontend" type="button" data-i18n="lane.frontend">Frontend</button>
-          <button class="chip chip-btn" data-lane="qa" type="button" data-i18n="lane.qa">QA</button>
-          <button class="chip chip-btn" data-lane="infra" type="button" data-i18n="lane.infra">Infra</button>
-          <button class="chip chip-btn" data-lane="docs" type="button" data-i18n="lane.docs">Docs</button>
+          <button class="chip chip-btn" data-lane="backend" type="button" data-i18n="lane.backend">arka uç</button>
+          <button class="chip chip-btn" data-lane="frontend" type="button" data-i18n="lane.frontend">ön yüz</button>
+          <button class="chip chip-btn" data-lane="qa" type="button" data-i18n="lane.qa">test</button>
+          <button class="chip chip-btn" data-lane="infra" type="button" data-i18n="lane.infra">altyapı</button>
+          <button class="chip chip-btn" data-lane="docs" type="button" data-i18n="lane.docs">belge</button>
         </div>
       </div>
       <div id="task-list"></div>
@@ -595,7 +597,7 @@
             <div class="field-row">
               <label class="field">
                 <span><span data-i18n="settings.modelLead">Lead</span>
-                    <em data-i18n="settings.modelLeadHint">(analiz)</em></span>
+                    <em data-i18n="settings.modelLeadHint">(analiz, mimari, plan, QA)</em></span>
                 <input type="text" id="set-model-lead" list="model-options">
               </label>
               <label class="field">
@@ -606,7 +608,7 @@
             <div class="field-row">
               <label class="field">
                 <span><span data-i18n="settings.modelWorker">Worker</span>
-                    <em data-i18n="settings.modelWorkerHint">(kod)</em></span>
+                    <em data-i18n="settings.modelWorkerHint">(araştırma, mockup, kod)</em></span>
                 <input type="text" id="set-model-worker" list="model-options">
               </label>
               <label class="field">
@@ -649,7 +651,7 @@
             </div>
             <label class="field">
               <span><span data-i18n="settings.temperature">Sıcaklık</span>
-                    <em data-i18n="settings.temperatureHint">(boş = varsayılan)</em></span>
+                    <em data-i18n="settings.temperatureHint">(boş = sunucunun varsayılanı)</em></span>
               <input type="number" id="set-temperature" min="0" max="2" step="0.1"
                      data-i18n-placeholder="settings.temperaturePlaceholder">
             </label>
@@ -668,11 +670,11 @@
           <div class="panel-body">
             <label class="field">
               <span><span data-i18n="settings.approvalMode">Onay modu</span>
-                    <em data-i18n="settings.approvalHint">(dosya yazma)</em></span>
+                    <em data-i18n="settings.approvalHint">(dosya yazma, komut çalıştırma)</em></span>
               <select id="set-approval">
-                <option value="ask" data-i18n="settings.approvalAsk">Sor</option>
-                <option value="auto" data-i18n="settings.approvalAuto">Otomatik</option>
-                <option value="dry-run" data-i18n="settings.approvalDry">Kuru koşu</option>
+                <option value="ask" data-i18n="settings.approvalAsk">Sor — her işlemde onayımı iste</option>
+                <option value="auto" data-i18n="settings.approvalAuto">Otomatik — sorma, uygula</option>
+                <option value="dry-run" data-i18n="settings.approvalDry">Kuru koşu — hiçbir şey yazma</option>
               </select>
             </label>
             <div class="field-row">
@@ -682,7 +684,7 @@
               </label>
               <label class="field">
                 <span><span data-i18n="settings.costLimit">Maliyet tavanı</span>
-                    <em data-i18n="settings.costLimitHint">(USD)</em></span>
+                    <em data-i18n="settings.costLimitHint">(USD, 0 = sınırsız)</em></span>
                 <input type="number" id="set-cost" min="0" step="0.5">
               </label>
             </div>
@@ -705,7 +707,7 @@
 
       <div class="settings-save">
         <button class="btn btn-primary" id="btn-save-proje" type="button" data-needs-role="developer"
-                data-i18n="settings.saveProject">Kaydet</button>
+                data-i18n="settings.saveProject">Proje ayarlarını kaydet</button>
       </div>
       </section>
 
@@ -765,7 +767,7 @@
 
       <div class="settings-save">
         <button class="btn btn-primary" id="btn-save-hesap" type="button"
-                data-i18n="settings.saveAccount">Kaydet</button>
+                data-i18n="settings.saveAccount">Hesap ayarlarımı kaydet</button>
       </div>
       </section>
 
@@ -787,10 +789,10 @@
             </label>
             <p class="note" id="preset-note"></p>
             <label class="field" hidden>
-              <span data-i18n="settings.providerLabel">Protokol</span>
+              <span data-i18n="settings.providerLabel">Sağlayıcı</span>
               <select id="set-provider">
-                <option value="openai" data-i18n="settings.providerOpenai">OpenAI-uyumlu</option>
-                <option value="anthropic" data-i18n="settings.providerAnthropic">Anthropic</option>
+                <option value="openai" data-i18n="settings.providerOpenai">OpenAI-uyumlu — vLLM, Ollama, LM Studio</option>
+                <option value="anthropic" data-i18n="settings.providerAnthropic">Anthropic — Claude API</option>
               </select>
             </label>
             <label class="field" id="field-base-url">
@@ -889,12 +891,12 @@
             <label class="field">
               <span data-i18n="settings.searchProvider">Arama sağlayıcısı</span>
               <select id="set-search-provider">
-                <option value="browser" data-i18n="settings.searchBrowser">Tarayıcı</option>
-                <option value="duckduckgo" data-i18n="settings.searchDuckduckgo">DuckDuckGo</option>
-                <option value="brave" data-i18n="settings.searchBrave">Brave</option>
-                <option value="tavily" data-i18n="settings.searchTavily">Tavily</option>
-                <option value="google" data-i18n="settings.searchGoogle">Google</option>
-                <option value="searxng" data-i18n="settings.searchSearxng">SearXNG</option>
+                <option value="browser" data-i18n="settings.searchBrowser">Tarayıcı — sunucudaki Chrome, anahtarsız</option>
+                <option value="duckduckgo" data-i18n="settings.searchDuckduckgo">DuckDuckGo — anahtarsız, güvenilmez</option>
+                <option value="brave" data-i18n="settings.searchBrave">Brave — anahtar gerekir</option>
+                <option value="tavily" data-i18n="settings.searchTavily">Tavily — anahtar gerekir</option>
+                <option value="google" data-i18n="settings.searchGoogle">Google — resmi API, anahtar + cx gerekir</option>
+                <option value="searxng" data-i18n="settings.searchSearxng">SearXNG — kendi sunucunuz, anahtarsız</option>
               </select>
             </label>
             <label class="field">
@@ -929,12 +931,12 @@
           <div class="panel-body">
             <p class="note" data-i18n="browser.lead"></p>
             <label class="field">
-              <span data-i18n="browser.channel">Tarayıcı</span>
+              <span data-i18n="browser.channel">Kullanılacak tarayıcı</span>
               <select id="set-browser-channel">
-                <option value="auto" data-i18n="browser.channelAuto">Otomatik</option>
+                <option value="auto" data-i18n="browser.channelAuto">Otomatik — Chrome, yoksa Edge</option>
                 <option value="chrome" data-i18n="browser.channelChrome">Google Chrome</option>
                 <option value="edge" data-i18n="browser.channelEdge">Microsoft Edge</option>
-                <option value="chromium" data-i18n="browser.channelChromium">Playwright Chromium</option>
+                <option value="chromium" data-i18n="browser.channelChromium">Playwright Chromium (ayrı indirme)</option>
               </select>
             </label>
             <label class="check">
@@ -1035,7 +1037,7 @@
       </section>
       <div class="settings-save">
         <button class="btn btn-primary" id="btn-save-platform" type="button" data-needs-role="admin"
-                data-i18n="settings.savePlatform">Kaydet</button>
+                data-i18n="settings.savePlatform">Platform ayarlarını kaydet</button>
       </div>
       </section>
     </section>
@@ -1057,7 +1059,7 @@
 
       <label class="field" id="setup-token-field" hidden>
         <span><span data-i18n="auth.setupToken">Kurulum jetonu</span>
-             <em data-i18n="auth.setupTokenHint">(konsolda)</em></span>
+             <em data-i18n="auth.setupTokenHint">(sunucunun konsolunda)</em></span>
         <input type="text" id="setup-token" autocomplete="off" spellcheck="false">
       </label>
       <label class="field">

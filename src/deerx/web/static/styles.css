@@ -764,13 +764,34 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
 }
 /* Bolum basligi: altindakine SAHIP oldugu icin ona yapisik durur ve
    ayrimi cetvel yapar. */
+/* Baslik ve ipucu ayni satirda YARISMAZ.
+
+   Olculdu: uzun bir ipucu 216 piksel alip basliga 86 piksel birakiyor ve
+   baslik ikiye kiriliyordu -- iki panelin basligi ayni hatta durmuyordu.
+   Ipucu artik basligin ALTINA iner ve baslik satirini bosaltir. */
 .panel-head {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 4px 12px;
   padding: 0 0 8px;
   border-bottom: 1px solid var(--border);
 }
+.panel-head h2 { grid-column: 1; min-width: 0; }
+.panel-head .panel-hint { grid-column: 1 / -1; grid-row: 2; }
+/* Dugme ve denetimler baslikla ayni satirda, sagda kalir. */
+.panel-head > .btn,
+.panel-head > button { grid-column: 2; grid-row: 1; }
 .panel-head h2 { font-size: var(--fs-title); font-weight: 600; line-height: 1.35; }
 .panel-hint { font-size: var(--fs-meta); color: var(--text-3); }
+
+/* Belge turu: rozet degil, satirin meta bilgisi. Yalnizca tur belge
+   DISINDA bir sey oldugunda basilir. */
+.doc-kind {
+  flex: none;
+  font-size: var(--fs-meta);
+  color: var(--text-3);
+}
 .panel-body { padding: 16px 0 0; }
 
 .panel-row {
@@ -1537,7 +1558,18 @@ body[data-blocked] .view.is-active { display: none; }
     padding: 8px;
   }
   .rail-item { white-space: nowrap; }
-  .rail-foot { display: none; }
+  /* Kutu kaybolur, GEZINTI kalir.
+
+     Bir onceki hali `display: none` idi ve Projeler ile Ayarlar'i da
+     birlikte goturuyordu -- oysa o iki ekrana goturen baska hicbir
+     denetim yok. `contents` kutuyu cozer, iki rail-item yatay raya
+     dizilir. Gezinti OLMAYAN parcalar gizli kalir: onay modu ve
+     saglayici Ayarlar ekraninda, calisma alani Genel bakis'ta zaten
+     duruyor ve yatay bir seride sigmazlardi. */
+  .rail-foot { display: contents; }
+  .rail-foot .rail-setting,
+  .rail-foot .rail-models,
+  .rail-foot .rail-workspace { display: none; }
   /* Ust bar dar ekranda tasiyordu (375px'te 39px). Maliyet Genel bakis'ta
      kart olarak zaten duruyor; ust bardaki kopyasi kaybi olmayan tek parca. */
   .topbar .stat-inline { display: none; }
@@ -2089,8 +2121,10 @@ body[data-blocked] .view.is-active { display: none; }
    sutuna zorlaninca sag panel 976 piksele cikip solda 513'te kaliyor ve sol
    altta 483x462'lik bir delik aciliyordu -- kosu blogu da ekranin sagina
    itilmis gibi duruyordu. Sutunlar iceriklerinin agirligina gore bolunur. */
+/* 1 : 1.75 iken sol sutun 314 piksele dusuyor ve belge adlari
+   kirpiliyordu -- oysa o sutunun tek isi ADLARI okutmak. */
 #view-develop .panel-row {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.75fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
   align-items: stretch;
 }
 /* Iki sutun ayni yuksekligi paylasir; `align-items: start` ile kisa olan
