@@ -543,13 +543,20 @@ class BrowserScreenshot(Tool):
         if ctx.state is not None:
             from ..pipeline.models import Artifact
 
+            # Kosu ve faz `save_artifact` ile ayni sekilde gecilir. Gecilmiyordu
+            # ve her ekran goruntusu "kosu kaydindan once" grubuna dusuyordu;
+            # capraz listede (kosu JOIN'i) hic gorunmuyordu. Baytlar da
+            # veritabanina girer: goruntu diskten silinse de indirilebilir.
             ctx.state.add_artifact(
                 Artifact(
                     name=safe,
                     kind="screenshot",
                     path=str(target),
                     summary=f"{page.url} ekran goruntusu",
-                )
+                ),
+                run_id=ctx.events.current_run or "",
+                phase=ctx.events.current_phase or "",
+                blob=target,
             )
         ctx.events.emit("tool", "browser", f"ekran goruntusu: {safe}")
         # Goruntunun KENDISI modele gider. Eskiden yalnizca "kaydedildi"

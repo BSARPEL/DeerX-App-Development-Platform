@@ -258,6 +258,31 @@ class Artifact:
 
 
 @dataclass(slots=True)
+class ArtifactInfo(Artifact):
+    """Cikti kaydi + veritabanindaki kopyasinin durumu.
+
+    `Artifact` degismez: araclar ve paketleyici onu kurar, `path` alani
+    harici tuketiciler icin yerinde kalir. Ekran ve CLI ise "indirilebilir
+    mi, ne kadar, saglamasi ne" sorularini sorar; o alanlar buraya gelir.
+    `Artifact`in alt sinifi olmasi bilerek: bir `ArtifactInfo`, `Artifact`
+    bekleyen her okuma yardimcisina (artifact_bytes, open_artifact) dogrudan
+    verilebilir.
+    """
+
+    # Veritabanindaki kopya. `stored` False ise bytes/sha256/media_type
+    # anlamsizdir (0 / "" / "").
+    bytes: int = 0
+    sha256: str = ""
+    media_type: str = ""
+    stored: bool = False
+    # Diskteki dosya duruyor mu; bakilmadiysa None. Blobsuz eski kayitlar
+    # yalnizca buradan sunulabilir, ekran "yalnizca diskte" der.
+    on_disk: bool | None = None
+    # '' (bakilmadi / meta-only) | 'stored' | 'missing' | 'deferred'.
+    blob_state: str = ""
+
+
+@dataclass(slots=True)
 class PhaseState:
     phase: str
     status: str = Status.PENDING

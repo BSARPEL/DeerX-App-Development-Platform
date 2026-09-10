@@ -444,10 +444,13 @@ class SaveArtifact(Tool):
         path.write_text(content, encoding="utf-8")
         # Cikti uretildigi kosuya baglanir; Ciktilar gorunumu kosu bazli
         # gruplayabilsin diye. Kosu disinda uretilirse alanlar bos kalir.
+        # Baytlar da veritabanina girer: diskteki `artifacts/` temizlenince
+        # ya da dizin tasininca cikti "listede ama indirilemez" kalmasin.
         state.add_artifact(
             Artifact(name=safe_name, kind=kind, path=str(path), summary=summary.strip()),
             run_id=ctx.events.current_run or "",
             phase=ctx.events.current_phase or "",
+            blob=content.encode("utf-8"),
         )
 
         # Ciktiyi bilgi tabanina da ekle: sonraki fazlar bunu arayabilsin.

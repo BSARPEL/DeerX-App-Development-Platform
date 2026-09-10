@@ -55,6 +55,52 @@ class TestCatalogShape:
             assert re.fullmatch(r"[a-z_]+\.[a-z_]+", key), key
 
 
+class TestKabinSorunAnahtarlari:
+    """Kabin sorunlarinin her anahtarinin sunucu tarafinda bir mesaji olmali.
+
+    `Sandbox` hatayi `t(f"sandbox.{key}")` ile yazar; anahtar katalogda
+    yoksa `t()` anahtarin kendisini doner ve kullanici olay akisinda
+    "sandbox.bind_mount_broken" gorur -- sebep de care de kaybolur.
+    """
+
+    def test_every_problem_key_has_a_message(self):
+        from deerx.sandbox import SORUN_ANAHTARLARI
+
+        for key in sorted(SORUN_ANAHTARLARI):
+            assert f"sandbox.{key}" in CATALOG, key
+
+    def test_the_mount_message_names_the_fix(self):
+        """Bilinen olgunun caresi Docker Desktop'i yeniden baslatmak; mesaj
+        bunu iki dilde de soylemeli ve hangi alanin baglanamadigini,
+        docker'in ne dedigini tasimali."""
+        giris = CATALOG["sandbox.bind_mount_broken"]
+        for dil in SUPPORTED:
+            assert "Docker Desktop" in giris[dil], dil
+            assert "{workspace}" in giris[dil] and "{error}" in giris[dil], dil
+
+    def test_the_messages_only_use_values_the_sandbox_passes(self, tmp_path):
+        """`Sandbox._sorun_degerleri` tek bir sozluk verir; bir mesaj baska
+        bir yer tutucu kullanirsa `t()` bicimlendirmeyi birakir ve kullanici
+        ham `{...}` gorur."""
+        from deerx.sandbox import SORUN_ANAHTARLARI, Sandbox
+
+        verilen = set(Sandbox(tmp_path, "python:3.13", 8100, 10)._sorun_degerleri(""))
+        for key in SORUN_ANAHTARLARI:
+            for dil in SUPPORTED:
+                alanlar = {
+                    alan
+                    for _, alan, _, _ in string.Formatter().parse(CATALOG[f"sandbox.{key}"][dil])
+                    if alan
+                }
+                assert alanlar <= verilen, (key, dil, alanlar - verilen)
+
+    def test_the_run_stop_message_carries_the_reason(self):
+        """Orkestratorun tek 'sandbox' olayi sebebi icermeli; yoksa
+        kullanici "kosu durdu" gorur ve neden oldugunu ogrenemez."""
+        for dil in SUPPORTED:
+            assert "{error}" in CATALOG["sandbox.unavailable"][dil]
+
+
 class TestLookup:
     def test_the_active_language_is_used(self):
         set_language("en")

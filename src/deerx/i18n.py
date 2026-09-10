@@ -404,6 +404,59 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "Inside the isolated environment a service must bind 0.0.0.0, "
               "not 127.0.0.1: otherwise the published port stays empty.",
     },
+    # Kabin sagligi: her `SORUN_ANAHTARLARI` uyesinin `sandbox.<key>`
+    # karsiligi (sandbox.py). Olay akisi ve ToolError icin; arayuz kendi
+    # `env.issue.<key>` metnini kullanir.
+    "sandbox.bind_mount_broken": {
+        "tr": "Docker Desktop calisma alanini konteynere baglayamiyor "
+              "({workspace}). Bilinen sebep: WSL2 icindeki "
+              "/run/desktop/mnt/host kopmus. Docker Desktop'i yeniden "
+              "baslatin, sonra kosuyu yeniden baslatin. Ayrinti: {error}",
+        "en": "Docker Desktop cannot bind the workspace into the container "
+              "({workspace}). Known cause: /run/desktop/mnt/host inside WSL2 "
+              "is broken. Restart Docker Desktop, then restart the run. "
+              "Detail: {error}",
+    },
+    "sandbox.daemon_down": {
+        "tr": "Docker kurulu ama yanit vermiyor; Docker Desktop'i baslatin.",
+        "en": "Docker is installed but not answering; start Docker Desktop.",
+    },
+    "sandbox.image_missing": {
+        "tr": "{image} imaji makinede yok; ilk kosu cekecek ya da "
+              "`docker pull {image}`.",
+        "en": "Image {image} is not on this machine; the first run will pull "
+              "it, or run `docker pull {image}`.",
+    },
+    "sandbox.image_pull_failed": {
+        "tr": "{image} imaji cekilemedi; adi ve ag baglantisini denetleyin.",
+        "en": "Image {image} could not be pulled; check the name and the network.",
+    },
+    "sandbox.port_busy_host": {
+        "tr": "{first}-{last} araligindaki bir port konakta dolu; "
+              "Ayarlar > Yalitim'dan araligi degistirin.",
+        "en": "A port in {first}-{last} is busy on the host; change the range "
+              "under Settings > Isolation.",
+    },
+    "sandbox.name_in_use": {
+        "tr": "{name} adli bir konteyner zaten var; Ortami yeniden kur ile silin.",
+        "en": "A container named {name} already exists; remove it with "
+              "Rebuild environment.",
+    },
+    "sandbox.unavailable": {
+        "tr": "Kabin kurulamadi, kosu baslamadan durdu: {error}",
+        "en": "The sandbox could not be built; the run stopped before "
+              "starting: {error}",
+    },
+    "sandbox.node_missing": {
+        "tr": "Imaj {image} icinde node/npm yok ama calisma alaninda "
+              "package.json var. Ayarlar > Yalitim > Kurulum komutu "
+              "(apt-get update && apt-get install -y nodejs npm) ya da node "
+              "iceren bir imaj secin.",
+        "en": "Image {image} has no node/npm but the workspace has a "
+              "package.json. Use Settings > Isolation > Setup command "
+              "(apt-get update && apt-get install -y nodejs npm) or pick an "
+              "image with node.",
+    },
     "config.workspace_env_missing": {
         "tr": "DEERX_WORKSPACE bir dizini gostermiyor: {path}. Yok sayildi; "
               "bulunulan dizinden aranacak.",
@@ -2197,6 +2250,32 @@ CATALOG: dict[str, dict[str, str]] = {
     "package.phase_not_run": {
         "tr": "{label} fazi calistirilmamis (durum: {status}).",
         "en": "The {label} phase has not run (status: {status}).",
+    },
+
+    # -- Cikti deposu (artifact_blobs) ------------------------------------ #
+    "artifact.too_big": {
+        "tr": "{name} veritabanina sigmiyor: sinir {limit_mb} MB.",
+        "en": "{name} does not fit the database: limit {limit_mb} MB.",
+    },
+    "artifact.backfilled": {
+        "tr": "{count} cikti veritabanina alindi.",
+        "en": "{count} artifacts copied into the database.",
+    },
+    "artifact.backfill_missing": {
+        "tr": "{name} diskte yok; listede kaliyor, indirilemez.",
+        "en": "{name} is not on disk; it stays listed but cannot be downloaded.",
+    },
+    "artifact.backfill_deferred": {
+        "tr": "{name} acilista alinmadi (buyuk); `deerx artifacts --backfill` ile alin.",
+        "en": "{name} was not copied on open (large); run `deerx artifacts --backfill`.",
+    },
+    "artifact.backfill_failed": {
+        "tr": "{name} veritabanina alinamadi ({error}); bir sonraki acilista yeniden denenir.",
+        "en": "{name} could not be copied into the database ({error}); it will be retried on the next open.",
+    },
+    "artifact.checksum_mismatch": {
+        "tr": "{name} icin sha256 tutmuyor.",
+        "en": "sha256 mismatch for {name}.",
     },
 
     # -- Ayarlar ve kosu yasaklari ---------------------------------------- #

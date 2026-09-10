@@ -225,6 +225,9 @@ class DownloadImage(Tool):
         if ctx.state is not None:
             from ..pipeline.models import Artifact
 
+            # Kosu/faz `save_artifact` ile ayni; baytlar da veritabanina
+            # girer. Sunum gorselleri en cok tasinan ciktilar: `artifacts/`
+            # temizlenince slayt kirik gorsel gosteriyordu.
             ctx.state.add_artifact(
                 Artifact(
                     name=guvenli,
@@ -233,7 +236,10 @@ class DownloadImage(Tool):
                     # Kaynak ozete yazilir: atif vermek icin gerekli ve
                     # sonradan "bu nereden geldi" sorusunun tek cevabi.
                     summary=t("images.artifact_summary", url=url, kb=len(veri) // 1024),
-                )
+                ),
+                run_id=ctx.events.current_run or "",
+                phase=ctx.events.current_phase or "",
+                blob=veri,
             )
         return ToolResult(
             content=t("images.saved", name=guvenli, kb=len(veri) // 1024, url=url)

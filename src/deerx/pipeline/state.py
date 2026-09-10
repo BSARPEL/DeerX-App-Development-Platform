@@ -7,6 +7,7 @@ tekrar calistirmalari (idempotent yeniden kosu) guvenli kilar.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -16,12 +17,15 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
+from ..errors import ToolError
 from ..i18n import t
 from ..logging import get_logger
+from .artifacts import media_type_for
 from .models import (
     Artifact,
+    ArtifactInfo,
     Decision,
     Gap,
     Phase,
@@ -34,6 +38,24 @@ from .models import (
 )
 
 log = get_logger("state")
+
+# Blob deposunun sinirlari. Hepsi modul duzeyinde ve cagri aninda okunur ki
+# testler `monkeypatch` ile kucultebilsin; varsayilan arguman olsalardi
+# tanim aninda donar, yama islemezdi.
+#
+# BLOB_PARCA: zeroblob + blobopen ile yazilan/okunan parca boyu. Butun
+# dosyayi bellege almak 250 MB'lik bir paket icin 250 MB RAM demekti.
+BLOB_PARCA = 4 * 1024 * 1024
+# ARTIFACT_MAX_BYTES: ustu blob'a girmez. Paketleyicinin MAX_TOTAL_BYTES
+# siniri (250 MB) bunun altinda; en buyuk mesru cikti sigar.
+ARTIFACT_MAX_BYTES = 256 * 1024 * 1024
+# BACKFILL_AUTO_MAX: acilista otomatik geri doldurma esigi. Ustu 'deferred'
+# kalir ve `deerx artifacts --backfill` ile alinir; acilis bir GB kopyalayip
+# dakikalarca asili kalmamali.
+BACKFILL_AUTO_MAX = 32 * 1024 * 1024
+# Bu boyutun ustunde bir yazmadan sonra WAL pasif olarak sifirlanir; yoksa
+# -wal dosyasi bir sonraki kapanisa kadar blob kadar buyuk kalir.
+_CHECKPOINT_ESIGI = 16 * 1024 * 1024
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS project (
@@ -245,6 +267,19 @@ CREATE TABLE IF NOT EXISTS artifacts (
     phase      TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL
 );
+
+-- Cikti baytlari AYRI tabloda: `artifacts` uzerindeki `SELECT *` tuketicileri
+-- (liste, /api/state, MCP) blob tasimaz ve `path` alani yerinde kalir.
+-- CASCADE yalnizca guvence: `add_artifact` ayni adi UPSERT ettigi icin id
+-- degismez ve silme hic tetiklenmez; bayat blob orada ACIKCA dusurulur.
+CREATE TABLE IF NOT EXISTS artifact_blobs (
+    artifact_id INTEGER PRIMARY KEY REFERENCES artifacts(id) ON DELETE CASCADE,
+    bytes       INTEGER NOT NULL,
+    sha256      TEXT    NOT NULL,
+    media_type  TEXT    NOT NULL DEFAULT 'application/octet-stream',
+    stored_at   REAL    NOT NULL,
+    data        BLOB    NOT NULL
+);
 """
 
 
@@ -268,6 +303,138 @@ def _surec_yasiyor(pid: int) -> bool:
     from ..process import process_alive
 
     return process_alive(pid)
+
+
+def _diskte(path: str) -> Path | None:
+    """`path` diskte duran bir dosyaysa yolu, degilse None.
+
+    `Path.is_file` bazi hatalari (uzun/gecersiz Windows adi) yutmaz;
+    kayitli yol bozuk diye liste cokmemeli, o cikti yalnizca "diskte yok"
+    sayilmali.
+    """
+    if not path:
+        return None
+    try:
+        yol = Path(path)
+        return yol if yol.is_file() else None
+    except (OSError, ValueError):
+        return None
+
+
+def _parcalar(kaynak: bytes | Path, boyut: int) -> Iterator[bytes | memoryview]:
+    """Kaynagi BLOB_PARCA boyunda dilimler; dosyayi hic bir butun olarak
+    bellege almaz. `BLOB_PARCA` cagri aninda okunur (test yamasi icin).
+
+    Dosya okumasi `boyut` ile SINIRLIDIR: zeroblob tam `boyut` kadar yer
+    acar; kaynak stat ile kopya arasinda buyurse EOF'a kadar okumak
+    `sqlite3.Blob.write`i "data longer than blob length" (ValueError) ile
+    dusururdu ve bu tur hicbir yerde yakalanmiyordu (OLCULDU: stat 50 bayt
+    soyleyen 100 baytlik bir dosya proje acilisini cokertti). Sinira gelince
+    tek baytlik bir yoklama kalan veri var mi diye bakar; varsa kaynak kopya
+    sirasinda degismistir, kopya guvenilmez ve hata ile geri alinir.
+    Kuculen dosya erken EOF verir; onu cagiran toplamdan yakalar.
+    """
+    boy = BLOB_PARCA
+    if isinstance(kaynak, Path):
+        kalan = boyut
+        with kaynak.open("rb") as fp:
+            while kalan > 0:
+                parca = fp.read(min(boy, kalan))
+                if not parca:
+                    return
+                kalan -= len(parca)
+                yield parca
+            if fp.read(1):
+                raise RuntimeError(
+                    f"{kaynak}: source grew while copying (expected {boyut} bytes)"
+                )
+        return
+    gorunum = memoryview(kaynak)
+    for basi in range(0, len(gorunum), boy):
+        yield gorunum[basi:basi + boy]
+
+
+class _BlobDosya:
+    """Veritabanindaki bir ciktiyi dosya gibi sunar; KENDI baglantisini tasir.
+
+    Neden kendi baglantisi: akitilan yanitin uretecini `iterate_in_threadpool`
+    kosturur ve ardisik `next()` cagrilari FARKLI is parcaciklarina duser
+    (OLCULDU: 6 es zamanli akisin 6'si "SQLite objects created in a thread
+    can only be used in that same thread" ile dustu). Is parcacigi basina
+    acilan havuz baglantilari bu yuzden kullanilamaz; `check_same_thread=False`
+    ile tek amacli, salt okunur (`mode=ro` + `query_only`) bir baglanti acilir.
+    `ProjectState.close()` bunu kapatmaz: yanit hala akiyor olabilir; sarmal
+    kapaninca baglanti da kapanir.
+
+    `seekable()`/`readable()` zipfile icin: `zipfile._SharedFile` `seekable`
+    niteligini ister ve `sqlite3.Blob`da yok (OLCULDU: `namelist()` calisir,
+    `read()` AttributeError verirdi).
+    """
+
+    def __init__(self, db_path: Path, artifact_id: int, *, name: str = "") -> None:
+        self.name = name
+        # `as_uri` yalnizca mutlak yolda calisir; goreli bir `db_path` ile
+        # kurulan durum ancak ilk okumada "relative path can't be expressed
+        # as a file URI" ile duserdi (OLCULDU). Kurucu degil, burasi cozer:
+        # `ProjectState.db_path` cagiranin verdigi haliyle kalir.
+        self._conn = sqlite3.connect(
+            f"{db_path.resolve().as_uri()}?mode=ro",
+            uri=True,
+            timeout=2.0,
+            check_same_thread=False,
+        )
+        try:
+            self._conn.execute("PRAGMA query_only=ON")
+            self._blob = self._conn.blobopen(
+                "artifact_blobs", "data", artifact_id, readonly=True
+            )
+        except sqlite3.Error:
+            self._conn.close()
+            raise
+        self.closed = False
+
+    def read(self, size: int = -1) -> bytes:
+        return self._blob.read(size)
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        self._blob.seek(offset, whence)
+        return self._blob.tell()
+
+    def tell(self) -> int:
+        return self._blob.tell()
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def writable(self) -> bool:
+        return False
+
+    def __len__(self) -> int:
+        return len(self._blob)
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            self._blob.close()
+        finally:
+            self._conn.close()
+
+    def __enter__(self) -> _BlobDosya:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    def __del__(self) -> None:  # pragma: no cover - son care
+        try:
+            self.close()
+        except Exception:
+            pass
 
 
 class ProjectState:
@@ -325,6 +492,12 @@ class ProjectState:
              "ALTER TABLE runs ADD COLUMN started_by TEXT NOT NULL DEFAULT ''"),
             ("tasks", "pid",
              "ALTER TABLE tasks ADD COLUMN pid INTEGER NOT NULL DEFAULT 0"),
+            # Blob deposunun satir durumu: '' (bakilmadi / meta-only) |
+            # 'stored' | 'missing' | 'deferred'. YALNIZCA `_blob_yaz` ve geri
+            # doldurma yazar; boylece ikinci acilis bakilmis satirlara hic
+            # dokunmaz -- sifir stat, sifir yazma.
+            ("artifacts", "blob_state",
+             "ALTER TABLE artifacts ADD COLUMN blob_state TEXT NOT NULL DEFAULT ''"),
         ):
             existing = {
                 row["name"] for row in self._conn.execute(f"PRAGMA table_info({table})")
@@ -342,6 +515,13 @@ class ProjectState:
         self._conn.execute(
             "CREATE INDEX IF NOT EXISTS runs_by_workflow ON runs(workflow_id, seq)"
         )
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS artifacts_by_run ON artifacts(run_id, created_at)"
+        )
+        # Geri doldurma yetim toplamadan ONCE: ikisi de acilis isi, ama
+        # doldurma dosya kopyalar ve durabilir; yetim toplama ondan bagimsiz
+        # kalsin diye kendi islemlerinde kosarlar.
+        self._backfill_artifact_blobs()
         self._adopt_orphan_runs()
 
     def _adopt_orphan_runs(self) -> None:
@@ -394,6 +574,11 @@ class ProjectState:
             # Yazici kilidi tutuyorsa bekle. Bunsuz es zamanli bir yazma
             # aninda `database is locked` ile duserdi.
             conn.execute("PRAGMA busy_timeout=5000")
+            # OLCULDU: 250 MB'lik bir paket blob'a yazildiktan sonra -wal
+            # dosyasi 250 MB olarak KALICIYDI; checkpoint icerigi tasir ama
+            # dosyayi kucultmez. Bu sinir, bir sonraki checkpoint'te WAL'i
+            # 64 MB'a geri kirpar.
+            conn.execute("PRAGMA journal_size_limit=67108864")
             self._yerel.conn = conn
             with self._baglanti_kilidi:
                 self._baglantilar.append(conn)
@@ -1486,28 +1671,134 @@ class ProjectState:
     # Ciktilar
     # ------------------------------------------------------------------ #
     def add_artifact(
-        self, artifact: Artifact, *, run_id: str = "", phase: str = ""
+        self,
+        artifact: Artifact,
+        *,
+        run_id: str = "",
+        phase: str = "",
+        blob: bytes | Path | None = None,
     ) -> Artifact:
-        """Ciktiyi kaydeder ve uretildigi kosuya baglar.
+        """Ciktiyi kaydeder ve uretildigi kosuya baglar; TEK yazma girisi.
 
         Ayni ad tekrar yazilirsa kayit guncellenir ve *yeni* kosuya gecer:
-        cikti artik onu son ureten kosunun urunu sayilir.
+        cikti artik onu son ureten kosunun urunu sayilir. `blob` verilirse
+        baytlar ayni islemde `artifact_blobs`a kopyalanir; kopya yarida
+        duserse cikti kaydi da geri alinir (yarim satir yok). `blob` yoksa
+        eski blob ACIKCA dusurulur: yeniden kaydedilen bir ad, diskteki
+        dosyayi yeni gercek ilan eder; bayat kopya onun adiyla sunulmamali.
+        `blob_state` burada '' birakilir -- meta-only kayit bakilmis
+        sayilmaz, acilis onu diskten alir.
         """
         artifact.run_id = run_id or artifact.run_id
         artifact.phase = phase or artifact.phase
-        self._conn.execute(
-            "INSERT INTO artifacts (name, kind, path, summary, run_id, phase, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(name) DO UPDATE SET kind=excluded.kind, path=excluded.path, "
-            "summary=excluded.summary, run_id=excluded.run_id, phase=excluded.phase, "
-            "created_at=excluded.created_at",
-            (
-                artifact.name, artifact.kind, artifact.path, artifact.summary,
-                artifact.run_id, artifact.phase, time.time(),
-            ),
-        )
-        self._commit()
+        yazilan = 0
+        with self._islem():
+            self._conn.execute(
+                "INSERT INTO artifacts (name, kind, path, summary, run_id, phase, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET kind=excluded.kind, path=excluded.path, "
+                "summary=excluded.summary, run_id=excluded.run_id, phase=excluded.phase, "
+                "created_at=excluded.created_at",
+                (
+                    artifact.name, artifact.kind, artifact.path, artifact.summary,
+                    artifact.run_id, artifact.phase, time.time(),
+                ),
+            )
+            # UPSERT id'yi korur; blob satiri o id'ye baglanir.
+            artifact.id = int(
+                self._conn.execute(
+                    "SELECT id FROM artifacts WHERE name = ?", (artifact.name,)
+                ).fetchone()["id"]
+            )
+            if blob is None:
+                self._conn.execute(
+                    "DELETE FROM artifact_blobs WHERE artifact_id = ?", (artifact.id,)
+                )
+                self._conn.execute(
+                    "UPDATE artifacts SET blob_state = '' WHERE id = ?", (artifact.id,)
+                )
+            else:
+                yazilan, _ = self._blob_yaz(
+                    artifact.id, blob, media_type_for(artifact.name)
+                )
+        self._wal_kirp(yazilan)
         return artifact
+
+    def _wal_kirp(self, yazilan: int) -> None:
+        """Buyuk bir blob'dan sonra WAL'i pasifce sifirlar.
+
+        Islemin DISINDA cagrilir: checkpoint acik bir islemde is yapmaz.
+        Pasif kip okuyuculari beklemez; yetisemezse bir sonraki yazmada
+        yeniden denenir.
+        """
+        if yazilan > _CHECKPOINT_ESIGI and not self._islem_derinligi_al():
+            self._conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+
+    def _artifact_adi(self, artifact_id: int) -> str:
+        row = self._conn.execute(
+            "SELECT name FROM artifacts WHERE id = ?", (artifact_id,)
+        ).fetchone()
+        return row["name"] if row else str(artifact_id)
+
+    def _blob_yaz(
+        self, artifact_id: int, kaynak: bytes | Path, media_type: str
+    ) -> tuple[int, str]:
+        """Baytlari `artifact_blobs`a parca parca kopyalar; (boyut, sha256).
+
+        ACIK BIR ISLEMIN ICINDE cagrilir (`_islem`): zeroblob ile yer acmak,
+        `blobopen` ile doldurmak ve saglamayi yazmak tek islemdir; herhangi
+        bir adim duserse cagiran ROLLBACK eder ve yarim blob kalmaz.
+
+        Parca parca yazmanin sebebi bellek: 250 MB'lik bir paketi `bytes`
+        olarak okuyup INSERT etmek 250 MB RAM demekti; `blobopen` ile tepe
+        kullanim bir parca (4 MB) kadar kalir. Saglama ayni dongude akar,
+        dosya ikinci kez okunmaz. Yazilan toplam beklenen boyuttan azsa
+        (kaynak kuculdu) ya da sinirdan sonra bayt kaliyorsa (buyudu;
+        `_parcalar` yakalar) kaynak kopya sirasinda degismistir; boyle bir
+        kopya guvenilmez ve hata ile geri alinir.
+        """
+        if isinstance(kaynak, Path):
+            boyut = kaynak.stat().st_size
+        else:
+            boyut = len(kaynak)
+        sinir = ARTIFACT_MAX_BYTES
+        if boyut > sinir:
+            raise ToolError(
+                t(
+                    "artifact.too_big",
+                    name=self._artifact_adi(artifact_id),
+                    limit_mb=sinir // (1024 * 1024),
+                )
+            )
+        conn = self._conn
+        conn.execute(
+            "INSERT OR REPLACE INTO artifact_blobs "
+            "(artifact_id, bytes, sha256, media_type, stored_at, data) "
+            "VALUES (?, ?, '', ?, ?, zeroblob(?))",
+            (artifact_id, boyut, media_type, time.time(), boyut),
+        )
+        ozet = hashlib.sha256()
+        yazilan = 0
+        if boyut:
+            with conn.blobopen("artifact_blobs", "data", artifact_id) as blob:
+                for parca in _parcalar(kaynak, boyut):
+                    blob.write(parca)
+                    ozet.update(parca)
+                    yazilan += len(parca)
+        if yazilan != boyut:
+            raise RuntimeError(
+                f"artifact {artifact_id}: source changed while copying "
+                f"({yazilan} of {boyut} bytes)"
+            )
+        sha256 = ozet.hexdigest()
+        conn.execute(
+            "UPDATE artifact_blobs SET sha256 = ? WHERE artifact_id = ?",
+            (sha256, artifact_id),
+        )
+        conn.execute(
+            "UPDATE artifacts SET blob_state = 'stored' WHERE id = ?", (artifact_id,)
+        )
+        return boyut, sha256
 
     def list_artifacts(self, *, run_id: str | None = None) -> list[Artifact]:
         clause = "WHERE run_id = ?" if run_id is not None else ""
@@ -1523,6 +1814,274 @@ class ProjectState:
             )
             for r in rows
         ]
+
+    # Liste sorgusu `data` sutununu HIC secmez: bir LEFT JOIN ile satir
+    # basina yalnizca boyut/saglama/tur gelir. Ekran yuzlerce ciktiyi
+    # listelerken megabaytlarca blob tasimak liste istegini dakikalara
+    # cikarirdi.
+    _INFO_SQL = (
+        "SELECT a.*, b.bytes AS blob_bytes, b.sha256 AS blob_sha256, "
+        "b.media_type AS blob_media_type, (b.artifact_id IS NOT NULL) AS stored "
+        "FROM artifacts a LEFT JOIN artifact_blobs b ON b.artifact_id = a.id"
+    )
+
+    @staticmethod
+    def _info_satiri(r: sqlite3.Row, *, check_disk: bool) -> ArtifactInfo:
+        return ArtifactInfo(
+            id=r["id"], name=r["name"], kind=r["kind"],
+            path=r["path"], summary=r["summary"],
+            run_id=r["run_id"], phase=r["phase"],
+            bytes=int(r["blob_bytes"] or 0),
+            sha256=r["blob_sha256"] or "",
+            media_type=r["blob_media_type"] or "",
+            stored=bool(r["stored"]),
+            on_disk=(_diskte(r["path"]) is not None) if check_disk else None,
+            blob_state=r["blob_state"] or "",
+        )
+
+    def artifact_info(self, name: str, *, check_disk: bool = True) -> ArtifactInfo | None:
+        row = self._conn.execute(
+            f"{self._INFO_SQL} WHERE a.name = ?", (name,)
+        ).fetchone()
+        return None if row is None else self._info_satiri(row, check_disk=check_disk)
+
+    def list_artifact_infos(
+        self, *, run_id: str | None = None, check_disk: bool = True
+    ) -> list[ArtifactInfo]:
+        clause = " WHERE a.run_id = ?" if run_id is not None else ""
+        params = (run_id,) if run_id is not None else ()
+        rows = self._conn.execute(
+            f"{self._INFO_SQL}{clause} ORDER BY a.created_at", params
+        ).fetchall()
+        return [self._info_satiri(r, check_disk=check_disk) for r in rows]
+
+    def artifact_blob_sizes(self) -> dict[int, int]:
+        """artifact_id -> bayt; toplam disk kullanimi ve paket boyutu icin."""
+        return {
+            int(r["artifact_id"]): int(r["bytes"])
+            for r in self._conn.execute("SELECT artifact_id, bytes FROM artifact_blobs")
+        }
+
+    def _blob_satiri(self, artifact: Artifact) -> sqlite3.Row | None:
+        """Ciktinin blob meta satiri (data secilmez); yoksa None.
+
+        Ad uzerinden cozulur, `artifact.id` uzerinden degil: cagiranin
+        elindeki nesne baska bir acilistan kalmis ya da elle kurulmus
+        olabilir; ad tek gercek anahtardir.
+        """
+        return self._conn.execute(
+            "SELECT b.artifact_id, b.bytes, b.sha256, b.media_type "
+            "FROM artifact_blobs b JOIN artifacts a ON a.id = b.artifact_id "
+            "WHERE a.name = ?",
+            (artifact.name,),
+        ).fetchone()
+
+    # Okuma sirasi HER yardimcida ayni: once veritabani, sonra disk, sonra
+    # yok. Blobsuz eski kayitlar (ve blob vermeden kaydeden araclar) diskten
+    # sunulmaya devam eder; ikisi de yoksa cikti "listede ama indirilemez".
+    def artifact_size(self, artifact: Artifact) -> int | None:
+        row = self._blob_satiri(artifact)
+        if row is not None:
+            return int(row["bytes"])
+        yol = _diskte(artifact.path)
+        if yol is not None:
+            try:
+                return yol.stat().st_size
+            except OSError:
+                return None
+        return None
+
+    def artifact_bytes(
+        self, artifact: Artifact, *, limit: int | None = None
+    ) -> bytes | None:
+        """Ciktinin tamami bellekte; `limit` ustu bellege ALINMAZ (ToolError).
+
+        Bir kerede okumak kucuk metin ciktilari (rapor, plan) icindir;
+        buyukler `open_artifact`/`iter_artifact_bytes` ile akitilir.
+        """
+        sinir = ARTIFACT_MAX_BYTES if limit is None else limit
+        boyut = self.artifact_size(artifact)
+        if boyut is None:
+            return None
+        if boyut > sinir:
+            raise ToolError(
+                t("artifact.too_big", name=artifact.name, limit_mb=sinir // (1024 * 1024))
+            )
+        row = self._blob_satiri(artifact)
+        if row is not None:
+            veri = self._conn.execute(
+                "SELECT data FROM artifact_blobs WHERE artifact_id = ?",
+                (row["artifact_id"],),
+            ).fetchone()
+            return bytes(veri["data"]) if veri is not None else None
+        yol = _diskte(artifact.path)
+        if yol is not None:
+            try:
+                return yol.read_bytes()
+            except OSError:
+                return None
+        return None
+
+    def open_artifact(self, artifact: Artifact) -> BinaryIO | None:
+        """Okunabilir, konumlanabilir ikili dosya; cagiran kapatir.
+
+        Blob icin `_BlobDosya` (kendi baglantisi; `close()` ondan bagimsiz),
+        disk icin duz `open('rb')`.
+        """
+        row = self._blob_satiri(artifact)
+        if row is not None:
+            return _BlobDosya(  # type: ignore[return-value]
+                self.db_path, int(row["artifact_id"]), name=artifact.name
+            )
+        yol = _diskte(artifact.path)
+        if yol is not None:
+            try:
+                return yol.open("rb")
+            except OSError:
+                return None
+        return None
+
+    def iter_artifact_bytes(
+        self, artifact: Artifact, chunk: int | None = None
+    ) -> Iterator[bytes]:
+        """Ciktiyi parca parca akitir; kaynak yoksa hic parca uretmez.
+
+        Uretec ilk `next()`te acar ve tuketici birakinca `finally` ile
+        kapatir -- akitilan yanit yarida kesilse de baglanti acik kalmaz.
+        """
+        boy = BLOB_PARCA if chunk is None else chunk
+        fp = self.open_artifact(artifact)
+        if fp is None:
+            return
+        try:
+            while True:
+                parca = fp.read(boy)
+                if not parca:
+                    return
+                yield parca
+        finally:
+            fp.close()
+
+    def verify_artifact(self, name: str) -> bool:
+        """Blob'un sha256'sini yeniden hesaplar; blob yoksa ya da tutmuyorsa False."""
+        row = self._conn.execute(
+            "SELECT b.artifact_id, b.bytes, b.sha256 "
+            "FROM artifact_blobs b JOIN artifacts a ON a.id = b.artifact_id "
+            "WHERE a.name = ?",
+            (name,),
+        ).fetchone()
+        if row is None:
+            return False
+        ozet = hashlib.sha256()
+        if row["bytes"]:
+            with self._conn.blobopen(
+                "artifact_blobs", "data", int(row["artifact_id"]), readonly=True
+            ) as blob:
+                while True:
+                    parca = blob.read(BLOB_PARCA)
+                    if not parca:
+                        break
+                    ozet.update(parca)
+        if ozet.hexdigest() == row["sha256"]:
+            return True
+        log.warning(t("artifact.checksum_mismatch", name=name))
+        return False
+
+    # ------------------------------------------------------------------ #
+    # Geri doldurma: blobsuz kayitlar diskten veritabanina alinir
+    # ------------------------------------------------------------------ #
+    def _aday_yol(self, path: str) -> Path | None:
+        """Kayitli yol, yoksa bu veritabaninin kendi `artifacts/` dizini.
+
+        Ikinci aday `.praxis` -> `.deerx` tasimasi icin: eski kayitlar eski
+        dizin adini tasir ama dosya yeni dizinde durur. Turetme
+        `Settings.artifacts_dir` ile ayni (`data_dir / "artifacts"`,
+        db_path = data_dir / "deerx.db"); kurucu imzasi degismedi.
+        """
+        yol = _diskte(path)
+        if yol is not None:
+            return yol
+        ad = Path(path).name if path else ""
+        if not ad:
+            return None
+        return _diskte(str(self.db_path.parent / "artifacts" / ad))
+
+    def _geri_doldur(
+        self, *, esik: int, durumlar: tuple[str, ...], limit: int | None
+    ) -> int:
+        """Durum bazli, satir basina islemli kopya; kopyalanan sayisini doner.
+
+        Satir basina islem: bir kopya OSError ile duserse o satir '' kalir
+        (sonraki acilis yeniden dener), onceki satirlarin kopyasi durur ve
+        acilis cokmez. Tek buyuk islem olsaydi bir bozuk dosya butun projeyi
+        blobsuz birakirdi.
+        """
+        yer = ", ".join("?" * len(durumlar))
+        rows = self._conn.execute(
+            "SELECT a.id, a.name, a.path FROM artifacts a "
+            "LEFT JOIN artifact_blobs b ON b.artifact_id = a.id "
+            f"WHERE b.artifact_id IS NULL AND a.blob_state IN ({yer}) ORDER BY a.id",
+            durumlar,
+        ).fetchall()
+        n = 0
+        toplam = 0
+        for row in rows:
+            if limit is not None and n >= limit:
+                break
+            kaynak = self._aday_yol(row["path"])
+            if kaynak is None:
+                self._conn.execute(
+                    "UPDATE artifacts SET blob_state = 'missing' WHERE id = ?", (row["id"],)
+                )
+                log.warning(t("artifact.backfill_missing", name=row["name"]))
+                continue
+            try:
+                boyut = kaynak.stat().st_size
+                if boyut > esik:
+                    self._conn.execute(
+                        "UPDATE artifacts SET blob_state = 'deferred' WHERE id = ?",
+                        (row["id"],),
+                    )
+                    log.info(t("artifact.backfill_deferred", name=row["name"]))
+                    continue
+                with self._islem():
+                    yazilan, _ = self._blob_yaz(
+                        int(row["id"]), kaynak, media_type_for(row["name"])
+                    )
+            # ValueError: `sqlite3.Blob` uzunluk/kapali-nesne hatalarini
+            # sqlite3.Error degil ValueError ile verir; okuma `_parcalar`da
+            # sinirlandi ama acilis bu aileden bir hatayla da cokmemeli.
+            except (OSError, sqlite3.Error, RuntimeError, ValueError, ToolError) as exc:
+                log.warning(
+                    t("artifact.backfill_failed", name=row["name"], error=str(exc))
+                )
+                continue
+            n += 1
+            toplam += yazilan
+        if n:
+            log.info(t("artifact.backfilled", count=n))
+        self._wal_kirp(toplam)
+        return n
+
+    def _backfill_artifact_blobs(self) -> int:
+        """Acilista: yalnizca `blob_state = ''` satirlar, esik BACKFILL_AUTO_MAX.
+
+        Bakilmis satirlar ('stored'/'missing'/'deferred') sorguya girmez;
+        ikinci acilis sifir stat, sifir yazma ile gecer. Buyukler 'deferred'
+        kalir: acilis dakikalarca kopya yapmamali, onlari `deerx artifacts
+        --backfill` alir.
+        """
+        return self._geri_doldur(esik=BACKFILL_AUTO_MAX, durumlar=("",), limit=None)
+
+    def backfill_artifacts(self, *, limit: int | None = None) -> int:
+        """`deerx artifacts --backfill`: ertelenmis ve bakilmamis satirlari alir.
+
+        'missing' de yeniden denenir: acik komut "diski simdi yeniden tara"
+        demektir; geri gelmis bir dosya ancak boyle bulunur.
+        """
+        return self._geri_doldur(
+            esik=ARTIFACT_MAX_BYTES, durumlar=("", "deferred", "missing"), limit=limit
+        )
 
     # ------------------------------------------------------------------ #
     # Ozet

@@ -43,6 +43,7 @@ CIKIS_CAGRILARI = {
     # Hatalar
     "ToolError", "WorkspaceError", "ConfigError", "ApprovalDenied",
     "DeerXError", "BudgetExceeded", "LLMError", "AuthError", "RunBusy",
+    "SandboxUnavailable",
     # Sonuclar ve yanitlar. `cls` de sayilir: `ToolResult.error` kendi
     # sinifini `cls(...)` ile kuruyordu ve tarayici oradan gecen Turkce
     # oneki gormuyordu. `Adim` kurulum tablosunun satirlarini tasir.

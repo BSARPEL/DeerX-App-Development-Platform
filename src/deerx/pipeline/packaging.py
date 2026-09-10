@@ -15,16 +15,17 @@ bilgileri hicbir kosulda pakete girmez.
 from __future__ import annotations
 
 import fnmatch
+import shutil
 import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from ..i18n import t
 from ..logging import get_logger
 from .models import Artifact, Phase, Severity, Status
-from .state import ProjectState
+from .state import BLOB_PARCA, ProjectState
 
 log = get_logger("packaging")
 
@@ -398,7 +399,13 @@ def build_manifest(
         lines.append("")
 
     # Paket artifaktlari `belgeler/` altina girer; onceki zip'ler girmez.
-    artifacts = [a for a in state.list_artifacts() if a.kind != "package"]
+    # Ne veritabaninda ne diskte olan bir kayit da girmez: manifest
+    # "paketteki belgeler/ klasorunde" diyorsa dosya orada OLMALI; bos bir
+    # vaat, teslimati alanin ilk actigi sayfada yalan soyler.
+    artifacts = [
+        a for a in state.list_artifacts()
+        if a.kind != "package" and state.artifact_size(a) is not None
+    ]
     if artifacts:
         lines += [
             "## Belgeler",
@@ -485,18 +492,28 @@ def build_package(
         # Uretilen belgeler ayri bir klasorde; kod agacini kirletmez.
         # Onceki teslimat zip'leri de birer artifakt olarak kayitlidir — onlari
         # atlamak sart: yoksa her paket bir oncekini icine alir ve boyut katlanir.
+        # Kaynak once veritabani, sonra disk (`open_artifact`): diskten
+        # silinmis ama kopyasi saklanmis bir rapor pakete yine girer. Kopya
+        # parca parca akar; 4 MB'lik parca tepe bellegi sinirlar.
         for artifact in state.list_artifacts():
             if artifact.kind == "package":
                 continue
-            source = Path(artifact.path)
-            if source.is_file() and not _within(source, output_dir):
-                zf.write(source, f"{root}/belgeler/{artifact.name}")
+            if artifact.path and _within(Path(artifact.path), output_dir):
+                continue
+            fp = state.open_artifact(artifact)
+            if fp is None:
+                continue
+            with fp, zf.open(f"{root}/belgeler/{artifact.name}", "w") as hedef:
+                shutil.copyfileobj(fp, hedef, BLOB_PARCA)
         entry_count = len(zf.namelist())
 
     total_bytes = archive.stat().st_size
     log.info(t("pipeline.package_written", path=archive, count=entry_count))
 
     # Kayit tek yerde: CLI, web ve faz ayni sonucu uretsin diye burada yapilir.
+    # Zip once diske akitildi; simdi ayni dosya parcali kopyayla veritabanina
+    # girer ki proje acilmadan (capraz liste) indirilebilsin ve `deliveries/`
+    # silinse de teslimat kaybolmasin.
     state.add_artifact(
         Artifact(
             name=archive.name,
@@ -506,6 +523,7 @@ def build_package(
         ),
         run_id=run_id,
         phase=str(Phase.PACKAGE),
+        blob=archive,
     )
 
     return PackageResult(
@@ -537,11 +555,12 @@ def _unique_path(directory: Path, stem: str, suffix: str) -> Path:
     return candidate
 
 
-def read_manifest(archive: Path) -> str:
+def read_manifest(archive: Path | BinaryIO) -> str:
     """Zip'in icindeki TESLIMAT.md'yi doner; yoksa bos dize.
 
     Arayuz raporu boylece gosterir — zip'i diske acmadan, ikili icerigi metin
-    gibi okumaya calismadan.
+    gibi okumaya calismadan. `archive` bir yol ya da acik ikili dosya olabilir:
+    veritabanindaki kopya (`open_artifact`) diske cikarilmadan okunur.
     """
     try:
         with zipfile.ZipFile(archive) as zf:
@@ -552,12 +571,18 @@ def read_manifest(archive: Path) -> str:
                 return ""
             return zf.read(entry).decode("utf-8", errors="replace")
     except (zipfile.BadZipFile, OSError) as exc:
-        log.warning(t("pipeline.package_unreadable", name=archive.name, error=exc))
+        # Dosya nesnesinin adi olmayabilir (BytesIO): hata yolunda ikinci bir
+        # AttributeError vermek yerine '?' yazilir.
+        log.warning(
+            t("pipeline.package_unreadable", name=getattr(archive, "name", "?"), error=exc)
+        )
         return ""
 
 
-def list_entries(archive: Path, *, limit: int = 500) -> list[dict[str, Any]]:
-    """Zip icindeki dosyalarin adi ve boyutu."""
+def list_entries(
+    archive: Path | BinaryIO, *, limit: int = 500
+) -> list[dict[str, Any]]:
+    """Zip icindeki dosyalarin adi ve boyutu; `archive` yol ya da acik dosya."""
     try:
         with zipfile.ZipFile(archive) as zf:
             return [

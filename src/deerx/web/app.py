@@ -18,7 +18,7 @@ import os
 import sqlite3
 import time
 from collections import OrderedDict
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass
@@ -29,9 +29,10 @@ from urllib.parse import quote
 from markdown_it import MarkdownIt
 from sse_starlette.sse import EventSourceResponse
 from starlette.applications import Starlette
+from starlette.concurrency import iterate_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, Response
+from starlette.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
@@ -51,6 +52,14 @@ from ..errors import ConfigError, DeerXError
 from ..i18n import set_language, t
 from ..logging import EventLog, get_logger
 from ..pipeline import Orchestrator, Phase, Status
+from ..pipeline.artifacts import (  # noqa: F401 - uzanti tablolari burada da adlandirilir
+    ARCHIVE_SUFFIXES,
+    BINARY_SUFFIXES,
+    IMAGE_MEDIA_TYPES,
+    IMAGE_SUFFIXES,
+    artifact_format,
+)
+from ..pipeline.state import BLOB_PARCA
 from ..rag.loaders import SUPPORTED_SUFFIXES
 from .auth import (
     AUDIT_KEEP,
@@ -601,6 +610,37 @@ def _tabloda_var(conn: sqlite3.Connection, tablo: str) -> set[str]:
     `_proje_tara` yapiyor.
     """
     return {r["name"] for r in conn.execute(f"PRAGMA table_info({tablo})")}
+
+
+def _blob_akisi(db: Path, artifact_id: int, *, chunk: int | None = None) -> Iterator[bytes]:
+    """Baska bir projenin ciktisini veritabanindan parca parca akitir.
+
+    KENDI baglantisini acar; aktif projeye, `runtime()`a ve goce hic
+    dokunmaz -- `_salt_okunur` ile ayni sozlesme (`mode=ro` + `query_only`),
+    bir farkla: `check_same_thread=False` ZORUNLU. `iterate_in_threadpool`
+    ardisik `next()` cagrilarini FARKLI is parcaciklarinda kosturur
+    (OLCULDU: es zamanli alti akisin altisi "SQLite objects created in a
+    thread can only be used in that same thread" ile dustu). Uretec ilk
+    `next()`te acar, tuketici birakinca `finally` ile blob'u ve baglantiyi
+    kapatir; yarida kesilen bir indirme dosyayi kilitli birakmaz.
+    """
+    boy = BLOB_PARCA if chunk is None else chunk
+    conn = sqlite3.connect(
+        f"{db.resolve().as_uri()}?mode=ro", uri=True, timeout=2.0, check_same_thread=False
+    )
+    try:
+        conn.execute("PRAGMA query_only=ON")
+        blob = conn.blobopen("artifact_blobs", "data", artifact_id, readonly=True)
+        try:
+            while True:
+                parca = blob.read(boy)
+                if not parca:
+                    return
+                yield parca
+        finally:
+            blob.close()
+    finally:
+        conn.close()
 
 
 def _proje_tara(db: Path, okuyucu: Callable[..., Any]) -> tuple[Any, str]:
@@ -3422,24 +3462,10 @@ def build_app(settings: Settings) -> Starlette:
     return app
 
 
-ARCHIVE_SUFFIXES = (".zip", ".tar", ".tgz", ".gz", ".bz2", ".xz", ".7z", ".rar")
-# Ekranda GOSTERILEBILEN goruntuler. `.svg` bilerek disarida: SVG betik
-# tasiyabilir ve dogrudan acildiginda uygulamanin kendi kaynaginda calisir.
-# Buradakiler tarama goruntuleridir, betik calistiramazlar.
-IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif")
-IMAGE_MEDIA_TYPES = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
-    ".avif": "image/avif",
-}
-BINARY_SUFFIXES = (
-    ".ico", ".pdf",
-    ".woff", ".woff2", ".ttf", ".otf", ".mp4", ".mp3", ".wasm", ".db",
-    ".svg",
-)
+# Uzanti tablolari (ARCHIVE/IMAGE/BINARY_SUFFIXES, IMAGE_MEDIA_TYPES) artik
+# `pipeline.artifacts`ta: blob deposu kaydederken ortam turune ihtiyac duyar
+# ve boru hatti web katmanina bagimli olamaz. Adlar ithalle burada yasamaya
+# devam eder (bkz. ustteki ithal blogu); tuketiciler degismedi.
 
 
 _PHASE_NAMES = {str(p) for p in Phase.ordered()}
@@ -3647,30 +3673,9 @@ def _tail_records(
     return kayitlar, kesildi
 
 
-def _artifact_format(name: str) -> str:
-    """Ciktinin nasil gosterilecegini belirler.
-
-    `archive` ve `binary` metin olarak *okunmaz*: bir zip'i utf-8 varsayip
-    `errors="replace"` ile cozmek, tarayiciya megabaytlarca anlamsiz karakter
-    gonderir. Bunlar ek dosya olarak indirilir.
-    """
-    lowered = name.lower()
-    if lowered.endswith(ARCHIVE_SUFFIXES):
-        return "archive"
-    # Goruntuler ikiliden ONCE bakilir: `browser_screenshot` "kullanici
-    # arayuzde gorur" diyor, oysa ekran goruntusu `binary` sayildigi surece
-    # yalnizca bir indirme baglantisiydi.
-    if lowered.endswith(IMAGE_SUFFIXES):
-        return "image"
-    if lowered.endswith(BINARY_SUFFIXES):
-        return "binary"
-    if lowered.endswith((".md", ".markdown")):
-        return "markdown"
-    if lowered.endswith((".html", ".htm")):
-        return "html"
-    if lowered.endswith((".json", ".yaml", ".yml", ".toml")):
-        return "data"
-    return "text"
+# Bicim karari `pipeline.artifacts.artifact_format`a tasindi; eski ad,
+# cagiran yerler degismesin diye takma ad olarak kalir.
+_artifact_format = artifact_format
 
 
 def serve(
