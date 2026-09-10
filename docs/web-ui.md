@@ -533,37 +533,48 @@ The log is capped at the last 5000 rows and shares the project database.
 
 ## Design
 
-The palette derives from the brand: the logo's navy (`#082850`) is the starting
-point and the whole scale stays in that blue family. Semantic colours
-(ok/warn/err/info) were pulled into the same lightness and saturation family so
-none reads louder than the others side by side.
+**The neutrals are grey.** Every one of the thirteen neutral tokens used to sit
+in the same blue family as the logo (LCh hue 265–272, chroma 4–13 in light,
+6–21 in dark), so the brand navy was one more blue among blue greys. Chroma is
+now ≤ 4 with lightness kept, which means no contrast ratio moved — ratios depend
+only on luminance. The hue stays at 265: a cool grey, not a warm one, so it does
+not fight the logo.
 
-Every value answers to a role rather than to its own component. Type uses seven
-sizes, and each one means something: 11px for uppercase micro-labels and
-counters, 12px for meta lines, 13px for body and control labels, 14px for object
-titles, 17px and up for headings. Spacing — padding as well as `gap` — sits on a
-4px grid, blocks are separated by one `--stack`, uppercase tracking comes from
-one `--track-caps`, and motion has two durations rather than eleven.
+**Colour goes to marks, not prose.** Status lives in a 6px dot, a 3px stripe or
+a tonal badge; sentences are ink. The one red sentence is an error message.
+`--warn` is reserved for states that wait on a person (needs input, approval,
+blocked, offline). The feed used to colour nine kinds of message; now only the
+glyph is coloured.
 
-Depth is measured, not decorative. The three surface steps stay at least 1.16:1
-apart, because the eye reads anything below about 1.2:1 as a single plane. In
-light theme elevation is a real two-layer shadow; in dark theme it is the top
-edge catching light, which is the honest tool there — black on black produces no
-signal.
+**Four surface steps, each with one meaning.** Chrome (rail and top bar) recedes
+from the paper by at least ΔL* 4.5; paper is the content, panels, tables and
+inputs; the well (`--surface-2`) is for table heads, secondary buttons and code;
+the raised surface is only for what actually floats — modal, drawer, toast,
+sign-in card — and elevation is told by shadow, never by a border. A box either
+carries a fill or a hairline, not both. Hairlines come in two tones: section
+rules are `--border-strong`, row separators are `--border`.
 
-None of this is by eye. **All 1458 rendered text elements pass WCAG AA**, and
-the scale is locked in `tests/test_web.py`: `TestPalette` checks contrast and
-brand hue, `TestDesignScale` checks the size/weight/spacing scale and the
-heading hierarchy, and `tests/test_theme.py` checks the control tokens — that a
-filled button separates from its panel, that a border meets the 3:1 component
-threshold on whichever surface it actually sits on, and that hover darkens in
-light and lightens in dark.
+**Two control heights** (36px and 28px) replaced ten. **One badge geometry** —
+tonal fill, no border, rectangle — replaced seventeen pill classes; a pill means
+clickable, a rectangle means a label. Status badges carry a dot as well as a
+colour. Nominal values (category, area, kind) are cell text, not badges.
 
-Two shapes carry meaning and are never mixed: a pill is something you can click,
-a rounded rectangle is a status label. Focus is a detached ring, selection is a
-fill — both use the accent colour, so the difference has to be shape.
+**Type**: six sizes (11/12/15/19/24/30), two weights, three line-height tokens,
+letter-spacing only at 24px and above. Monospace is reserved for what cannot be
+reflowed — code, paths, keys, identifiers and the timestamp column; the event
+feed, counters and numbers are set in the body face with tabular figures. On
+Windows the stack prefers *Segoe UI Variable Text* and *Consolas*; no font is
+downloaded.
 
-Light and dark themes, full keyboard navigation, mobile layout.
+None of this is by eye. The palette is locked in `tests/test_web.py::TestPalette`
+and `tests/test_theme.py`; the layer above it — line-height and control-height
+tokens, neutral chroma, chrome/paper separation, the two dark blocks staying in
+sync, mono reserved for identity, raised surfaces, no shadow on in-flow boxes,
+the chromatic-text budget, one badge geometry — is locked in
+`tests/test_design_system.py`.
+
+Light and dark themes, full keyboard navigation, mobile layout: below 820px the
+rail becomes two rows of five, all ten items visible without scrolling.
 
 ## Interface integrity
 

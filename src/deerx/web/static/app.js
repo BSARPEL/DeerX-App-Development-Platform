@@ -1286,7 +1286,7 @@ function renderDocPage() {
             doc.source && doc.source !== doc.title
               ? `<div class="doc-row-source">${esc(doc.source)}</div>` : ""
           }</td>
-          <td><span class="badge">${esc(tv("kind", doc.kind))}</span></td>
+          <td><span class="cell-meta">${esc(tv("kind", doc.kind))}</span></td>
           <td>${esc(doc.uploaded_by || "—")}</td>
           <td class="num">${doc.n_chunks}</td>
           <td class="doc-row-actions">
@@ -1505,7 +1505,7 @@ function renderProjects(data) {
           <h2>${esc(p.name)}</h2>
           <span class="badge" data-v="${esc(p.role)}">${esc(tv("projectRole", p.role))}</span>
           ${p.id === aktif.id ? `<span class="badge" data-v="ready">${esc(t("projects.active"))}</span>` : ""}
-          ${p.archived ? `<span class="badge">${esc(t("projects.archived"))}</span>` : ""}
+          ${p.archived ? `<span class="cell-meta">${esc(t("projects.archived"))}</span>` : ""}
         </div>
         <div class="project-actions">
           ${p.id !== aktif.id && !p.archived ? `
@@ -2679,7 +2679,7 @@ async function loadWorkflowList() {
    durumu degil: kayitta "calisiyor" yazar ama gercekte sizi bekler.
    "Calisiyor" demek orada yanlis bilgi verirdi. */
 function stateBadge(stateName) {
-  return `<span class="badge" data-v="${esc(stateName)}">${esc(tv("wfState", stateName))}</span>`;
+  return `<span class="row-state" data-v="${esc(stateName)}">${esc(tv("wfState", stateName))}</span>`;
 }
 
 // ── 2. seviye: is akisinin adimlari ──────────────────────────────────────
@@ -2949,7 +2949,7 @@ function renderRunDetail(data) {
             ${warns ? `<span class="wf-warn">${esc(t("runs.warnings", { n: warns }))}</span>` : ""}
             ${step.cost ? `<span>${fmtMoney(step.cost)}</span>` : ""}
             ${step.elapsed != null ? `<span>${fmtDuration(step.elapsed)}</span>` : ""}
-            <span class="badge" data-v="${esc(step.status)}">${
+            <span class="row-state" data-v="${esc(step.status)}">${
               esc(tv("status", step.status))}</span>
             <span class="wf-caret">${open ? "▾" : "▸"}</span>
           </span>
@@ -3233,7 +3233,7 @@ const ANALYSIS_VIEWS = {
       <td class="key">${esc(item.key)}</td>
       <td>${esc(item.title)}</td>
       <td><span class="badge" data-v="${esc(item.priority)}">${esc(tv("priority", item.priority))}</span></td>
-      <td><span class="badge">${esc(tv("category", item.category))}</span></td>`,
+      <td><span class="cell-meta">${esc(tv("category", item.category))}</span></td>`,
     detail: (item) => [
       [t("analysis.description"), item.description],
       [t("analysis.evidence"), item.source_ref],
@@ -3248,7 +3248,7 @@ const ANALYSIS_VIEWS = {
     row: (item) => `
       <td class="key">${esc(item.key)}</td>
       <td>${esc(item.question)}</td>
-      <td><span class="badge" data-v="${item.status === "answered" ? "done" : item.status === "skipped" ? "medium" : "high"}">${esc(tv("status", item.status))}</span></td>
+      <td><span class="badge" data-v="${item.status === "answered" ? "done" : item.status === "skipped" ? "cancelled" : "needs_input"}">${esc(tv("status", item.status))}</span></td>
       <td>${item.blocking ? `<span class="badge" data-v="critical">${esc(t("status.blocked"))}</span>` : "—"}</td>`,
     detail: (item) => [
       [t("questions.why"), item.why],
@@ -3287,7 +3287,7 @@ const ANALYSIS_VIEWS = {
       <td class="key">${esc(item.key)}</td>
       <td>${esc(item.title)}</td>
       <td><span class="badge" data-v="${esc(item.severity)}">${esc(tv("severity", item.severity))}</span></td>
-      <td><span class="badge">${esc(item.area)}</span></td>`,
+      <td><span class="cell-meta">${esc(item.area)}</span></td>`,
     detail: (item) => [
       [t("analysis.description"), item.description],
       [t("analysis.recommendation"), item.recommendation],
@@ -3316,8 +3316,7 @@ const ANALYSIS_VIEWS = {
     row: (item) => `
       <td>${esc(item.topic)}</td>
       <td>${esc(item.finding)}</td>
-      <td><span class="badge" data-v="${item.confidence === "high" ? "done" : item.confidence === "low" ? "high" : "medium"}">${
-        esc(tv("confidence", item.confidence))}</span></td>`,
+      <td><span class="cell-meta">${esc(tv("confidence", item.confidence))}</span></td>`,
     detail: (item) => [[t("analysis.source"), item.url || t("analysis.noSource")]],
     label: (item) => item.topic,
     filters: [{ field: "confidence", tv: "confidence" }],

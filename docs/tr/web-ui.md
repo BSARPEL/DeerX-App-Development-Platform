@@ -523,37 +523,48 @@ Günlüğün tavanı son 5000 satır, ve proje veritabanını paylaşıyor.
 
 ## Tasarım
 
-Palet markadan türetilmiştir: logonun laciverti (`#082850`) başlangıç noktası ve
-tüm ölçek o mavi ailesinde kalır. Anlamsal renkler (ok/warn/err/info) aynı
-parlaklık ve doygunluk ailesine çekildi ki yan yana geldiklerinde biri
-diğerinden yüksek sesli durmasın.
+**Nötrler gri.** On üç nötr jetonun hepsi logoyla aynı mavi ailesinde
+duruyordu (LCh hue 265–272; kroma açıkta 4–13, koyuda 6–21) — marka laciverti,
+mavi grilerin arasında bir mavi daha olarak kalıyordu. Kroma artık ≤ 4, parlaklık
+korundu; yani hiçbir kontrast oranı değişmedi — oranlar yalnızca parlaklığa
+bağlıdır. Ton 265'te kaldı: soğuk bir gri, sıcak değil; logoyla çatışmaz.
 
-Her değer, ait olduğu bileşene değil bir **role** cevap verir. Tipografi yedi
-punto kullanır ve her birinin bir işi vardır: 11px büyük harf mikro-etiket ve
-sayaçlar, 12px meta satırları, 13px gövde ve kontrol etiketleri, 14px nesne
-başlıkları, 17px ve üstü sayfa başlıkları. Boşluk — yalnızca `gap` değil,
-`padding` de — dört piksellik ızgaraya oturur; bloklar arası ayraç tek bir
-`--stack`, büyük harf aralığı tek bir `--track-caps`, hareket de on bir değil
-iki süredir.
+**Renk metne değil işarete gider.** Durum 6px'lik bir noktada, 3px'lik bir
+şeritte ya da tonlu rozette yaşar; cümleler mürekkeptir. Tek kırmızı cümle hata
+iletisidir. `--warn` yalnızca bir insanı bekleyen durumlara ayrılmıştır (cevap
+bekliyor, onay, bloke, çevrimdışı). Akış eskiden dokuz olay türünün iletisini
+renklendiriyordu; artık yalnızca glif renklidir.
 
-Derinlik ölçülmüştür, süs değildir. Üç yüzey basamağı birbirinden en az 1.16:1
-ayrışır; çünkü göz, 1.2:1'in altındaki farkı tek bir düzlem olarak okur. Açık
-temada yükselti iki katmanlı gerçek bir gölgedir; koyu temada üst kenarın
-aydınlanmasıdır — orada dürüst araç budur, siyahın üstüne siyah sinyal üretmez.
+**Dört yüzey basamağı, her birinin tek anlamı var.** Tezgah (ray ve üst bar)
+kağıttan en az ΔL* 4,5 geri çekilir; kağıt içeriktir, panel, tablo ve girdi
+onun üzerinde durur; kuyu (`--surface-2`) tablo başlığı, ikincil düğme ve kod
+içindir; yükselen yüzey yalnızca gerçekten yüzen şeye — kip, çekmece, bildirim,
+giriş kartı — ve yükselmeyi gölge anlatır, kenarlık asla. Bir kutu ya dolgu
+taşır ya ince çizgi; ikisini birden değil. İnce çizgi iki tonludur: bölüm
+cetveli `--border-strong`, satır ayırıcı `--border`.
 
-Bunların hiçbiri göz kararı değil. **1458 render edilmiş metin öğesinin tamamı
-WCAG AA'yı geçiyor** ve ölçek `tests/test_web.py` içinde kilitli: `TestPalette`
-kontrastı ve marka tonunu, `TestDesignScale` punto/ağırlık/boşluk ölçeğini ve
-başlık hiyerarşisini doğruluyor. `tests/test_theme.py` de kontrol jetonlarını
-ölçüyor: dolu bir düğmenin panelinden ayrıştığını, bir kenarlığın gerçekte
-üzerinde durduğu yüzeye karşı 3:1 eşiğini tuttuğunu ve hover'ın açık temada
-koyulaşıp koyu temada açıldığını.
+**İki kontrol yüksekliği** (36px ve 28px) onun yerini aldı. **Tek rozet
+geometrisi** — tonlu dolgu, kenarlık yok, dikdörtgen — on yedi hap sınıfının
+yerini aldı; hap tıklanabilir demektir, dikdörtgen etiket. Durum rozeti renkle
+birlikte bir nokta da taşır. Nominal değerler (kategori, alan, tür) rozet değil
+hücre metnidir.
 
-İki şekil anlam taşır ve asla karışmaz: hap tıklanabilir olanı, yuvarlatılmış
-dikdörtgen durum etiketini gösterir. Odak ayrık bir halka, seçim ise dolgudur —
-ikisi de vurgu rengini kullandığı için farkı şekil taşımak zorunda.
+**Tipografi**: altı punto (11/12/15/19/24/30), iki ağırlık, üç satır yüksekliği
+jetonu, harf aralığı yalnızca 24px ve üstünde. Mono, yeniden akıtılamayan şeye
+ayrılmıştır — kod, yol, anahtar, kimlik ve zaman sütunu; olay akışı, sayaçlar ve
+sayılar gövde yazı tipiyle ve tablo rakamlarıyla dizilir. Windows'ta yığın
+*Segoe UI Variable Text* ve *Consolas*'ı tercih eder; hiçbir yazı tipi
+indirilmez.
 
-Açık ve koyu tema, klavyeyle tam gezinilebilirlik, mobil düzen.
+Bunların hiçbiri göz kararı değil. Palet `tests/test_web.py::TestPalette` ve
+`tests/test_theme.py` içinde kilitli; onun üstündeki katman — satır yüksekliği
+ve kontrol yüksekliği jetonları, nötr kroma, tezgah/kağıt ayrımı, iki koyu
+bloğun senkronu, kimliğe ayrılmış mono, yükselen yüzeyler, akış içi kutularda
+gölge olmaması, kromatik metin bütçesi, tek rozet geometrisi —
+`tests/test_design_system.py` içinde kilitli.
+
+Açık ve koyu tema, tam klavye gezintisi, mobil yerleşim: 820px altında ray iki
+satır beş sütuna iner, on madde de kaydırmadan görünür.
 
 ## Arayüz bütünlüğü
 
