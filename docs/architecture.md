@@ -194,6 +194,7 @@ The project memory in `.deerx/deerx.db`:
 | `tasks` | `T-nnn`, lane, dependencies, files, acceptance criterion, plan |
 | `plans` | Named task groups, one active |
 | `artifacts` | Name, kind, path, summary, producing phase and run |
+| `artifact_blobs` | The bytes themselves, with size, sha256 and media type; written and read 4 MB at a time so a 250 MB package never sits in memory |
 | `phases` · `runs` · `run_steps` | Phase state, run history, per-step detail |
 
 Schema changes migrate on open. A database predating the `lane` and `plan_id`

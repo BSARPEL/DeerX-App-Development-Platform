@@ -79,13 +79,13 @@ be skipped: in every run you will open the application and use it.
    means "it is genuinely ready".
 
    ```
-   start_service(command="npm run dev", port=3000, name="web")
+   start_service(command="npm run dev", port=<a port from the range in the environment line>, name="web")
    ```
 
    If the service dies immediately, the end of its log comes back as the error
    -- the reason is there.
 
-2. **Open and navigate.** Open it with `preview_open(port=3000)`, read what is
+2. **Open and navigate.** Open it with `preview_open(port=<the same port>)`, read what is
    shown with `browser_snapshot`, use it with `browser_click` and
    `browser_type`.
 

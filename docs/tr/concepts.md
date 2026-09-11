@@ -50,8 +50,8 @@ projem/
 └── .deerx/             DeerX yönetir; silmek güvenli, kaybetmek pahalı
     ├── deerx.db        gereksinimler, boşluklar, kararlar, görevler, sorular
     ├── events.jsonl    her araç çağrısı ve model adımı
-    ├── artifacts/      raporlar, mockup'lar, ekran görüntüleri
-    ├── teslimat/       teslimat zip dosyaları
+    ├── artifacts/      raporlar, mockup'lar, ekran görüntüleri (kopya; aşağıya bakın)
+    ├── teslimat/       teslimat zip dosyaları (kopya)
     └── browser/        ajanın kendi Chrome profili, sizinki değil
 ```
 
@@ -75,7 +75,7 @@ Dört şey kalıcıdır ve birbirinin yerine geçmez.
 | **Bilgi tabanı** | `.deerx/` içinde SQLite + vektörler | Modelin *arayabileceği* şey: şartname, kod, çekilmiş sayfalar, cevaplarınız |
 | **Proje hafızası** | `.deerx/deerx.db` | Boru hattının *kaydettiği* şey: `REQ-001`, `GAP-003`, `Q-002`, `T-014` |
 | **Olay akışı** | `.deerx/events.jsonl` | Ne oldu, sırasıyla; yeniden başlatmadan sonra da durur |
-| **Çıktılar** | `.deerx/artifacts/` | Bir fazın *ürettiği* şey: `analiz-raporu.md`, `mockup-*.html`, ekran görüntüleri |
+| **Çıktılar** | `deerx.db` (`artifact_blobs`), `.deerx/artifacts/` içinde kopyası | Bir fazın *ürettiği* şey: `analiz-raporu.md`, `mockup-*.html`, ekran görüntüleri |
 
 Bloke eden bir sorunun cevabı proje hafızasına **ve** bilgi tabanına yazılır.
 İlki kapıyı kapatır; ikincisi, konuşma geçmişi kırpıldıktan sonra sonraki
@@ -86,6 +86,15 @@ eskiden kaybolmasının yoluydu.
 `mimari.md`, `gelistirme-plani.md`). Orkestratör bir fazın teslimatını dosya
 adına bakarak eşler; adları çevirmek, fazın gerçekten bir şey üretip
 üretmediğini denetleyen kontrolü kırardı.
+
+**Çıktıların baytları veritabanında durur**; `.deerx/artifacts/` ve
+`.deerx/teslimat/` sıradan araçlarla okunabilen birer ayna olarak kalır. Bu
+klasörleri silmek arayüzün ihtiyaç duyduğu hiçbir şeyi kaybettirmez: ekranlar
+her şeyi listelemeye ve indirmeye devam eder. Kayıp *öteki* yönde olur — yalnızca
+`deerx.db` dosyasını kopyalayan bir yedek, en yeni çıktıları `deerx.db-wal`
+içinde bırakabilir. Önce `deerx artifacts --checkpoint` koşarsanız tek dosya
+eksiksiz olur; `deerx artifacts --backfill` ise ters yöne çalışır ve yalnızca
+diskte kalmış olanları içeri alır.
 
 ## İş akışları, koşular, planlar ve görevler
 
@@ -192,10 +201,16 @@ Varsayılan olarak ajanın `run_command` ve `start_service` çağrıları **bu
 makinede** koşar ve bir kabuk izin listesiyle çevrilidir. Dosya araçları
 yalnızca çalışma alanını görür; başlattıkları süreçler hapsedilmez.
 
-`execution = "docker"` bu komutları tek kullanımlık bir konteynere taşır.
-Çalışma alanı yine bağlanır, yani bu konağı korur, projeyi değil. İzin
-listesi o zaman uygulanmaz: korunacak konak kalmamıştır ve konteyner koşu
-bitince silinir.
+`execution = "docker"` bu komutları bir konteynere taşır. Çalışma alanı yine
+bağlanır, yani bu konağı korur, projeyi değil. İzin listesi o zaman uygulanmaz:
+korunacak konak kalmamıştır. Konteyner koşu bitince **durdurulur**, silinmez —
+kurulum komutu yalnızca konteyner ilk kurulduğunda koşuyor ve her seferinde
+silmek her açılışta bir `apt-get install` demek olurdu. *Ortamı yeniden kur*
+siler.
+
+Kabin koşu başlamadan ölçülür, koşu sırasında keşfedilmez. Kurulamıyorsa —
+Docker yanıt vermiyor, çalışma alanı bağlanmıyor — koşu model çağrılmadan durur
+ve Ortam ekranı sebebi adlandırır.
 
 Web'deki **Ayarlar → Yalıtım** paneli aynı anahtarları oturum için yazar
 ve konteyneri yeniden kurar. Kalıcı olmaları için `deerx.toml`'a yazın.

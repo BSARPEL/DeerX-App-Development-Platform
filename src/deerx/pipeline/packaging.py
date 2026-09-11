@@ -594,6 +594,53 @@ def list_entries(
         return []
 
 
+def package_with_run(
+    state: ProjectState,
+    workspace: Path,
+    output_dir: Path,
+    *,
+    goal: str = "",
+    force: bool = False,
+) -> tuple[PackageResult, str, int]:
+    """Elle paketleme: tek adimli bir kosu kaydi acar, paketler, kapatir.
+
+    Kosu kaydi olmadan uretilen paket HICBIR kosuya ait olmaz: Ciktilar
+    ekraninda "kosu kaydindan once uretilenler" grubuna duser ve Kosular
+    goruntusunden erisilemez. Web bunu zaten yapiyordu, CLI ve MCP
+    yapmiyordu -- ayni belgenin ("elle paketleme tek adimli bir kosu
+    kaydi olusturur") uc giriste de dogru olmasi icin kayit TEK YERDE.
+
+    `(sonuc, run_id, seq)` doner. Paketleme duserse kosu FAILED olarak
+    kapatilir ve istisna yeniden firlatilir: yarim kalan bir kosu kaydi,
+    hic olmayan bir kayittan daha kotudur -- ekranda sonsuza kadar
+    "calisiyor" gorunur.
+    """
+    import uuid
+
+    run_id = uuid.uuid4().hex[:12]
+    seq = state.start_run(
+        run_id,
+        goal=goal or state.get_meta("goal", "") or t("pipeline.manual_package"),
+        phases=[str(Phase.PACKAGE)],
+    )
+    state.start_run_step(run_id, Phase.PACKAGE, 0)
+    try:
+        result = build_package(
+            state, workspace, output_dir, goal=goal, force=force, run_id=run_id
+        )
+    except Exception as exc:
+        state.finish_run_step(
+            run_id, Phase.PACKAGE, status=Status.FAILED, error=str(exc)
+        )
+        state.finish_run(run_id, status=Status.FAILED, error=str(exc))
+        raise
+
+    ozet = f"{result.file_count} dosya · {result.total_bytes / 1e6:.1f} MB"
+    state.finish_run_step(run_id, Phase.PACKAGE, status=Status.DONE, summary=ozet)
+    state.finish_run(run_id, status=Status.DONE)
+    return result, run_id, seq
+
+
 def _safe_name(name: str) -> str:
     cleaned = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in name)
     return cleaned.strip("-") or "proje"

@@ -303,6 +303,16 @@ without `--force` (or this checkbox) leaves old vectors next to a new
 dimension, and DeerX refuses to search rather than return silently wrong
 hits.
 
+### Adding a document without the file dialog
+
+The drop zone opens the operating system's file dialog, and that dialog is not
+ours: a network drive, a cloud shell extension, or the window opening behind the
+browser can lock it, and then there is no other way in from the interface.
+**Index the docs/ folder** is the second door — it indexes what is already in
+`<workspace>/docs/` without writing anything. Most uploads went to that folder
+anyway, so the dialog was often copying a file back to where it already was.
+Unchanged files are skipped, so pressing it twice costs nothing.
+
 ## Artifacts
 
 ![Artifacts: a generated mockup rendered live inside a sandboxed frame](images/artifacts-en.png)
@@ -334,13 +344,56 @@ Delivery packages appear under their own runs, not duplicated at the top.
 Manual packaging creates a single-step run record — otherwise the package it
 produced would belong to no run at all.
 
-Artifacts from before run records existed are hidden by default, but they are
-**counted and reachable**: a button in the header says how many there are and
-reveals them under *Produced before run tracking*. The badge used to say 11 while
-the screen showed 1, with no control anywhere to close the gap.
+Artifacts from before run records existed are listed too, in their own group
+under *Produced before run tracking*. They used to be hidden behind a button;
+the badge said 11 while the screen showed 1, and a number that reads differently
+in two places is wrong even when there is a control to reconcile it.
+
+**Everything is downloadable, from anywhere.** Each row carries a download
+link, each run header downloads that run's artifacts as one zip, and
+**Download all** in the page header bundles the project. Reports and mockups
+used to be readable but not obtainable — the only way to get a markdown report
+was to copy it out of the *Source* tab.
+
+The bytes come from the database, not the folder. An artifact whose file was
+deleted from `.deerx/artifacts/` still downloads; one that exists only on disk
+(an older record) says *on disk only*; one that is in neither says *file
+missing* and offers no link — a button that leads nowhere is worse than no
+button.
+
+**All my projects** switches the same screen to a cross-project tree: project →
+run → artifact, with a download on every stored row. Clicking a name switches
+to that project and opens the artifact there; the context change is shown, not
+hidden — the project name in the left rail changes with it. An artifact with no stored copy says *not in the database* and offers no link:
+the cross-project endpoint never touches another project's disk, so it cannot
+promise that opening the project would help.
 
 The same view carries the **delivery panel**: readiness status, a package
 button, zip downloads and a **Report** button per package.
+
+## Environment
+
+Per project: which container the commands run in, which ports are published,
+and which services the agent has started.
+
+**The badge separates three things that used to look alike.** Running, not yet
+built, and *cannot* be built were all the same amber "not installed" — and the
+third one is a fault, not a state. Host mode is now its own word (nominal, grey)
+because there is no sandbox to be missing.
+
+When the sandbox cannot be built the screen says **what happened and what to
+do**: Docker Desktop cannot bind the workspace → quit it completely, start it
+again, then *Check health*. The cause used to surface only on the run's first
+tool call, as a line of raw Docker stderr in the middle of the event feed.
+
+*Check health* runs a **deep** probe: it actually starts a container, mounts the
+workspace and looks for `python`, `node`, `npm` and `git`. Opening the screen
+only runs the cheap probe (does Docker answer, is the image present, what is the
+container's state) — a deep probe on every visit would hang for a minute on
+exactly the fault it exists to diagnose.
+
+The port range is shown in both modes but labelled honestly: outside a
+container nothing enforces it.
 
 ## Settings
 

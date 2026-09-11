@@ -402,6 +402,176 @@ class TestOrchestrator:
             assert report.phases[0].status == Status.SKIPPED
 
 
+class _CagrilmamasiGerekenIstemci:
+    """Cagrilirsa testi dusuren sahte LLM istemcisi.
+
+    "Model cagrilmadi" iddiasini olcmenin tek durust yolu bu: sayac
+    tutmak, cagrinin gerceklesip sonucunun yok sayilmasina izin verirdi.
+    """
+
+    def __init__(self) -> None:
+        self.cagrilar = 0
+
+    def complete(self, **_kw: object) -> object:  # pragma: no cover - kosmamali
+        self.cagrilar += 1
+        raise AssertionError("kabin kurulamazken model cagrildi")
+
+
+class TestKabinKosuBaslangicinda:
+    """Kabin kosu BASLAMADAN kurulur; kurulamazsa model hic cagrilmaz.
+
+    OLCULDU (bu makine, Docker Desktop + WSL2): kabin ilk `run_command`
+    cagrisinda kuruluyordu. Bind mount kopukken kosu basliyor, model
+    cagriliyor, ilk komut "kabin kurulamiyor" ile duser ve model hatayi
+    KENDI komutunda ariyor -- izin listesini, yolu, tirnaklari duzeltmeyi
+    deneyerek tur butcesini bitiriyordu. Para harcanmis, tek satir is
+    uretilmemis, sebep olay akisinin ortasinda kaybolmus oluyordu.
+    """
+
+    def _docker_ayari(self, settings, monkeypatch):
+        """Yalitilmis kip; gercek docker'a HICBIR yoldan gidilmesin.
+
+        `close`/`destroy` de sahte: ikisi de `docker` calistirir ve bu
+        testler makinede gercekten konteyner aramamali.
+        """
+        from deerx.sandbox import Sandbox
+
+        monkeypatch.setattr(Sandbox, "close", lambda _self: None)
+        monkeypatch.setattr(Sandbox, "destroy", lambda _self: None)
+        settings.execution = "docker"
+        return settings
+
+    def test_a_broken_sandbox_fails_the_run_before_the_model(
+        self, settings, workspace, monkeypatch
+    ):
+        """Kabin kurulamiyorsa kosu TEK bir olayla ve baslamadan duser."""
+        from deerx.i18n import t
+        from deerx.logging import EventLog
+        from deerx.pipeline import Orchestrator
+        from deerx.sandbox import Sandbox, SandboxUnavailable
+
+        def patlat(_self):
+            raise SandboxUnavailable(
+                t("sandbox.bind_mount_broken", workspace=workspace,
+                  error="mkdir /run/desktop/mnt/host/c: file exists"),
+                key="bind_mount_broken",
+            )
+
+        monkeypatch.setattr(Sandbox, "ensure", patlat)
+        self._docker_ayari(settings, monkeypatch)
+
+        olaylar = []
+        with Orchestrator(settings, events=EventLog(None, echo=False), stream=False) as orch:
+            orch.events.subscribe(olaylar.append)
+            istemci = _CagrilmamasiGerekenIstemci()
+            orch._client = istemci  # noqa: SLF001 - testin kurdugu durum
+            report = orch.run([Phase.ANALYZE], goal="Kabin kapisi")
+            kosular = orch.state.list_runs()
+            assert istemci.cagrilar == 0
+
+        assert not report.ok
+        assert [(p.phase, p.status) for p in report.phases] == [
+            (Phase.ANALYZE, Status.FAILED)
+        ]
+
+        kabin_olaylari = [e for e in olaylar if e.actor == "sandbox"]
+        assert len(kabin_olaylari) == 1, (
+            "kabin durusu bir kez soylenmeli, her arac cagrisinda degil: "
+            f"{[e.message for e in kabin_olaylari]}"
+        )
+        assert kabin_olaylari[0].kind == "error"
+        assert "Docker Desktop" in kabin_olaylari[0].message
+
+        assert kosular[0]["status"] == Status.FAILED
+        assert "Docker Desktop" in (kosular[0]["error"] or ""), (
+            "kosu kaydinda sebep yoksa kullanici olay akisini taramak zorunda kalir"
+        )
+
+    def _node_yok_kabini(self, monkeypatch, *, deep_bekleniyor: bool = True):
+        """`ensure` sorunsuz, yoklama node'u YOK olcer."""
+        from deerx.sandbox import Sandbox, SandboxHealth
+
+        def sahte_yokla(_self, deep):
+            assert deep is deep_bekleniyor
+            return SandboxHealth(
+                docker_cli=True, daemon="29.7.2", container_status="running",
+                image_present=True, mount_ok=True,
+                tools={"python": True, "node": False, "npm": False, "git": True},
+                deep=deep,
+            )
+
+        monkeypatch.setattr(Sandbox, "ensure", lambda _self: None)
+        monkeypatch.setattr(Sandbox, "_yokla", sahte_yokla)
+
+    def test_node_missing_is_warned_once_when_a_package_json_exists(
+        self, settings, workspace, monkeypatch
+    ):
+        """Varsayilan imaj `python:3.13`; icinde node yok.
+
+        package.json tasiyan bir projede ajan bunu ilk `npm install`
+        dustugunde ogreniyordu -- bir tur ve modelin guveni. Uyari kosu
+        basinda, bir kez.
+        """
+        import deerx.sandbox as kabin_modulu
+        from deerx.logging import EventLog
+        from deerx.pipeline import Orchestrator
+
+        monkeypatch.setattr(kabin_modulu, "_PROBE_ONBELLEK", {})
+        self._node_yok_kabini(monkeypatch)
+        self._docker_ayari(settings, monkeypatch)
+        (workspace / "package.json").write_text("{}", encoding="utf-8")
+
+        olaylar = []
+        with Orchestrator(settings, events=EventLog(None, echo=False), stream=False) as orch:
+            orch.events.subscribe(olaylar.append)
+            orch.run([Phase.INGEST], sources=[workspace / "docs"])
+
+        uyarilar = [e for e in olaylar if e.actor == "sandbox"]
+        assert len(uyarilar) == 1, [e.message for e in uyarilar]
+        assert uyarilar[0].kind == "warn"
+        assert "node" in uyarilar[0].message
+
+    def test_a_project_without_a_package_json_hears_nothing(
+        self, settings, workspace, monkeypatch
+    ):
+        """node'a ihtiyaci olmayan projeye node'dan hic soz edilmez.
+
+        Ayni sebeple yoklama da SIG kalir: `deep` olcumu calisan
+        konteynere bir `docker exec` demek ve bedelini yalnizca node
+        gerektiren projeler odemeli.
+        """
+        import deerx.sandbox as kabin_modulu
+        from deerx.logging import EventLog
+        from deerx.pipeline import Orchestrator
+
+        monkeypatch.setattr(kabin_modulu, "_PROBE_ONBELLEK", {})
+        self._node_yok_kabini(monkeypatch, deep_bekleniyor=False)
+        self._docker_ayari(settings, monkeypatch)
+
+        olaylar = []
+        with Orchestrator(settings, events=EventLog(None, echo=False), stream=False) as orch:
+            orch.events.subscribe(olaylar.append)
+            orch.run([Phase.INGEST], sources=[workspace / "docs"])
+
+        assert [e.message for e in olaylar if e.actor == "sandbox"] == []
+
+    def test_the_host_mode_never_touches_the_sandbox(self, settings, workspace, monkeypatch):
+        """Konak kipinde kabin YOKTUR; hazirlik adimi hicbir sey yapmaz."""
+        from deerx.logging import EventLog
+        from deerx.pipeline import Orchestrator
+        from deerx.sandbox import Sandbox
+
+        def olmamali(_self):  # pragma: no cover - kosmamali
+            raise AssertionError("konak kipinde kabin kuruldu")
+
+        monkeypatch.setattr(Sandbox, "ensure", olmamali)
+        settings.execution = "host"
+
+        with Orchestrator(settings, events=EventLog(None, echo=False), stream=False) as orch:
+            report = orch.run([Phase.INGEST], sources=[workspace / "docs"])
+        assert report.ok
+
+
 class TestQuestionGate:
     """Faz kapisi: cevaplanmamis bloke edici soru boru hattini durdurur."""
 

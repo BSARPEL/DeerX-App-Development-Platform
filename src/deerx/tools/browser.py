@@ -668,9 +668,17 @@ class PreviewOpen(Tool):
         try:
             page = session.goto(origin + path)
         except ToolError as exc:
-            raise ToolError(
-                t("browser.preview_failed", origin=origin, error=exc)
-            ) from exc
+            # Yalitilmis kipte bu hatanin en sik iki sebebi ajanin
+            # bilmedigi seyler: servis 127.0.0.1'e baglanmis (yayinlanan
+            # port bos kalir) ya da port yayinlanan araligin disinda.
+            # Genel metin "uygulaman gercekten calisiyor mu" diye sorar ve
+            # ajani kendi kodunda hata aramaya gonderir.
+            anahtar = (
+                "browser.preview_failed_docker"
+                if ctx.settings.execution == "docker"
+                else "browser.preview_failed"
+            )
+            raise ToolError(t(anahtar, origin=origin, error=exc)) from exc
 
         title, text = _readable(page)
         return ToolResult(

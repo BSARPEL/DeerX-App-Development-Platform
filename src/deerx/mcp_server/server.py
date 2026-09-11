@@ -290,10 +290,16 @@ def deerx_package(force: bool = False) -> str:
         force: Hazirlik denetimi engel bulsa da paketle.
     """
     orch = _get()
-    from ..pipeline.packaging import PackagingError, PackagingNotReady, build_package
+    from ..pipeline.packaging import (
+        PackagingError,
+        PackagingNotReady,
+        package_with_run,
+    )
 
     try:
-        result = build_package(
+        # Kosu kaydiyla: MCP uzerinden uretilen paket de bir kosunun
+        # urunu olsun. Web, CLI ve MCP ayni yardimciyi cagirir.
+        result, _run_id, _seq = package_with_run(
             orch.state,
             orch.settings.workspace,
             orch.settings.deliveries_dir,
@@ -336,8 +342,11 @@ def deerx_artifact(name: str = "") -> str:
     if match is None:
         available = ", ".join(a.name for a in artifacts) or "(yok)"
         return f"HATA: '{name}' bulunamadi. Mevcut: {available}"
+    # Kaynak once veritabani, sonra disk. Diskten silinmis ama kopyasi
+    # saklanmis bir rapor da okunur; ikisi de yoksa cevap durust.
     path = Path(match.path)
-    if not path.is_file():
+    boyut = orch.state.artifact_size(match)
+    if boyut is None:
         return f"HATA: dosya diskte yok: {path}"
 
     if path.suffix.lower() == ".zip":
@@ -345,14 +354,18 @@ def deerx_artifact(name: str = "") -> str:
         # Yerine paketin kapak raporu ve icerik ozeti donulur.
         from ..pipeline.packaging import list_entries, read_manifest
 
-        entries = list_entries(path)
-        report = read_manifest(path)
+        fp = orch.state.open_artifact(match)
+        if fp is None:
+            return f"HATA: dosya diskte yok: {path}"
+        with fp:
+            entries = list_entries(fp)
+            fp.seek(0)
+            report = read_manifest(fp)
         header = "\n".join(
             [
                 f"# {path.name}",
                 "",
-                f"Teslimat paketi · {len(entries)} dosya · "
-                f"{path.stat().st_size / 1e6:.2f} MB",
+                f"Teslimat paketi · {len(entries)} dosya · {boyut / 1e6:.2f} MB",
                 f"Yol: {path}",
                 "",
                 "",
@@ -360,9 +373,12 @@ def deerx_artifact(name: str = "") -> str:
         )
         return header + (report or "_(pakette teslimat raporu yok)_")
 
+    veri = orch.state.artifact_bytes(match)
+    if veri is None:
+        return f"HATA: dosya diskte yok: {path}"
     try:
-        return path.read_text(encoding="utf-8")
-    except (UnicodeDecodeError, OSError) as exc:
+        return veri.decode("utf-8")
+    except UnicodeDecodeError as exc:
         return (
             f"HATA: '{name}' metin olarak okunamadi ({exc}). "
             f"Ikili bir cikti olabilir; yol: {path}"

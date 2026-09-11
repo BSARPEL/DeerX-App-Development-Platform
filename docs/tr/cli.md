@@ -175,12 +175,26 @@ tamam olan görevleri gösterir.
 ### `deerx artifacts [ad]`
 
 Üretilen çıktıları listeler ya da birini gösterir. Markdown biçimlendirilir.
+Baytlar önce veritabanından, sonra klasörden gelir; dosyası silinmiş bir çıktı
+da okunur.
+
+İkili bir çıktı — zip, görsel, PDF — **özetlenir, dökülmez**: ad, boyut, sha256
+ve nasıl alınacağı. Bir arşivi metin sanıp basmak eskiden `UnicodeDecodeError`
+geri izlemesiyle bitiyordu.
+
+| Bayrak | |
+|---|---|
+| `--export <yol>` | Çıktıyı bir dosyaya yaz |
+| `--verify` | Saklanan kopyanın sha256'sını yeniden hesapla |
+| `--backfill` | Yalnızca diskte kalmış çıktıları veritabanına al |
+| `--checkpoint` | `deerx.db` yedeklenmeden önce write-ahead log'u boşalt |
 
 ## Teslimat
 
 ### `deerx package`
 
-Hazırlık kapısını yoklar ve teslimat zip'ini üretir. Bkz.
+Hazırlık kapısını yoklar ve teslimat zip'ini üretir; kayıt tek adımlı bir koşu
+olarak tutulur — web ve MCP yollarıyla aynı. Bkz.
 [Teslimat paketleri](delivery.md).
 
 | Bayrak | |

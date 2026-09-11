@@ -129,6 +129,15 @@ class StartService(Tool):
                 t("service.address", url=f"http://127.0.0.1:{service.port}")
             )
             satirlar.append(t("service.open_hint", port=service.port))
+            if ctx.settings.execution == "docker":
+                # Kural yalnizca yalitilmis kipte gecerli ve ajanin
+                # BILMEDIGI tek kural bu: yayinlanan port konteynerin
+                # adresine yonlendirilir, geri donguye degil. Bir sonraki
+                # baslatmada dogru yapsin diye basarili sonuca da yazilir
+                # -- yalnizca hata metninde soylemek, hatayi almayan ama
+                # yanlis baglayan bir servisi (ornegin portsuz baslatilip
+                # sonradan dinleyen) sessiz birakirdi.
+                satirlar.append(t("sandbox.bind_all_interfaces"))
         cikti = service.tail(15)
         if cikti.strip():
             satirlar.append(t("service.first_lines", log=cikti))

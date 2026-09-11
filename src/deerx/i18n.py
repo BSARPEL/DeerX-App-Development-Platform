@@ -218,6 +218,16 @@ CATALOG: dict[str, dict[str, str]] = {
               "(PID {pid}) is still running.\n{log}\nThe service is up; watch it with "
               "`service_log` or stop it with `stop_service`.",
     },
+    "service.loopback_only": {
+        "tr": "{name} servisi {port} portunda yalnizca 127.0.0.1'i dinliyor; "
+              "yayinlanan port bos kalir. 0.0.0.0'a baglayin "
+              "(--host 0.0.0.0 / --bind 0.0.0.0 / HOST=0.0.0.0). "
+              "Servis durduruldu.",
+        "en": "Service {name} listens only on 127.0.0.1 at port {port}; the "
+              "published port stays empty. Bind 0.0.0.0 "
+              "(--host 0.0.0.0 / --bind 0.0.0.0 / HOST=0.0.0.0). "
+              "The service was stopped.",
+    },
     "service.none": {
         "tr": "Calisan servis yok. Once `start_service` ile baslatin.",
         "en": "No service is running. Start one with `start_service` first.",
@@ -327,6 +337,31 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "Directory: {cwd}{port}\n(runs until the run ends)",
     },
     "shell.no_output": {"tr": "(cikti yok)", "en": "(no output)"},
+    "shell.timeout_capped": {
+        "tr": "[zaman asimi {limit} s ile sinirlandi]",
+        "en": "[timeout capped at {limit}s]",
+    },
+    # Ajanin sistem yonergesindeki "ortam" satiri. Metin KATALOGDAN gelir
+    # cunku yonerge ajanin diliyle yaziliyor; kodda sabit bir cumle
+    # Ingilizce bir kosuda Turkce kalirdi.
+    "prompt.env_host": {
+        "tr": "bu makinede ({os}). Izin listesi disindaki komutlar "
+              "reddedilir: {prefixes}. Tek komut en fazla {timeout} s "
+              "surebilir. Servis icin bos bir port secebilirsiniz.",
+        "en": "on this machine ({os}). Commands outside the allow list are "
+              "refused: {prefixes}. One command runs for at most {timeout}s. "
+              "A service may use any free port.",
+    },
+    "prompt.env_docker": {
+        "tr": "`{image}` (Linux) konteynerinde; calisma alani /workspace. "
+              "Servisleri YALNIZCA {first}-{last} araligindan bir porta ve "
+              "0.0.0.0 adresine baglayin -- 127.0.0.1'e baglanan bir servise "
+              "konaktan erisilemez. Konteynerde docker CLI yok.",
+        "en": "inside the `{image}` (Linux) container; the workspace is "
+              "/workspace. Bind services ONLY to a port in {first}-{last} and "
+              "to 0.0.0.0 -- a service bound to 127.0.0.1 is unreachable from "
+              "the host. There is no docker CLI inside the container.",
+    },
     "sandbox.no_docker": {
         "tr": "Yalitilmis calistirma acik ama `docker` bulunamadi. Docker "
               "Desktop'i kurun ya da [deerx] execution = \"host\" yapin.",
@@ -403,6 +438,16 @@ CATALOG: dict[str, dict[str, str]] = {
               "127.0.0.1'e degil: yayinlanan port aksi halde bos kalir.",
         "en": "Inside the isolated environment a service must bind 0.0.0.0, "
               "not 127.0.0.1: otherwise the published port stays empty.",
+    },
+    "sandbox.container_gone": {
+        "tr": "Konteyner {name} yok ya da calismiyor; port yoklanamadi.",
+        "en": "Container {name} is gone or not running; the port could not "
+              "be probed.",
+    },
+    "sandbox.timeout_killed": {
+        "tr": "[{seconds} s zaman asimi: konteynerdeki surec grubu olduruldu]",
+        "en": "[{seconds}s timeout: the process group inside the container "
+              "was killed]",
     },
     # Kabin sagligi: her `SORUN_ANAHTARLARI` uyesinin `sandbox.<key>`
     # karsiligi (sandbox.py). Olay akisi ve ToolError icin; arayuz kendi
@@ -994,6 +1039,22 @@ CATALOG: dict[str, dict[str, str]] = {
         "tr": "Goruntulenecek cikti adi.",
         "en": "Name of the artifact to show.",
     },
+    "opt.artifact_export": {
+        "tr": "Ciktiyi bu yola yaz.",
+        "en": "Write the artifact to this path.",
+    },
+    "opt.artifact_verify": {
+        "tr": "Saklanan kopyanin sha256'sini dogrula.",
+        "en": "Verify the stored copy's sha256.",
+    },
+    "opt.artifact_backfill": {
+        "tr": "Diskte kalmis ciktilari veritabanina al.",
+        "en": "Copy artifacts still on disk into the database.",
+    },
+    "opt.artifact_checkpoint": {
+        "tr": "WAL'i sifirla (yedek almadan once).",
+        "en": "Checkpoint the WAL (before taking a backup).",
+    },
     "opt.host": {"tr": "Dinlenecek adres.", "en": "Address to listen on."},
     "opt.port": {"tr": "Port.", "en": "Port."},
     "opt.workspace": {"tr": "Calisma alani.", "en": "Workspace."},
@@ -1310,6 +1371,25 @@ CATALOG: dict[str, dict[str, str]] = {
         "tr": "'{name}' bulunamadi. Mevcut: {available}",
         "en": "'{name}' not found. Available: {available}",
     },
+    # Ikili cikti ekrana DOKULMEZ: zip ya da png'yi metin sanip basmak
+    # ya geri izleme ya bir ekran dolusu anlamsiz karakter uretiyordu.
+    "cli.artifact_binary": {
+        "tr": "{name}: {mb} MB ikili cikti (sha256 {sha256}). "
+              "Diske yazmak icin --export <yol>.",
+        "en": "{name}: {mb} MB binary artifact (sha256 {sha256}). "
+              "Use --export <path> to write it to disk.",
+    },
+    "cli.artifact_exported": {"tr": "Yazildi: {path}", "en": "Written: {path}"},
+    "cli.artifact_verify_ok": {
+        "tr": "{name}: sha256 dogru.", "en": "{name}: sha256 verified.",
+    },
+    "cli.artifact_verify_bad": {
+        "tr": "{name}: sha256 TUTMUYOR.", "en": "{name}: sha256 MISMATCH.",
+    },
+    "cli.db_checkpointed": {
+        "tr": "WAL sifirlandi; deerx.db tek basina yedeklenebilir.",
+        "en": "WAL checkpointed; deerx.db can be backed up on its own.",
+    },
     "cli.provider": {"tr": "Saglayici", "en": "Provider"},
     "cli.model_endpoint": {"tr": "Model ucu", "en": "Model endpoint"},
     "cli.undefined": {"tr": "tanimsiz", "en": "undefined"},
@@ -1527,6 +1607,13 @@ CATALOG: dict[str, dict[str, str]] = {
               "the port is right; look at what the server said with "
               "`service_log`.",
     },
+    "browser.preview_failed_docker": {
+        "tr": "{origin} acilamadi: {error}. Yalitilmis kipte servis 0.0.0.0'a "
+              "bagli mi ve port yayinlanan aralikta mi?",
+        "en": "Could not open {origin}: {error}. In isolated mode, is the "
+              "service bound to 0.0.0.0 and the port inside the published "
+              "range?",
+    },
     "browser.opened": {"tr": "acildi: {url}", "en": "opened: {url}"},
     "browser.clicked": {"tr": "tiklandi: {ref}", "en": "clicked: {ref}"},
     "browser.typed": {"tr": "yazildi: {ref}", "en": "typed: {ref}"},
@@ -1545,6 +1632,9 @@ CATALOG: dict[str, dict[str, str]] = {
     "fs.too_large": {
         "tr": "{path} cok buyuk ({size} bayt).",
         "en": "{path} is too large ({size} bytes).",
+    },
+    "fs.from_database": {
+        "tr": "veritabanindan", "en": "from the database",
     },
     "fs.not_text": {
         "tr": "{path} metin olarak okunamadi: {error}",
@@ -1778,6 +1868,26 @@ CATALOG: dict[str, dict[str, str]] = {
     },
     "api.not_found": {"tr": "'{name}' bulunamadi.", "en": "'{name}' not found."},
     "api.file_missing": {"tr": "Dosya diskte yok: {path}", "en": "File not on disk: {path}"},
+    # Toplu indirme. Sinir ASILINCA paket hic kurulmaz: zip'i once bellege
+    # yazip sonra "cok buyuk" demek, sunucuyu bosuna yorup kullaniciya ayni
+    # hatayi dakikalar sonra vermek olurdu.
+    "api.artifacts_zip_too_big": {
+        "tr": "Toplu indirme {limit_mb} MB sinirini asiyor; ciktilari tek tek indirin.",
+        "en": "The bundle exceeds the {limit_mb} MB limit; download artifacts one by one.",
+    },
+    "api.no_artifacts": {
+        "tr": "Indirilecek cikti yok.",
+        "en": "No artifacts to download.",
+    },
+    # Capraz proje indirmesi YALNIZCA veritabanindan sunar: baska bir
+    # projenin diskine uzanmak, erisilemeyen bir yolda (agdaki bir surucu,
+    # cikarilmis bir disk) yaniti askida birakirdi. Blob'u olmayan eski bir
+    # cikti icin dogru cevap "projeye gecin" demek, sessizce 404 degil.
+    "api.artifact_not_stored": {
+        "tr": "'{name}' veritabaninda saklanmamis; projeye gecip diskten indirin.",
+        "en": "'{name}' is not stored in the database; switch to the project "
+              "and download it from disk.",
+    },
     # Kosu baslangici. "adim" DEGIL "kosu": kural "adim"i yalnizca is
     # akisinin adimi icin ayiriyor ve ekranin geri kalani ayni sayiyi
     # "Kosu #12" diye yaziyor.
@@ -1835,6 +1945,16 @@ CATALOG: dict[str, dict[str, str]] = {
     "api.file_kept_outside": {
         "tr": "dosya yerinde bırakıldı (çalışma alanı dışında): {source}",
         "en": "file left in place (outside the workspace): {source}",
+    },
+    # Dosya penceresi olmadan indeksleme. Pencere tek arizali kapiydi:
+    # takildiginda sartnameyi indekslemenin arayuzde baska yolu yoktu.
+    "api.no_docs_dir": {
+        "tr": "docs/ klasoru yok: {path}",
+        "en": "There is no docs/ folder: {path}",
+    },
+    "api.docs_indexed": {
+        "tr": "docs/ tarandi: {total} dosyanin {indexed} tanesi indekslendi",
+        "en": "docs/ scanned: {indexed} of {total} files indexed",
     },
     "api.upload_received": {
         "tr": "{name} alindi ({size} bayt)",
@@ -2219,6 +2339,11 @@ CATALOG: dict[str, dict[str, str]] = {
     "pipeline.package_written": {
         "tr": "Teslimat paketi yazildi: {path} ({count} dosya)",
         "en": "Delivery package written: {path} ({count} files)",
+    },
+    # Elle paketlemenin kosu hedefi. Proje hedefi bos oldugunda kosu
+    # satirinin "(hedefsiz)" degil, ne oldugunu soyleyen bir adi olsun.
+    "pipeline.manual_package": {
+        "tr": "Elle paketleme", "en": "Manual packaging",
     },
     "pipeline.package_unreadable": {
         "tr": "Paket okunamadi ({name}): {error}",
@@ -2656,15 +2781,45 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "Chrome not found. The browser tools (UAT, screenshots) stay "
               "off; the other phases still run.",
     },
+    # Docker adiminin metni SearXNG'den soz ediyordu ve okuyan kisi
+    # yalitimin da buna bagli oldugunu anlamiyordu. Iki ayri cumle: biri
+    # docker adiminda, oteki SearXNG adiminda.
     "setup.no_docker": {
-        "tr": "Docker bulunamadi. SearXNG kurulamaz; arama icin `brave` ya da "
+        "tr": "Docker bulunamadi. Yalitilmis calistirma "
+              "(execution = \"docker\") ve SearXNG kurulumu bunu gerektirir.",
+        "en": "Docker not found. Isolated execution (execution = \"docker\") "
+              "and the SearXNG install both need it.",
+    },
+    "setup.no_docker_searxng": {
+        "tr": "Docker olmadan SearXNG kurulamaz; arama icin `brave` ya da "
               "`tavily` anahtari gerekir.",
-        "en": "Docker not found. SearXNG cannot be installed; search will need "
+        "en": "SearXNG cannot be installed without Docker; search will need "
               "a `brave` or `tavily` key.",
     },
     "setup.docker_not_running": {
         "tr": "Docker kurulu ama calismiyor.",
         "en": "Docker is installed but not running.",
+    },
+    # Yalitim acikken kabin kurulamiyorsa bu bir ENGEL: kosu ilk arac
+    # cagrisinda duser ve kullanici bunu kurulum ekraninda degil, kirk
+    # dakika sonra ogrenirdi.
+    "setup.docker_required": {
+        "tr": "execution = \"docker\" ama kabin kurulamiyor: {detail}",
+        "en": "execution = \"docker\" but the sandbox cannot be built: {detail}",
+    },
+    "setup.docker_image_missing": {
+        "tr": "{image} imaji makinede yok; `docker pull {image}` ile cekin "
+              "ya da ilk kosuya birakin.",
+        "en": "Image {image} is not on this machine; run `docker pull {image}` "
+              "or leave it to the first run.",
+    },
+    "setup.docker_no_node": {
+        "tr": "Imaj {image} icinde node yok ama calisma alaninda "
+              "package.json var; Ayarlar > Yalitim > Kurulum komutu ile "
+              "kurun ya da node iceren bir imaj secin.",
+        "en": "Image {image} has no node but the workspace has a package.json; "
+              "install it with Settings > Isolation > Setup command, or pick "
+              "an image that ships node.",
     },
     "setup.searxng_absent": {
         "tr": "{url} adresinde JSON veren bir ornek yok.",

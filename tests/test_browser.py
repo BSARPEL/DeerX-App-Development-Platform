@@ -347,6 +347,57 @@ class TestPermissionsAreSeparate:
             build_registry().get(arac).run(ctx, **_ornek_arg(arac))
 
 
+class TestOnizlemeHatasiYalitimiAnlatir:
+    """Yalitilmis kipte sayfa acilamamasinin sebebi genelde uygulama degil.
+
+    Iki sebep ajanin BILMEDIGI seyler: servis 127.0.0.1'e baglanmistir
+    (yayinlanan port bos kalir) ya da port yayinlanan araligin disindadir.
+    Genel metin "uygulaman gercekten calisiyor mu, `service_log`a bak"
+    diyor ve ajani saglam calisan kendi kodunda hata aramaya gonderiyor.
+    """
+
+    @staticmethod
+    def _hata(settings, tmp_path, monkeypatch, kip: str) -> str:
+        import deerx.tools.browser as mod
+        from deerx.errors import ToolError
+        from deerx.logging import EventLog
+        from deerx.tools import build_registry
+        from deerx.tools.base import ToolContext
+
+        class SahtePolitika:
+            def allow_origin(self, origin: str) -> None:
+                return None
+
+        class SahteOturum:
+            policy = SahtePolitika()
+
+            def goto(self, *_a, **_k):
+                raise ToolError("connection refused")
+
+        settings.browser_allow_preview = True
+        settings.execution = kip
+        ctx = ToolContext(
+            settings=settings,
+            events=EventLog(tmp_path / "events.jsonl"),
+        )
+        monkeypatch.setattr(mod, "_session", lambda _c: SahteOturum())
+        with pytest.raises(ToolError) as bilgi:
+            build_registry().get("preview_open").run(ctx, port=8100)
+        return str(bilgi.value)
+
+    def test_the_isolated_message_names_the_two_real_causes(
+        self, settings, tmp_path, monkeypatch
+    ):
+        metin = self._hata(settings, tmp_path, monkeypatch, "docker")
+        assert "0.0.0.0" in metin, metin
+
+    def test_the_host_message_is_unchanged(self, settings, tmp_path, monkeypatch):
+        """Konakta boyle bir kisit yok; 0.0.0.0'dan soz etmek yaniltir."""
+        metin = self._hata(settings, tmp_path, monkeypatch, "host")
+        assert "0.0.0.0" not in metin, metin
+        assert "start_service" in metin
+
+
 def _ornek_arg(arac: str) -> dict:
     return {
         "preview_open": {"port": 8477},

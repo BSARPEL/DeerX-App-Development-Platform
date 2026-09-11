@@ -70,11 +70,43 @@ def load_prompt(name: str, settings: Settings | None = None) -> str:
     return _read(packaged)
 
 
+def describe_environment(settings: Settings) -> str:
+    """Komutlarin NEREDE kosacagini ajana bir cumleyle soyler.
+
+    Ajan yalitim kipini, yayinlanan port araligini ve isletim sistemini
+    hic ogrenmiyordu; ortami deneme-yanilmayla kesfediyordu. OLCULDU:
+    QA yonergesindeki `port=3000` ornegi docker kipinde her kosuda ILK
+    denemede reddediliyor (`sandbox.port_outside_range`) -- yani her
+    kosu, bilinebilir bir bilgiyi ogrenmek icin bir tur yakiyordu.
+
+    Konak kipinde soylenmesi gereken baska: izin listesi. Ajan
+    `uvicorn ...` yazip reddedilince hatayi kendi komutunda ariyor;
+    listeyi bastan gormek `python -m uvicorn` demesini saglar.
+    """
+    import platform
+
+    if settings.execution == "docker":
+        son = settings.sandbox_port_base + settings.sandbox_port_count - 1
+        return t(
+            "prompt.env_docker",
+            image=settings.sandbox_image,
+            first=settings.sandbox_port_base,
+            last=son,
+        )
+    return t(
+        "prompt.env_host",
+        os=platform.system(),
+        prefixes=", ".join(settings.shell.allow_prefixes) or "-",
+        timeout=settings.shell.max_timeout_seconds,
+    )
+
+
 def compose_system(role: str, settings: Settings, *, extra: str = "") -> str:
     """Ortak on soz + role ozgu prompt + opsiyonel ek."""
     shared = load_prompt("_shared", settings).format(
         workspace=settings.workspace.as_posix(),
         artifacts=settings.artifacts_dir.as_posix(),
+        environment=describe_environment(settings),
         language={"tr": "Turkce", "en": "English"}.get(settings.language, settings.language),
     )
     body = load_prompt(role, settings)

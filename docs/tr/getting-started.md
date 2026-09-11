@@ -341,7 +341,7 @@ bekleniyor.
 .deerx/
 ├── deerx.db          gereksinim, boşluk, karar, görev, soru, çıktı
 ├── events.jsonl      olay akışı, yeniden başlatmalar arasında korunur
-├── artifacts/        analiz-raporu.md, mimari.md, mockup-*.html, ekran görüntüleri
+├── artifacts/        analiz-raporu.md, mimari.md, mockup-*.html, ekran görüntüleri (kopya)
 └── teslimat/         teslimat zip'leri
 ```
 

@@ -108,6 +108,10 @@ kullanıcınınki gibi görünür.
 raporunu döner — web arayüzünün izlediği kuralın aynısı. Bir modele arşiv
 baytları vermek işe yarar hiçbir şey üretmez ve çok sayıda token harcar.
 
+İçerik önce veritabanından, sonra klasörden okunur; dosyası silinmiş bir çıktı
+da okunur. `deerx_package` tek adımlı bir koşu kaydeder — web ve CLI yollarıyla
+aynı.
+
 ## İki ajan, tek çalışma alanı
 
 MCP sunucusuyla bir `deerx serve`'ün aynı çalışma alanını göstermesini

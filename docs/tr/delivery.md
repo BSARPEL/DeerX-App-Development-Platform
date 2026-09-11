@@ -117,7 +117,13 @@ Aynı kural `.png`, `.pdf` ve diğer ikili çıktılar için de geçerlidir. MCP
 tarafında `deerx_artifact <paket.zip>` bayt yerine bu raporu döner.
 
 Elle paketleme tek adımlı bir koşu kaydı oluşturur — o olmadan paket hiçbir
-koşuya ait olmaz ve Koşular görünümünden erişilemezdi.
+koşuya ait olmaz ve Koşular görünümünden erişilemezdi. Üç yol da aynı yardımcıdan
+geçer, yani CLI'den ya da MCP üzerinden üretilen paket de bir koşu taşır; bu
+eskiden yalnızca web için doğruydu.
+
+Zip, `.deerx/teslimat/` içindeki kopyanın yanında veritabanında da saklanır:
+klasör temizlendikten sonra da iner ve bir takım arkadaşı onu projeyi açmadan
+çapraz çıktı listesinden alabilir.
 
 ## Ayrıca
 

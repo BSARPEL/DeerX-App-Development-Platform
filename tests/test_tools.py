@@ -6,6 +6,7 @@ import pytest
 
 from deerx.config import ShellPolicy
 from deerx.errors import ApprovalDenied, ToolError, WorkspaceError
+from deerx.i18n import t
 from deerx.tools import build_registry
 from deerx.tools.shell import check_command
 
@@ -989,3 +990,139 @@ class TestYeniSatirBirAyractir:
         from deerx.tools.shell import _CHAIN_TOKENS
 
         assert "\n" in _CHAIN_TOKENS
+
+
+class TestDockerCitiDeliksiz:
+    """`docker` izin listesinde ve o tek komut citin tamamini asabiliyordu.
+
+    Izin listesinin korudugu sey konaktir: ajan yalnizca listedeki
+    komutlari kosturabilir. Ama `docker run -v /:/host ...` konagin
+    tamamini bir konteynere baglar ve icinden okur; `--privileged`
+    cekirdege uzanir; `--pid=host` konaktaki surecleri oldurebilir.
+    Kalibi yasakli listeye yazmak yetmiyordu: `--privileged` tek kelime
+    ve tireler atilinca alfanumerik gorunuyor, yani "ciplak komut adi"
+    sayilip YALNIZCA komut konumunda araniyordu -- komutun basi `docker`
+    oldugu icin hicbir sey engellenmiyordu.
+    """
+
+    @staticmethod
+    def _gecer(komut: str) -> bool:
+        from deerx.config import ShellPolicy
+        from deerx.errors import ToolError
+        from deerx.tools.shell import check_command
+
+        try:
+            check_command(ShellPolicy(), komut)
+        except ToolError:
+            return False
+        return True
+
+    @pytest.mark.parametrize(
+        "komut",
+        [
+            "docker run --privileged -it alpine sh",
+            "docker run -v /:/konak alpine ls /konak",
+            r"docker run -v C:\:/c alpine ls /c",
+            "docker run --pid=host alpine ps aux",
+            "docker run --network host alpine wget http://127.0.0.1:8791",
+        ],
+    )
+    def test_the_escape_hatches_are_refused(self, komut):
+        assert not self._gecer(komut), komut
+
+    @pytest.mark.parametrize(
+        "komut",
+        [
+            "docker build -t uygulama .",
+            "docker run -v ./veri:/veri uygulama",
+            "docker compose up -d",
+            "docker ps",
+        ],
+    )
+    def test_ordinary_docker_still_works(self, komut):
+        """Cit gunluk isi engellememeli: derleme, compose ve goreli
+        baglama mesru."""
+        assert self._gecer(komut), komut
+
+    def test_a_flag_is_never_treated_as_a_command_name(self):
+        """Kuralin kendisi: `-` ile baslayan bir desen komut ADI degildir."""
+        from deerx.tools.shell import _bare_command
+
+        assert not _bare_command("--privileged")
+        assert _bare_command("mkfs"), "ciplak komut kurali bozuldu"
+
+
+class TestZamanAsimiTavani:
+    """`run_command`in `timeout` parametresine ust sinir YOKTU.
+
+    Ajan 999999 yazabiliyordu ve bir kosu tek bir asili komutta gunlerce
+    bekleyebilirdi. Tavan sessiz de olamaz: komut kesildiginde model "ben
+    999999 demistim" diye kendi kodunda hata arar ve bir tur yakar.
+    """
+
+    def test_the_requested_timeout_is_capped_and_said_out_loud(self, ctx, registry):
+        ctx.settings.shell.max_timeout_seconds = 5
+        sonuc = registry.execute(
+            "run_command",
+            {"command": "echo merhaba", "timeout": 999999},
+            ctx,
+        )
+        assert not sonuc.is_error, sonuc.content
+        assert "5" in sonuc.content
+        assert t("shell.timeout_capped", limit=5) in sonuc.content
+
+    def test_a_reasonable_timeout_is_left_alone(self, ctx, registry):
+        sonuc = registry.execute(
+            "run_command", {"command": "echo merhaba", "timeout": 30}, ctx
+        )
+        assert t("shell.timeout_capped", limit=30) not in sonuc.content
+
+
+class TestAjanKendiCiktisiniGeriOkur:
+    """Ajan yazdigi raporu geri okuyamiyordu.
+
+    Ciktilarin kaynagi artik veritabani ve `.deerx/artifacts/` yalnizca
+    bir ayna. Aynadaki kopya temizlenince `read_file` "dosya yok" diyordu
+    -- oysa icerik duruyor. Bir sonraki faz kendi onceki fazinin ciktisina
+    ulasamiyorsa boru hattinin devretme sozu bos kalir.
+    """
+
+    def test_an_artifact_is_readable_after_its_file_is_deleted(self, ctx, registry, state):
+        registry.execute(
+            "save_artifact",
+            {"name": "mimari.md", "content": "# Mimari\nKatmanlar\n", "kind": "architecture"},
+            ctx,
+        )
+        (ctx.settings.artifacts_dir / "mimari.md").unlink()
+
+        sonuc = registry.execute(
+            "read_file", {"path": ".deerx/artifacts/mimari.md"}, ctx
+        )
+        assert not sonuc.is_error, sonuc.content
+        assert "Katmanlar" in sonuc.content
+        assert t("fs.from_database") in sonuc.content, (
+            "kaynagin veritabani oldugu soylenmiyor"
+        )
+
+    def test_the_disk_copy_still_wins_when_it_is_there(self, ctx, registry, state):
+        """Ayna duruyorsa ondan okunur: veritabanina gitmek bos maliyet."""
+        registry.execute(
+            "save_artifact", {"name": "plan.md", "content": "# Plan\n"}, ctx
+        )
+        sonuc = registry.execute("read_file", {"path": ".deerx/artifacts/plan.md"}, ctx)
+        assert not sonuc.is_error
+        assert t("fs.from_database") not in sonuc.content
+
+    def test_an_ordinary_missing_file_is_still_missing(self, ctx, registry):
+        """Kural DAR: yalnizca ciktilar dizini. Calisma alanindaki siradan
+        bir dosyanin yoklugu yine yokluktur; aksi halde yanlis yol yazan
+        bir ajan sessizce baska bir dosyayi okurdu."""
+        sonuc = registry.execute("read_file", {"path": "src/yok.py"}, ctx)
+        assert sonuc.is_error
+
+    def test_a_name_without_a_record_is_still_missing(self, ctx, registry):
+        """Ciktilar dizininde olmak yetmez; kayit da olmali."""
+        sonuc = registry.execute(
+            "read_file", {"path": ".deerx/artifacts/hic-uretilmedi.md"}, ctx
+        )
+        assert sonuc.is_error

@@ -8,6 +8,7 @@ and ships the project. You are running one phase of a multi-phase pipeline.
 
 - Workspace (all paths are relative to it): `{workspace}`
 - Produced artifacts: `{artifacts}`
+- Where commands run: {environment}
 - Output language: **{language}**. Code, variable names, file names and
   commands stay in English.
 

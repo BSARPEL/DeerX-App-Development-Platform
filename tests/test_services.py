@@ -19,7 +19,8 @@ import time
 import pytest
 
 from deerx.errors import ToolError
-from deerx.services import ServiceManager, port_open
+from deerx.i18n import t
+from deerx.services import Service, ServiceManager, port_open
 from deerx.tools import build_registry
 from deerx.tools.base import ToolContext
 
@@ -139,6 +140,226 @@ class TestFailureIsVisible:
             name="web", command=sunucu_komutu(port), cwd=tmp_path, port=port
         )
         assert bekle(lambda: "hazir" in service.tail(20))
+
+
+class SahteSurec:
+    """`Popen` yerine gecen en kucuk nesne: yasiyor ve bir pid'i var."""
+
+    pid = 999_001
+
+    def poll(self) -> None:
+        return None
+
+    def wait(self, timeout: float | None = None) -> int:
+        return 0
+
+
+class SahteKabin:
+    """`Sandbox` yerine gecer ve cagri SIRASINI kaydeder.
+
+    Burada olculen sey bir davranis degil bir sira: konteyner
+    hazirlanmadan port yoklanirsa yoklama "No such container" ile duser,
+    port BOS sanilir ve hemen ardindan `docker exec` ayni hatayla oler.
+    Docker'a gerek yok -- sira, docker'in kendisi olmadan da olculur.
+    """
+
+    name = "deerx-sbx-sahte"
+
+    def __init__(self, adres: str | None = "all") -> None:
+        self.izler: list[str] = []
+        self.adres = adres
+        self.oldurulenler: list[tuple[str, bool]] = []
+
+    def ensure(self) -> None:
+        self.izler.append("ensure")
+
+    def ic_yol(self, yol) -> str:  # noqa: ANN001 - testin sahtesi
+        return "/workspace"
+
+    def port_acik(self, port: int) -> bool:
+        self.izler.append("port_acik")
+        return False
+
+    def dinleme_adresi(self, port: int) -> str | None:
+        self.izler.append("dinleme_adresi")
+        return self.adres
+
+    def ic_oldur(self, pid_yolu: str, *, grup: bool = False) -> None:
+        self.oldurulenler.append((pid_yolu, grup))
+
+
+@pytest.fixture()
+def yalitilmis(tmp_path, monkeypatch):
+    """Docker'siz "yalitilmis kip": kabin, `Popen` ve agac oldurme sahte."""
+    import subprocess as _subprocess
+
+    import deerx.services as servis_modulu
+
+    kabin = SahteKabin()
+
+    def sahte_popen(*_a, **_kw):
+        kabin.izler.append("popen")
+        return SahteSurec()
+
+    monkeypatch.setattr(_subprocess, "Popen", sahte_popen)
+    # `kill_tree` konakta `taskkill /F /PID` calistirir; sahte pid gercek
+    # bir surece denk gelirse testin bedeli makinede odenir.
+    monkeypatch.setattr(servis_modulu, "kill_tree", lambda pid: None)
+    # Gecis suresi gercekte iki saniye; testin beklemesine gerek yok.
+    monkeypatch.setattr(servis_modulu, "_LOOPBACK_BEKLEME", 0.05)
+    yonetici = ServiceManager(log_dir=tmp_path / "services", sandbox=kabin)
+    yield yonetici, kabin
+    yonetici.stop_all()
+
+
+class TestDockerHazirlik:
+    """Yalitilmis kipte servis baslatmanin sirasi ve reddi.
+
+    Uc olculmus ariza: (1) konteyner hazirlanmadan port yoklaniyordu,
+    (2) 127.0.0.1'e baglanan servis "hazir" sayiliyordu, (3) konteyner
+    gitmisse yoklama "port bos" diyordu.
+    """
+
+    KOMUT = "python -m http.server 8100"
+
+    def test_start_ensures_the_container_first(self, yalitilmis, tmp_path):
+        """Port denetimi de surecin kendisi de konteynerin ICINDEN gecer;
+        konteyner yoksa ikisi de ayni hatayla duser ve ajan yalnizca olu
+        bir surec gorur."""
+        yonetici, kabin = yalitilmis
+
+        yonetici.start(
+            name="web", command=self.KOMUT, cwd=tmp_path, port=8100, ready_seconds=5
+        )
+
+        assert kabin.izler[0] == "ensure", kabin.izler
+        assert kabin.izler.index("ensure") < kabin.izler.index("popen")
+        # `ensure` kendi kilidini tasiyor; her cagri ucuz ama bir kez yeter.
+        assert kabin.izler.count("ensure") == 1
+
+    def test_all_interfaces_is_ready(self, yalitilmis, tmp_path):
+        """Dogru baglanan servis reddedilmemeli ve ek bekleme almamali."""
+        yonetici, kabin = yalitilmis
+
+        service = yonetici.start(
+            name="web", command=self.KOMUT, cwd=tmp_path, port=8100, ready_seconds=5
+        )
+
+        assert service.alive and yonetici.running() == [service]
+        assert kabin.izler.count("dinleme_adresi") == 1, "gereksiz ikinci bakis"
+
+    def test_a_loopback_only_service_is_refused_with_the_bind_hint(
+        self, yalitilmis, tmp_path
+    ):
+        """Yayinlanan port konteynerin adresine yonlendirilir; geri
+        donguye baglanan servis calisir gorunur ama konaktaki tarayici ona
+        ulasamaz. "Hazir" demek ajani `preview_open` hatasiyla bas basa
+        birakir ve hata uygulamanin kendisindeymis gibi gorunur."""
+        yonetici, kabin = yalitilmis
+        kabin.adres = "loopback"
+
+        with pytest.raises(ToolError) as bilgi:
+            yonetici.start(
+                name="web", command=self.KOMUT, cwd=tmp_path, port=8100, ready_seconds=5
+            )
+
+        assert "0.0.0.0" in str(bilgi.value), str(bilgi.value)
+        assert kabin.izler.count("dinleme_adresi") == 2, (
+            "gecis halindeki sunucuya (once gecici soket, sonra asil adres) "
+            "ikinci bir bakis taninmadi"
+        )
+        assert yonetici.running() == [], (
+            "reddedilen servis ayakta birakildi; portu tutar ve ajanin "
+            "duzeltip yeniden baslatma denemesi 'port dolu' ile karsilanir"
+        )
+        assert kabin.oldurulenler and kabin.oldurulenler[0][1] is True, (
+            "konteyner icindeki surec grubu oldurulmedi"
+        )
+
+    def test_a_gone_container_is_named_not_mistaken_for_a_free_port(
+        self, yalitilmis, tmp_path
+    ):
+        """Konteyner silinmisse "port bos" demek sureci baslatir ve o da
+        aninda oler; sebep hicbir satirda gorunmez."""
+        yonetici, kabin = yalitilmis
+
+        def patla(_port: int) -> bool:
+            raise ToolError(t("sandbox.container_gone", name=kabin.name))
+
+        kabin.port_acik = patla
+
+        with pytest.raises(ToolError) as bilgi:
+            yonetici.start(
+                name="web", command=self.KOMUT, cwd=tmp_path, port=8100, ready_seconds=5
+            )
+
+        assert kabin.name in str(bilgi.value), str(bilgi.value)
+        assert "popen" not in kabin.izler, "konteyner yokken surec baslatildi"
+
+    def test_the_host_path_is_untouched(self, manager, tmp_path):
+        """Konak kipinde ayrim YOK ve olmamali: konaktaki tarayici
+        127.0.0.1'e baglanan bir servise de ulasir."""
+        port = bos_port()
+        service = manager.start(
+            name="web", command=sunucu_komutu(port), cwd=tmp_path, port=port
+        )
+        assert service.alive and port_open(port)
+
+
+class TestBindHint:
+    """0.0.0.0 kurali ajana SOYLENMELI.
+
+    OLCULDU: `sandbox.bind_all_interfaces` katalogda vardi ve hicbir
+    yerden cagrilmiyordu -- ajanin bilmesi gereken tek konteyner kurali
+    yalnizca sozlukte duruyordu.
+    """
+
+    @staticmethod
+    def _sonuc(settings, tmp_path, kip: str) -> str:
+        from deerx.logging import EventLog
+
+        settings.approval_mode = "auto"
+        settings.execution = kip
+        service = Service(
+            name="app", command="python -m http.server 8100",
+            cwd=tmp_path, log_path=tmp_path / "app.log", port=8100,
+        )
+
+        class Yonetici:
+            """Gercek baslatma bu testin konusu degil; sonuc metni konusu."""
+
+            def start(self, **_kw) -> Service:
+                return service
+
+        ctx = ToolContext(
+            settings=settings,
+            events=EventLog(tmp_path / "events.jsonl"),
+            services=Yonetici(),
+        )
+        return build_registry().get("start_service").run(
+            ctx, command="python -m http.server 8100", port=8100
+        ).content
+
+    def test_the_docker_result_tells_the_agent_to_bind_all_interfaces(
+        self, settings, tmp_path
+    ):
+        metin = self._sonuc(settings, tmp_path, "docker")
+        assert t("sandbox.bind_all_interfaces") in metin
+        assert "0.0.0.0" in metin
+
+    def test_the_host_result_does_not_carry_the_container_rule(self, settings, tmp_path):
+        """Konakta boyle bir kisit yok; soylemek ajani yaniltir."""
+        metin = self._sonuc(settings, tmp_path, "host")
+        assert t("sandbox.bind_all_interfaces") not in metin
+
+    def test_bind_all_interfaces_is_actually_used(self):
+        """Cagri yerinin kendisi: anahtar yeniden "yalnizca tanim" haline
+        donerse bu test kirmizi olur."""
+        import inspect as _inspect
+
+        from deerx.tools import services as arac_modulu
+
+        assert "sandbox.bind_all_interfaces" in _inspect.getsource(arac_modulu)
 
 
 class TestTools:

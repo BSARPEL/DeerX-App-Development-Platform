@@ -296,6 +296,17 @@ Değişmemiş dosyalar, zorlamadıkça atlanır. `embedding_model`'i `--force`
 yanında bırakır ve DeerX sessizce yanlış isabet döndürmek yerine aramayı
 reddeder.
 
+### Dosya penceresi olmadan belge eklemek
+
+Bırakma alanı işletim sisteminin dosya penceresini açar ve o pencere bizim
+değil: ağdaki bir sürücü, bir bulut kabuk eklentisi ya da pencerenin tarayıcının
+arkasında açılması onu kilitleyebilir — o zaman arayüzden içeri girmenin başka
+yolu kalmaz. **docs/ klasörünü indeksle** ikinci kapıdır: `<çalışma
+alanı>/docs/` altında zaten duranı, hiçbir şey yazmadan indeksler. Yüklemelerin
+çoğu zaten o klasöre gidiyordu, yani pencere çoğu zaman dosyayı zaten
+bulunduğu yere geri kopyalıyordu. Değişmemiş dosyalar atlanır; iki kez basmak
+bir şeye mal olmaz.
+
 ## Çıktılar
 
 ![Çıktılar: üretilen bir mockup, yalıtılmış çerçevede canlı çalışıyor](../images/artifacts-tr.png)
@@ -327,13 +338,55 @@ Teslimat paketleri kendi koşularının altında görünür, üstte tekrarlanmaz
 paketleme tek adımlı bir koşu kaydı oluşturur — yoksa ürettiği paket hiçbir
 koşuya ait olmaz ve Koşular görünümünden erişilemezdi.
 
-Koşu kaydından önceki dönemden kalan çıktılar varsayılan olarak gizlidir ama
-**sayılır ve erişilebilir**: başlıktaki düğme kaç tane olduğunu söyler ve
-onları *Koşu kaydından önce üretilenler* başlığı altında açar. Rozet 11 derken
-ekranda 1 çıktı görünüyordu ve aradaki farkı kapatacak hiçbir düğme yoktu.
+Koşu kaydından önceki dönemden kalan çıktılar da listelenir, *Koşu kaydından
+önce üretilenler* başlığı altında kendi gruplarında. Eskiden bir düğmenin
+arkasında gizliydiler; rozet 11 derken ekranda 1 çıktı görünüyordu ve bir sayının
+iki yerde farklı okunması, aradaki farkı kapatacak bir düğme olsa bile yanlıştır.
+
+**Her çıktı, her yerden indirilir.** Her satırda bir indirme bağlantısı var, her
+koşu başlığı o koşunun çıktılarını tek zip olarak indirir, sayfa başlığındaki
+**Hepsini indir** projenin tamamını paketler. Raporlar ve mockup'lar eskiden
+okunabiliyor ama alınamıyordu — bir markdown raporunu almanın tek yolu *Kaynak*
+sekmesinden kopyalamaktı.
+
+Baytlar klasörden değil veritabanından gelir. `.deerx/artifacts/` içinden
+silinmiş bir çıktı yine iner; yalnızca diskte duran (eski bir kayıt) *yalnızca
+diskte* der; ikisinde de olmayan *dosya yok* der ve bağlantı basılmaz — hiçbir
+yere götürmeyen bir düğme, düğmenin kendisinden kötüdür.
+
+**Bütün projelerim** aynı ekranı çapraz bir ağaca çevirir: proje → koşu → çıktı,
+saklanan her satırda bir indirme. Ada tıklamak o projeye geçer ve çıktıyı orada
+açar; bağlam değişikliği gizlenmez, gösterilir — sol raydaki proje adı da
+değişir. Saklanmış kopyası olmayan bir çıktı *veritabanında yok* der ve bağlantı
+basılmaz: çapraz uç başka bir projenin diskine hiç dokunmaz, dolayısıyla
+projeyi açmanın işe yarayacağına dair söz veremez.
 
 Aynı görünüm **teslimat panelini** de taşır: hazırlık durumu, paketleme düğmesi,
 zip indirmeleri ve paket başına bir **Rapor** düğmesi.
+
+## Ortam
+
+Proje başına: komutların hangi konteynerde koştuğu, hangi portların
+yayınlandığı ve ajanın başlattığı servisler.
+
+**Rozet, birbirine benzeyen üç şeyi ayırır.** Çalışıyor, henüz kurulmadı ve
+kurul*amıyor* eskiden aynı sarı "kurulmamış" idi — oysa üçüncüsü bir durum
+değil, arızadır. Konak kipi artık kendi sözcüğüne sahip (nominal, gri): orada
+eksik olabilecek bir kabin yok.
+
+Kabin kurulamadığında ekran **ne olduğunu ve ne yapılacağını** söyler: Docker
+Desktop çalışma alanını bağlayamıyor → tamamen kapatıp yeniden başlatın, sonra
+*Sağlığı ölç*. Sebep eskiden ancak koşunun ilk araç çağrısında, olay akışının
+ortasında ham bir Docker hata satırı olarak görünüyordu.
+
+*Sağlığı ölç* **derin** bir yoklama koşar: gerçekten bir konteyner kaldırır,
+çalışma alanını bağlar ve `python`, `node`, `npm`, `git` var mı diye bakar.
+Ekranı açmak yalnızca ucuz yoklamayı koşar (Docker yanıt veriyor mu, imaj var
+mı, konteynerin durumu ne) — her açılışta derin yoklama, tam da teşhis etmesi
+gereken arızada bir dakika asılı kalırdı.
+
+Port aralığı iki kipte de yazılır ama dürüst etiketle: konteyner dışında onu
+uygulayan bir şey yok.
 
 ## Ayarlar
 

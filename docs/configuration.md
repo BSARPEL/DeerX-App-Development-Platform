@@ -108,7 +108,13 @@ cannot be compared, and a quiet empty result set is worse than an error.
 |---|---|
 | `enabled` | `true` |
 | `timeout_seconds` | `300` |
+| `max_timeout_seconds` | `1800` | Ceiling on the `timeout` the agent may ask for; without it one hung command could hold a run for days. A capped call says so in its result |
 | `allow_prefixes` | Unix tools plus Windows counterparts (`findstr`, `type`, `dir`, `where`), shell builtins (`cd`, `export`, …), text tools (`sed`, `awk`, …), and `docker` / `make` / `go` / `cargo` | The packaged `deerx.toml` lists every prefix; an empty list means only the deny list applies |
+
+`deny_substrings` also refuses the Docker escape hatches — `--privileged`,
+`--pid=host`, `--network host` and root bind mounts (`-v /:`, `-v C:\:`) —
+because `docker` is on the allow list and a single one of those flags reaches
+past every other fence. `docker build` and relative bind mounts still work.
 
 An empty `allow_prefixes = []` means only the deny list applies — every command
 not explicitly destructive is permitted. Read [Security model](security.md)
@@ -123,7 +129,8 @@ persist.
 By default the agent's `run_command` and `start_service` run **on this machine**,
 fenced by the shell allow-list. Set `execution = "docker"` and both run inside a
 disposable container instead; the allow-list is then not applied, because there
-is no host to protect and the container is deleted when the run ends.
+is no host to protect. The container is stopped, not deleted, when the run
+ends.
 
 | Key | Default | Notes |
 |---|---|---|

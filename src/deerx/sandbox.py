@@ -38,6 +38,7 @@ import shutil
 import subprocess
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -114,6 +115,81 @@ _YOKLAMA_BETIGI = (
     f"for t in {' '.join(_YOKLANAN_ARACLAR)}; do "
     "command -v $t >/dev/null 2>&1 && echo TOOL_$t; done; exit 0"
 )
+
+# `/proc/net/tcp` dorduncu alanindaki durum kodu: TCP_LISTEN. Kurulmus bir
+# baglanti (`01`) ayni portu tasir ama dinlemiyordur; ayirmadan bakmak
+# kapanmak uzere olan bir istegi "servis hazir" sayardi.
+_DINLEME_DURUMU = "0A"
+
+# `/proc/net/tcp6` icinde `::1`. Adres dort 32 bitlik kelime halinde, her
+# kelime KENDI ICINDE ters yazilir (x86 little-endian); bu yuzden son bayt
+# (0x01) sondan dorduncu basamak cifti olarak gorunur. Ikinci yazim
+# big-endian bir makinede (ya da farkli bir cekirdek surumunde) ayni adresi
+# duz sirayla verir -- ikisini de tanimak bedava, tanimamak sessiz bir
+# "loopback goremedim" demek.
+_IPV6_GERI_DONGU = frozenset({
+    "00000000000000000000000001000000",
+    "00000000000000000000000000000001",
+})
+
+
+def _geri_dongu_mu(adres: str) -> bool:
+    """`/proc/net/tcp` onaltilik adresi 127.x.x.x ya da ::1 mi?"""
+    ham = adres.upper()
+    if len(ham) == 8:
+        # IPv4 dort bayti kelime icinde ters yazilir: 127.0.0.1 "0100007F"
+        # olur, yani ILK sekizli (0x7F) SONDA durur.
+        return ham.endswith("7F")
+    if len(ham) == 32:
+        if ham in _IPV6_GERI_DONGU:
+            return True
+        # `::ffff:127.0.0.1` -- IPv4 esleme. Son kelime IPv4 adresidir,
+        # ondan onceki kelime `ffff` isaretini tasir.
+        return ham[16:24] == "FFFF0000" and ham[24:].endswith("7F")
+    return False
+
+
+def _dinleme_cozumle(metin: str, port: int) -> str | None:
+    """Portun konteyner icinde HANGI adrese bagli oldugunu soyler.
+
+    Doner: butun arayuzlere bagliysa `'all'`, yalnizca geri donguye
+    bagliysa `'loopback'`, o portu dinleyen yoksa `None`.
+
+    Neden bu sorunun bir cevabi olmali: konteynerde `127.0.0.1`e baglanan
+    bir servis calisiyor GORUNUR ama yayinlanan port BOS kalir -- Docker
+    yayinlanan portu konteynerin adresine yonlendirir, geri donguye degil.
+    Konaktaki tarayici uygulamaya hicbir zaman ulasamaz ve ajan saatlerce
+    kendi kodunda hata arar.
+
+    Neden konteynerin ICINDEN: konaktan yoklamak ayrimi hic goremez.
+    OLCULDU (`Sandbox.port_acik` docstring'i) -- yayinlanmis ama icinde
+    hicbir servis olmayan bir portta konak yoklamasi TRUE donuyordu, cunku
+    yayinlanan portu Docker'in kendisi dinler.
+
+    Neden `ss`/`netstat` degil: imajlarin cogunda (python:3.13 dahil)
+    ikisi de yok. `/proc/net/tcp` cekirdegin kendi dokumu; `cat` her yerde
+    var.
+
+    Saf islev: metni disaridan alir, docker'a hic gitmez -- docker'siz
+    test edilebilmesi icin.
+    """
+    hedef = f"{int(port):04X}"
+    geri_dongu = False
+    for satir in (metin or "").splitlines():
+        alanlar = satir.split()
+        # Baslik satiri ("sl local_address ...") burada elenir: dorduncu
+        # alani "st" ve durum koduna esit degil.
+        if len(alanlar) < 4 or alanlar[3].upper() != _DINLEME_DURUMU:
+            continue
+        adres, _ayrac, yerel_port = alanlar[1].rpartition(":")
+        if yerel_port.upper() != hedef:
+            continue
+        if not _geri_dongu_mu(adres):
+            # Tum arayuzler (0.0.0.0 / ::) ya da konteynerin kendi adresi:
+            # ikisinde de yayinlanan port calisir, ayirmaya gerek yok.
+            return "all"
+        geri_dongu = True
+    return "loopback" if geri_dongu else None
 
 
 def docker_hatasi_cevir(stderr: str) -> tuple[str, dict[str, Any]] | None:
@@ -457,15 +533,36 @@ class Sandbox:
 
         `workdir` konaktaki bir yoldur ve calisma alaninin ALTINDA olmalidir;
         konteyner icindeki karsiligina cevrilir.
+
+        Zaman asiminda yerel `docker exec` istemcisi oldurulur ama
+        ICERIDEKI surec yasamaya devam eder: portu tutar, CPU yakar ve
+        kosu bitene kadar onu kimse tanimaz -- `stop_service` bile, cunku
+        o yalnizca kayitli servisleri bilir. OLCULDU. Bu yuzden komut bir
+        PID dosyasi yazan sarmalla kosar ve zaman asiminda o pid'in SUREC
+        GRUBU oldurulur: `npm test` ya da `a | b` asil isi torunlarda
+        yapar, yalnizca pid'i oldurmek portu tutani birakirdi.
+
+        Sarmal `echo $$ > pid; exec sh -c "$1"`. `exec` sart: komut
+        kabugun COCUGU olsaydi dosya kabugun pid'ini tasirdi ve oldurme
+        yanlis surece giderdi. Komut `$1` olarak gecirilir, `--` ayraci
+        YOK -- OLCULDU: `sh -c <betik> -- <komut>` ayracin kendisini `$0`
+        yapar ve komut `$1`e kayar; `"$0"` okuyan bir sarmal `--`
+        calistirir. `setsid` de yok: `docker exec` sureci zaten oturum
+        lideri (pid=pgid=sid), araya setsid koymak fork edip erken
+        donuyor ve pid dosyasina olu ebeveynin pid'ini yaziyordu.
         """
         self._kirik_mi()
         self.ensure()
         ic_dizin = self._ic_yol(workdir) if workdir else CALISMA_ALANI
+        # Her cagriya ozel ad: ayni anda kosan iki komut birbirinin pid
+        # dosyasini ezerse zaman asimi yanlis sureci oldururdu.
+        pid_yolu = f"/tmp/deerx-{uuid.uuid4().hex[:12]}.pid"
+        sarmal = f'echo $$ > {pid_yolu}; exec sh -c "$1"'
         argv = [
             "docker", "exec", "-w", ic_dizin, self.name,
             # `sh -lc`: ajanin yazdigi komut bir kabuk satiridir; boru,
             # yonlendirme ve `&&` calissin.
-            "sh", "-lc", command,
+            "sh", "-lc", sarmal, "deerx", command,
         ]
         try:
             p = subprocess.run(
@@ -473,10 +570,19 @@ class Sandbox:
                 errors="replace", timeout=timeout, check=False,
             )
         except subprocess.TimeoutExpired as exc:
+            self.ic_oldur(pid_yolu, grup=True)
+            kismi = (
+                (exc.stdout or b"").decode("utf-8", "replace")
+                if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+            )
+            # Neden ciktinin icine: `run_command` zaman asiminda yalnizca
+            # kismi ciktiyi gosteriyor. Oldurmenin GERCEKLESTIGINI orada
+            # soylemezsek ajan "surec hala kosuyor olabilir" varsayimiyla
+            # ayni portu bir daha denemeye kalkar.
+            not_ = t("sandbox.timeout_killed", seconds=int(timeout))
             return SandboxSonuc(
                 returncode=124,
-                stdout=(exc.stdout or b"").decode("utf-8", "replace")
-                if isinstance(exc.stdout, bytes) else (exc.stdout or ""),
+                stdout=f"{kismi}\n{not_}" if kismi.strip() else not_,
                 stderr="",
                 timed_out=True,
             )
@@ -514,6 +620,10 @@ class Sandbox:
             )
             if p.returncode == 0:
                 return True
+            # Konteyner gitmisse cevap "port kapali" DEGILDIR; adiyla
+            # soylenir, yoksa cagiran portu bos sanip servisi baslatmaya
+            # calisir ve asil sebep hicbir yerde gorunmez.
+            self._konteyner_gitti_mi(p.stderr or "")
             # Arac YOKSA sonraki yola gec; arac var ve port kapaliysa
             # cevap "kapali"dir ve aramaya devam etmek yanlis olurdu.
             hata = (p.stderr or "").lower()
@@ -521,7 +631,54 @@ class Sandbox:
                 return False
         return False
 
-    def ic_oldur(self, pid_yolu: str) -> None:
+    # Docker'in "bu konteyner yok / calismiyor" cevaplari. Uc surum de ayni
+    # seyi soyluyor; hangisinin geldigi docker surumune ve komuta bagli.
+    _GITTI_KALIPLARI = ("no such container", "is not running", "no such object")
+
+    def _konteyner_gitti_mi(self, stderr: str) -> None:
+        """Konteyner yok ya da durmussa bunu ADIYLA firlatir.
+
+        Sessizce "port kapali" demek olculmus bir yaniltma: `start_service`
+        once "port dolu mu" diye sorar, "hayir" cevabini alir, sureci
+        baslatir ve o da ayni "No such container" ile aninda oler. Ajan
+        gunlukte yalnizca olu bir sureci gorur; konteynerin gittigini
+        hicbir satir soylemez.
+        """
+        hata = (stderr or "").lower()
+        if any(kalip in hata for kalip in self._GITTI_KALIPLARI):
+            raise ToolError(t("sandbox.container_gone", name=self.name))
+
+    def dinleme_adresi(self, port: int) -> str | None:
+        """Port konteyner icinde hangi adrese bagli: 'all' | 'loopback' | None.
+
+        `port_acik` yalnizca "birisi dinliyor mu" der ve 127.0.0.1'e
+        baglanan bir servis de dinliyor sayilir -- oysa yayinlanan port
+        bos kalir ve konaktaki tarayici uygulamaya ulasamaz. Ayrimi
+        cekirdegin kendi dokumu (`/proc/net/tcp`) yapar; cozumleme
+        `_dinleme_cozumle` icinde saf bir islev, docker'siz test edilir.
+        """
+        self._kirik_mi()
+        try:
+            p = subprocess.run(
+                ["docker", "exec", self.name, "sh", "-c",
+                 "cat /proc/net/tcp /proc/net/tcp6 2>/dev/null"],
+                capture_output=True, text=True, check=False, timeout=30,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            # Hazirlik dongusunun icinde: "bilmiyorum" demek beklemeye
+            # devam etmek demektir ve dongunun kendi zaman asimi var.
+            return None
+        dokum = p.stdout or ""
+        if p.returncode != 0 or not dokum.strip():
+            self._konteyner_gitti_mi(p.stderr or "")
+            # `/proc/net/tcp` okunamiyorsa (kisitlanmis calisma zamani)
+            # eski yonteme donulur: yalnizca "dinliyor mu". Yanlis adrese
+            # bagli servisi yakalayamaz ama calisan bir kurulumu da
+            # "hazir degil" diye reddetmez.
+            return "all" if self.port_acik(port) else None
+        return _dinleme_cozumle(dokum, port)
+
+    def ic_oldur(self, pid_yolu: str, *, grup: bool = False) -> None:
         """PID dosyasindaki sureci konteyner icinde oldurur.
 
         Yerel `docker exec` istemcisini oldurmek icerideki sureci OLDURMEZ;
@@ -537,19 +694,41 @@ class Sandbox:
         kesilir, tarayici, bilgi tabani ve SQLite baglantisi acik kalirdi.
         Konteynere zaten ulasilamiyor; oldurulecek surec de PID dosyasi da
         erisilemez, docker'a gitmemek yeter.
+
+        `grup=True` pid'in SUREC GRUBUNU oldurur (`kill -TERM -$p`): bir
+        dev sunucusu ya da `npm test` asil isi torunlarda yapar ve
+        yalnizca pid'i oldurmek portu tutan sureci arkada birakir.
+        `--` ayraci YOK -- OLCULDU: dash'te `kill -TERM -- -$p`
+        "Illegal number: --" ile duser ve hicbir sey oldurulmez. Grup yoksa
+        (tek surec) ikinci bicim devreye girer; ikisi de basarisiz olursa
+        surec zaten olmustur.
         """
         if self._kirik is not None:
             return
+        if grup:
+            oldur = (
+                "kill -TERM -$p 2>/dev/null || kill -TERM $p 2>/dev/null; "
+                "sleep 0.4; "
+                "kill -KILL -$p 2>/dev/null || kill -KILL $p 2>/dev/null; "
+            )
+        else:
+            oldur = "kill -TERM $p 2>/dev/null; sleep 0.4; kill -KILL $p 2>/dev/null; "
         kod = (
             f"[ -f {pid_yolu} ] || exit 0; "
             f"p=$(cat {pid_yolu}); "
-            "kill -TERM $p 2>/dev/null; sleep 0.4; kill -KILL $p 2>/dev/null; "
+            f"{oldur}"
             f"rm -f {pid_yolu}; exit 0"
         )
-        subprocess.run(
-            ["docker", "exec", self.name, "sh", "-lc", kod],
-            capture_output=True, text=True, check=False, timeout=30,
-        )
+        try:
+            subprocess.run(
+                ["docker", "exec", self.name, "sh", "-lc", kod],
+                capture_output=True, text=True, check=False, timeout=30,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            # Bu yol kapanis temizliginin ve zaman asiminin icinde;
+            # takilan bir daemon yuzunden kosunun geri kalan temizligi
+            # (tarayici, SQLite, oteki servisler) kesilmemeli.
+            return
 
     def ic_yol(self, yol: Path) -> str:
         """Konaktaki yolun konteyner icindeki karsiligi."""

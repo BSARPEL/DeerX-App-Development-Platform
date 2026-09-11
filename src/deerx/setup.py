@@ -134,13 +134,65 @@ def tarayici(settings: Settings) -> Adim:
     return Adim("step.browser", "ok", bulunan.label)
 
 
-def docker() -> Adim:
+def docker(settings: Settings | None = None) -> Adim:
+    """Docker adimi. `execution = "docker"` ise KABINI de olcer.
+
+    Parametre istege bagli kalmali: `setup` calisma alanini ayarlardan
+    ONCE kuruyor ve bu adim orada da ayarsiz cagriliyor. Ayar verilmezse
+    davranis eskisi gibi: yalnizca CLI ve daemon.
+
+    Ayar verildiyse ve yalitim aciksa olcut sertlesir. Gerekcesi olculdu:
+    bu makinede Docker Desktop'in konak baglantisi koptugunda `docker
+    info` sorunsuz yanit veriyor -- yani eski adim "ok" diyordu -- ama her
+    `docker run` "mkdir /run/desktop/mnt/host/c: file exists" ile
+    dusuyordu. Kullanici kurulumu yesil gorup kosuyu baslatiyor ve arizayi
+    ilk arac cagrisinda, en pahali anda ogreniyordu.
+
+    Imajin henuz cekilmemis olmasi ENGEL DEGIL uyaridir: `docker run`
+    imaji kendisi ceker, taze bir kurulumu durdurmak yanlis alarm olurdu.
+    """
     if not _var_mi("docker"):
         return Adim("step.docker", "uyari", t("setup.no_docker"))
     kod, cikti = _calistir(["docker", "info", "--format", "{{.ServerVersion}}"], timeout=30)
     if kod != 0:
         return Adim("step.docker", "uyari", t("setup.docker_not_running"))
-    return Adim("step.docker", "ok", cikti.strip().splitlines()[0] if cikti.strip() else "")
+    surum = cikti.strip().splitlines()[0] if cikti.strip() else ""
+
+    if settings is None or settings.execution != "docker":
+        return Adim("step.docker", "ok", surum)
+
+    from .sandbox import Sandbox
+
+    saglik = Sandbox(
+        workspace=settings.workspace,
+        image=settings.sandbox_image,
+        port_base=settings.sandbox_port_base,
+        port_count=settings.sandbox_port_count,
+    ).probe(
+        deep=True,
+        ttl=0,
+        node_gerekli=(settings.workspace / "package.json").is_file(),
+    )
+    if saglik.problems:
+        sorun = saglik.problems[0]
+        return Adim(
+            "step.docker",
+            "eksik",
+            t("setup.docker_required", detail=t(f"sandbox.{sorun['key']}", **sorun["args"])),
+        )
+    for uyari in saglik.warnings:
+        if uyari["key"] == "node_missing":
+            return Adim(
+                "step.docker", "uyari",
+                t("setup.docker_no_node", image=settings.sandbox_image),
+            )
+        if uyari["key"] == "image_missing":
+            return Adim(
+                "step.docker", "uyari",
+                t("setup.docker_image_missing", image=settings.sandbox_image),
+                komut=f"docker pull {settings.sandbox_image}",
+            )
+    return Adim("step.docker", "ok", surum)
 
 
 SEARXNG_AYAR = """# SearXNG -- DeerX'in arama ucu. `deerx setup` uretti.
@@ -215,7 +267,7 @@ def searxng(
     if not kur:
         return Adim("step.searxng", "uyari", t("setup.searxng_absent", url=taban))
     if not _var_mi("docker"):
-        return Adim("step.searxng", "uyari", t("setup.no_docker"))
+        return Adim("step.searxng", "uyari", t("setup.no_docker_searxng"))
 
     dizin = veri_dizini or (Path.home() / ".deerx-searxng")
     dizin.mkdir(parents=True, exist_ok=True)
@@ -360,7 +412,7 @@ def kur(
         python_surumu(),
         bagimliliklar(kur=kur_bagimlilik),
         calisma_alani(workspace, kur=True),
-        docker(),
+        docker(settings),
         searxng(settings, kur=kur_searxng),
         tarayici(settings),
         model_ucu(settings),

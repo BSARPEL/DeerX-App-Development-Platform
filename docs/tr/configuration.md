@@ -107,7 +107,13 @@ vektörler karşılaştırılamaz ve sessiz bir boş sonuç kümesi bir hatadan 
 |---|---|
 | `enabled` | `true` |
 | `timeout_seconds` | `300` |
+| `max_timeout_seconds` | `1800` | Ajanın isteyebileceği `timeout` için tavan; olmadan tek bir asılı komut koşuyu günlerce tutabilir. Sınırlanan çağrı bunu sonucunda söyler |
 | `allow_prefixes` | Unix araçları artı Windows karşılıkları (`findstr`, `type`, `dir`, `where`), kabuk yerleşikleri (`cd`, `export`, …), metin araçları (`sed`, `awk`, …) ve `docker` / `make` / `go` / `cargo` | Paketlenmiş `deerx.toml` her öneki listeler; boş liste yalnızca reddetme listesinin uygulanması demektir |
+
+`deny_substrings` Docker kaçış deliklerini de reddeder — `--privileged`,
+`--pid=host`, `--network host` ve kök bağlı noktalar (`-v /:`, `-v C:\:`) —
+çünkü `docker` izin listesinde ve o bayraklardan biri öteki bütün çitleri aşar.
+`docker build` ve göreli bağlı noktalar çalışmaya devam eder.
 
 Boş bir `allow_prefixes = []` yalnızca reddetme listesinin uygulanması demektir
 — açıkça yıkıcı olmayan her komut serbest kalır. Bunu yapmadan önce
@@ -122,7 +128,8 @@ için buraya yazın.
 Varsayılan olarak ajanın `run_command` ve `start_service` çağrıları **bu
 makinede** koşar ve kabuk izin listesiyle çevrilidir. `execution = "docker"`
 derseniz ikisi de tek kullanımlık bir konteynerde koşar; izin listesi o zaman
-uygulanmaz, çünkü korunacak konak yoktur ve konteyner koşu bitince silinir.
+uygulanmaz, çünkü korunacak konak yoktur. Konteyner koşu bitince durdurulur,
+silinmez.
 
 | Anahtar | Varsayılan | Not |
 |---|---|---|

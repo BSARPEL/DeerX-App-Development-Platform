@@ -85,6 +85,9 @@ class Agent:
         self._warn_iteration = max(1, int(self.max_iterations * _BUDGET_WARN_AT))
         if self.max_iterations - self._warn_iteration < 2:
             self._warn_iteration = max(1, self.max_iterations - 2)
+        # Bu turda bir arac "kabin koptu" dediyse sebebi; `_execute_tools`
+        # yazar, dongu okur ve keser.
+        self._kabin_dustu: str | None = None
 
     # ------------------------------------------------------------------ #
     # Kosu
@@ -230,9 +233,19 @@ class Agent:
                 result.stop_reason = completion.stop_reason or "end_turn"
                 break
 
+            self._kabin_dustu = None
             outcomes = self._execute_tools(completion.tool_calls)
             result.tool_calls += len(completion.tool_calls)
             self.client.append_tool_results(messages, outcomes)
+            if self._kabin_dustu is not None:
+                # Kabin koptu: bundan sonraki HICBIR komut calismayacak.
+                # Modele "yeniden dene" demek tur butcesini yakmaktan
+                # baska bir sey yapmiyordu; faz burada duser ve sebep
+                # kosu kaydina gecer.
+                result.error = self._kabin_dustu
+                result.stop_reason = "sandbox_down"
+                self.events.emit("error", self.role, result.error)
+                break
         else:
             result.stop_reason = "max_iterations"
             self.events.emit(
@@ -267,6 +280,11 @@ class Agent:
             self.events.emit("tool", self.role, f"{call.name}({preview})")
 
             outcome = self.registry.execute(call.name, call.arguments, self.ctx)
+            # Kabin kopmasi arac hatasi gibi gorunur ama dongu icin
+            # baskadir: sebep modelin komutunda degil, ortamda. Isareti
+            # `ToolResult.data` tasir (modele gitmez), dongu onu okur.
+            if isinstance(outcome.data, dict) and outcome.data.get("sandbox_down"):
+                self._kabin_dustu = outcome.content
             if outcome.is_error:
                 self.events.emit("tool_error", self.role, f"{call.name}: {outcome.content[:180]}")
 

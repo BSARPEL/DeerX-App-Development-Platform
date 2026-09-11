@@ -192,6 +192,7 @@ paylaşır ve bir test aynı fazları kapsadıklarını doğrular. Bkz.
 | `tasks` | `T-nnn`, şerit, bağımlılıklar, dosyalar, kabul ölçütü, plan |
 | `plans` | Adlandırılmış görev grupları, biri etkin |
 | `artifacts` | Ad, tür, yol, özet, üreten faz ve koşu |
+| `artifact_blobs` | Baytların kendisi; boyut, sha256 ve ortam türü. Yazma ve okuma 4 MB'lik parçalarla, 250 MB'lik bir paket hiç belleğe alınmasın diye |
 | `phases` · `runs` · `run_steps` | Faz durumu, koşu geçmişi, adım ayrıntısı |
 
 Şema değişiklikleri açılışta geçirilir. `lane` ve `plan_id` sütunlarından önceki

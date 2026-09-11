@@ -78,12 +78,12 @@ atlanamaz: her koşuda uygulamayı açıp kullanacaksın.
    demek "gerçekten hazır" demek olur.
 
    ```
-   start_service(command="npm run dev", port=3000, name="web")
+   start_service(command="npm run dev", port=<ortam bölümündeki aralıktan bir port>, name="web")
    ```
 
    Servis hemen ölürse günlüğün sonu hata olarak döner — sebebi oradadır.
 
-2. **Aç ve gez.** `preview_open(port=3000)` ile aç, `browser_snapshot` ile ne
+2. **Aç ve gez.** `preview_open(port=<aynı port>)` ile aç, `browser_snapshot` ile ne
    göründüğünü oku, `browser_click` ve `browser_type` ile kullan.
 
 3. **Her adımdan sonra `browser_console`.** Anlık görüntü sayfanın nasıl

@@ -49,8 +49,8 @@ my-project/
 └── .deerx/             DeerX-managed; safe to delete, expensive to lose
     ├── deerx.db        requirements, gaps, decisions, tasks, questions
     ├── events.jsonl    every tool call and model step
-    ├── artifacts/      reports, mockups, screenshots
-    ├── teslimat/       delivery zip files
+    ├── artifacts/      reports, mockups, screenshots (a copy; see below)
+    ├── teslimat/       delivery zip files (a copy)
     └── browser/        the agent's own Chrome profile, not yours
 ```
 
@@ -74,7 +74,7 @@ Four things persist, and they are not interchangeable.
 | **Knowledge base** | SQLite + vectors, inside `.deerx/` | What the model can *search*: the spec, the code, fetched pages, your answers |
 | **Project memory** | `.deerx/deerx.db` | What the pipeline *recorded*: `REQ-001`, `GAP-003`, `Q-002`, `T-014` |
 | **Event stream** | `.deerx/events.jsonl` | What happened, in order, recoverable after a restart |
-| **Artifacts** | `.deerx/artifacts/` | What a phase *produced*: `analiz-raporu.md`, `mockup-*.html`, screenshots |
+| **Artifacts** | `deerx.db` (`artifact_blobs`), mirrored in `.deerx/artifacts/` | What a phase *produced*: `analiz-raporu.md`, `mockup-*.html`, screenshots |
 
 An answer to a blocking question is written to the project memory **and**
 indexed into the knowledge base. The first closes the gate; the second is why
@@ -85,6 +85,15 @@ Artifact file names stay Turkish in both interface languages
 (`analiz-raporu.md`, `mimari.md`, `gelistirme-plani.md`). The orchestrator
 matches a phase's deliverable by file name; translating the names would break
 the check that the phase actually produced something.
+
+**Artifact bytes live in the database**, with `.deerx/artifacts/` and
+`.deerx/teslimat/` kept as a mirror you can read with ordinary tools. Deleting
+those folders loses nothing the interface needs: the screens still list and
+download everything. The direction that *does* lose something is the other one —
+a backup that copies only `deerx.db` can leave the newest artifacts behind in
+`deerx.db-wal`. Run `deerx artifacts --checkpoint` first and the single file is
+complete; `deerx artifacts --backfill` goes the other way and pulls in anything
+still only on disk.
 
 ## Workflows, runs, plans and tasks
 
@@ -193,10 +202,16 @@ By default the agent's `run_command` and `start_service` run **on this
 machine**, fenced by a shell allow-list. The file tools can only see the
 workspace; the processes they start are not confined.
 
-`execution = "docker"` moves those commands into a disposable container. The
-workspace is still mounted, so this protects the host, not the project. The
-allow-list is then not applied: there is no host left to protect, and the
-container is deleted when the run ends.
+`execution = "docker"` moves those commands into a container. The workspace is
+still mounted, so this protects the host, not the project. The allow-list is
+then not applied: there is no host left to protect. The container is **stopped**
+when the run ends, not deleted — the setup command only runs when a container is
+created, and deleting it every time would mean an `apt-get install` on every
+start. *Rebuild environment* deletes it.
+
+The sandbox is measured before a run starts, not discovered during one. If it
+cannot be built — Docker not answering, the workspace not mounting — the run
+stops before the model is called and the Environment screen names the cause.
 
 The web **Settings → Isolation** panel writes the same keys for the session
 and rebuilds the container. Persist them in `deerx.toml`.

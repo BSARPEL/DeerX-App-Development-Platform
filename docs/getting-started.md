@@ -345,7 +345,7 @@ awaited.
 .deerx/
 ├── deerx.db          requirements, gaps, decisions, tasks, questions, artifacts
 ├── events.jsonl      the event stream, recoverable across restarts
-├── artifacts/        analiz-raporu.md, mimari.md, mockup-*.html, screenshots
+├── artifacts/        analiz-raporu.md, mimari.md, mockup-*.html, screenshots (a copy)
 └── teslimat/         delivery zips
 ```
 

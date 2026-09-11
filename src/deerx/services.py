@@ -39,6 +39,12 @@ MAX_SERVICES = 6
 DEFAULT_READY_SECONDS = 90
 # Port yoklama araligi.
 _POLL = 0.25
+# Yalnizca geri donguye bagli gorunen bir servise taninan ek sure. Bazi
+# sunucular (uvicorn --reload, webpack-dev-server) once gecici bir soket
+# acip sonra asil adrese baglanir; ilk dokumde gordugumuz 127.0.0.1 nihai
+# hali olmayabilir. Iki saniye o gecisi kapsar, ariza halinde ise bekleme
+# suresine anlamli bir sey eklemez.
+_LOOPBACK_BEKLEME = 2.0
 
 
 def port_open(port: int, host: str = "127.0.0.1", timeout: float = 0.4) -> bool:
@@ -122,6 +128,18 @@ class ServiceManager:
             return self.sandbox.port_acik(port)
         return port_open(port)
 
+    def _dinleme_adresi(self, port: int) -> str | None:
+        """Port hangi adrese bagli: 'all' | 'loopback' | None.
+
+        Konak kipinde ayrim YOK ve olmamali: konaktaki tarayici
+        127.0.0.1'e baglanan bir servise de ulasir. Yalitilmis kipte ise
+        ayrim her seyi belirler -- yayinlanan port yalnizca konteynerin
+        adresine yonlendirilir, geri donguye degil.
+        """
+        if self.sandbox is not None:
+            return self.sandbox.dinleme_adresi(port)
+        return "all" if port_open(port) else None
+
     def start(
         self,
         *,
@@ -147,6 +165,16 @@ class ServiceManager:
 
         if len(self.running()) >= MAX_SERVICES:
             raise ToolError(t("service.too_many", limit=MAX_SERVICES))
+
+        # Konteyner ONCE hazirlanir. Eski sirada port denetimi kurulmamis
+        # bir konteynere `docker exec` atiyordu: cagri "No such container"
+        # ile dusuyor, port BOS sayiliyor, hemen ardindan `Popen` ayni
+        # hatayla aninda oluyordu. Ajanin gordugu tek sey olu bir surecti;
+        # konteynerin hic kurulmadigini soyleyen bir satir yoktu.
+        # `ensure()` kendi kilidini tasir ve konteyner zaten calisiyorsa
+        # tek bir `docker inspect` eder.
+        if self.sandbox is not None:
+            self.sandbox.ensure()
 
         # Port zaten doluysa baslatmanin anlami yok: surec ya hemen olur ya
         # da sessizce baska bir porta duser. Ikisi de yaniltir.
@@ -220,6 +248,13 @@ class ServiceManager:
         surecin ilk saniyeyi atlattigina bakariz: yanlis komut, eksik
         bagimlilik ve sozdizimi hatasi hemen dusen bir surec olarak
         gorunur ve "baslatildi" demek yaniltici olurdu.
+
+        Yalitilmis kipte "dinliyor" yetmez: yalnizca 127.0.0.1'e baglanan
+        bir servis konteyner icinde calisir ama yayinlanan port BOS kalir
+        ve konaktaki tarayici ona hicbir zaman ulasamaz. Bunu "hazir"
+        saymak, ajani `preview_open` hatasiyla bas basa birakir ve hata
+        uygulamanin kendisindeymis gibi gorunur. Bu yuzden servis
+        durdurulur ve ne yapmasi gerektigi tek cumlede soylenir.
         """
         deadline = time.time() + (ready_seconds if service.port else 1.5)
         while time.time() < deadline:
@@ -240,7 +275,20 @@ class ServiceManager:
             if service.port is None:
                 time.sleep(_POLL)
                 continue
-            if self._port_acik(service.port):
+            adres = self._dinleme_adresi(service.port)
+            if adres == "loopback":
+                # Ikinci bakis: gecis halinde olan bir sunucuyu (once
+                # gecici soket, sonra asil adres) haksiz yere reddetmeyelim.
+                time.sleep(_LOOPBACK_BEKLEME)
+                adres = self._dinleme_adresi(service.port)
+            if adres == "loopback":
+                # Servis birakilirsa portu tutar ve ajanin duzeltip yeniden
+                # baslatma denemesi "port zaten kullaniliyor" ile karsilanir.
+                self.stop(service.name)
+                raise ToolError(
+                    t("service.loopback_only", name=service.name, port=service.port)
+                )
+            if adres is not None:
                 self._emit(
                     "tool",
                     "service",
@@ -283,9 +331,12 @@ class ServiceManager:
         if self.sandbox is not None:
             # Yerel `docker exec` istemcisini oldurmek konteynerdeki
             # sureci OLDURMEZ; yoksa port dolu kalir ve ajan "port
-            # kullanimda" hatasini anlamlandiramaz.
+            # kullanimda" hatasini anlamlandiramaz. Grup olarak: bir dev
+            # sunucusu asil isi torunda yapar (`npm run dev` -> node),
+            # yalnizca pid'i oldurmek portu tutani arkada birakirdi.
             self.sandbox.ic_oldur(
-                f"{self.sandbox.ic_yol(self.log_dir)}/{_safe(name)}.pid"
+                f"{self.sandbox.ic_yol(self.log_dir)}/{_safe(name)}.pid",
+                grup=True,
             )
         if canliydi:
             try:

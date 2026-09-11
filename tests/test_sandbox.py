@@ -18,6 +18,7 @@ import pytest
 
 from deerx.config import Settings
 from deerx.errors import ToolError
+from deerx.i18n import t
 from deerx.logging import EventLog
 from deerx.sandbox import (
     CALISMA_ALANI,
@@ -26,6 +27,7 @@ from deerx.sandbox import (
     SORUN_ANAHTARLARI,
     Sandbox,
     SandboxUnavailable,
+    _dinleme_cozumle,
     docker_hatasi_cevir,
 )
 from deerx.tools import ToolContext, build_registry
@@ -193,6 +195,228 @@ class TestPortAraligi:
         )
 
 
+# Gercek bir konteynerden alinmis bicim. Adres alani kelime ICINDE ters
+# yazilir (x86 little-endian): 0.0.0.0 "00000000", 127.0.0.1 "0100007F".
+# Portlar onaltilik: 1FA4 = 8100, 1F90 = 8080, 1F91 = 8081.
+_PROC_NET_TCP = """\
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 00000000:1FA4 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 34215 1
+   1: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 34216 1
+   2: 0100007F:1F91 0100007F:C1B2 01 00000000:00000000 00:00000000 00000000     0        0 34217 1
+"""
+
+# `/proc/net/tcp6`: ayni bicim, 32 basamakli adres. 1435 = 5173 (::),
+# 1436 = 5174 (::1).
+_PROC_NET_TCP6 = """\
+  sl  local_address                         remote_address                        st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 00000000000000000000000000000000:1435 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 40122 1
+   1: 00000000000000000000000001000000:1436 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 40123 1
+"""
+
+
+class TestDinlemeAdresi:
+    """Servis 0.0.0.0'a mi bagli, yalnizca 127.0.0.1'e mi?
+
+    Konteynerde geri donguye baglanan bir servis calisiyor GORUNUR ama
+    yayinlanan port BOS kalir: Docker o portu konteynerin adresine
+    yonlendirir, geri donguye degil. Konaktaki tarayici uygulamaya
+    ulasamaz ve ajan saatlerce kendi kodunda hata arar.
+
+    Ayrimi konaktan gormek imkansiz -- olculdu, yayinlanan portu Docker'in
+    kendisi dinler ve icerde hicbir servis yokken bile "acik" der. Cevap
+    yalnizca konteynerin kendi `/proc/net/tcp` dokumunde var.
+    """
+
+    @pytest.mark.parametrize(
+        ("dokum", "port", "beklenen"),
+        [
+            (_PROC_NET_TCP, 8100, "all"),          # 0.0.0.0: yayinlanan port calisir
+            (_PROC_NET_TCP, 8080, "loopback"),     # 127.0.0.1: port bos kalir
+            (_PROC_NET_TCP, 8081, None),           # kurulmus baglanti, dinleme degil
+            (_PROC_NET_TCP, 9999, None),           # kimse dinlemiyor
+            (_PROC_NET_TCP6, 5173, "all"),         # ::
+            (_PROC_NET_TCP6, 5174, "loopback"),    # ::1
+            ("", 8100, None),                      # bos dokum bir iddia degil
+        ],
+    )
+    def test_the_listen_address_is_classified(self, dokum, port, beklenen):
+        """Cozumleme SAF: docker'siz olculebilir, yani her makinede kosar."""
+        assert _dinleme_cozumle(dokum, port) == beklenen
+
+    def test_an_established_connection_is_not_listening(self):
+        """Durum kodu ayrimi olmasaydi kapanmak uzere olan bir istek
+        "servis hazir" sayilirdi; hazirlik dongusu yanlis anda donerdi."""
+        assert _dinleme_cozumle(_PROC_NET_TCP, 8081) is None
+
+    def test_one_open_binding_is_enough(self):
+        """Ayni portu hem 127.0.0.1'e hem 0.0.0.0'a baglayan bir sunucu
+        (IPv4 + IPv6 ciftleri boyledir) reddedilmemeli: yayinlanan port
+        calisiyor."""
+        karisik = _PROC_NET_TCP + (
+            "   3: 00000000:1F90 00000000:0000 0A 00000000:00000000 "
+            "00:00000000 00000000     0        0 34299 1\n"
+        )
+        assert _dinleme_cozumle(karisik, 8080) == "all"
+
+    def test_the_header_line_is_not_mistaken_for_a_socket(self):
+        """Dokumun ilk satiri basliktir; alan sayisi tutar ama durum
+        sutununda "st" yazar."""
+        assert _dinleme_cozumle(_PROC_NET_TCP.splitlines()[0], 8100) is None
+
+    def test_the_address_is_read_from_inside_the_container(self, tmp_path, monkeypatch):
+        """Dokum konteynerin ICINDEN okunur ve fazladan bir arac
+        gerektirmez: `ss` de `netstat` de `python:3.13` imajinda YOK,
+        `cat` her yerde var."""
+        sahte = _sahte_docker(monkeypatch, exec=(0, _PROC_NET_TCP, ""))
+        sb = _sandbox(tmp_path, Settings(workspace=tmp_path))
+
+        assert sb.dinleme_adresi(8100) == "all"
+        argv = sahte.ilk("exec")
+        assert sb.name in argv
+        assert "/proc/net/tcp" in argv[-1] and "/proc/net/tcp6" in argv[-1]
+
+
+class TestKonteynerGitti:
+    """Konteyner yoksa cevap "port bos" DEGILDIR.
+
+    `start_service` once "bu port dolu mu" diye sorar. Konteyner
+    silinmisse yoklama "No such container" ile duser ve bu False'a, yani
+    "port bos"a cevriliyordu: surec baslatiliyor, `docker exec` ayni
+    hatayla aninda oluyor ve ajan yalnizca olu bir surec goruyordu.
+    Konteynerin gittigini soyleyen tek bir satir yoktu.
+    """
+
+    @pytest.mark.parametrize(
+        "stderr",
+        [
+            "Error response from daemon: No such container: deerx-sbx-abc",
+            "Error response from daemon: Container deerx-sbx-abc is not running",
+        ],
+    )
+    def test_a_gone_container_is_named(self, stderr, tmp_path, monkeypatch):
+        _sahte_docker(monkeypatch, exec=(1, "", stderr))
+        sb = _sandbox(tmp_path, Settings(workspace=tmp_path))
+
+        with pytest.raises(ToolError) as bilgi:
+            sb.port_acik(TEST_PORT_BASE)
+        assert sb.name in str(bilgi.value), str(bilgi.value)
+
+    def test_the_listen_address_says_the_same_thing(self, tmp_path, monkeypatch):
+        """Hazirlik dongusu de ayni cevabi almali; yoksa servis "hazir
+        degil" diye {seconds} saniye beklenir ve sebep yine gorunmez."""
+        _sahte_docker(
+            monkeypatch,
+            exec=(1, "", "Error response from daemon: No such container: x"),
+        )
+        sb = _sandbox(tmp_path, Settings(workspace=tmp_path))
+
+        with pytest.raises(ToolError):
+            sb.dinleme_adresi(TEST_PORT_BASE)
+
+    def test_a_closed_port_is_still_just_a_closed_port(self, tmp_path, monkeypatch):
+        """Karsi test: her hatayi "konteyner gitti" saymak, kapali bir
+        portu ariza gibi gosterirdi."""
+        _sahte_docker(monkeypatch, exec=(1, "", ""))
+        sb = _sandbox(tmp_path, Settings(workspace=tmp_path))
+
+        assert sb.port_acik(TEST_PORT_BASE) is False
+
+
+class TestZamanAsimi:
+    """Zaman asimi konteynerin ICINDEKI sureci de oldurmeli.
+
+    OLCULDU: yerel `docker exec` istemcisini oldurmek icerideki sureci
+    OLDURMEZ. Zaman asimina ugrayan bir `npm test` ya da yanlislikla
+    `run_command` ile baslatilmis bir sunucu konteynerde yasamaya devam
+    ediyor, portu tutuyor ve kosu bitene kadar onu kimse tanimiyordu --
+    `stop_service` bile, cunku o yalnizca kayitli servisleri bilir.
+    """
+
+    @staticmethod
+    def _kur(monkeypatch):
+        """Komut zaman asimina ugrar; oldurme cagrisi kaydedilir."""
+        oldurmeler: list[str] = []
+
+        def calistir(argv):
+            if any("kill -TERM" in parca for parca in argv):
+                oldurmeler.append(argv[-1])
+                return (0, "", "")
+            raise subprocess.TimeoutExpired(cmd="docker exec", timeout=2)
+
+        sahte = _sahte_docker(
+            monkeypatch, inspect=(0, "running\n", ""), exec=calistir,
+        )
+        return sahte, oldurmeler
+
+    def test_a_timeout_kills_the_inner_process_group(self, tmp_path, monkeypatch):
+        sahte, oldurmeler = self._kur(monkeypatch)
+        sb = _sandbox(tmp_path, Settings(workspace=tmp_path))
+
+        sonuc = sb.run("sleep 30", timeout=2)
+
+        assert sonuc.timed_out and sonuc.returncode == 124
+        assert oldurmeler, "ic surec oldurulmedi; konteynerde yasamaya devam ederdi"
+        betik = oldurmeler[0]
+        assert "kill -TERM -$p" in betik, (
+            "yalnizca pid olduruldu; `npm run dev` asil sunucuyu torunda "
+            "kosar ve portu tutmaya devam ederdi"
+        )
+        assert "--" not in betik, (
+            "OLCULDU: dash `kill -TERM -- -$p` icin 'Illegal number: --' "
+            "der ve hicbir sey oldurulmez"
+        )
+        assert "setsid" not in betik, (
+            "OLCULDU: `docker exec` sureci zaten oturum lideri; setsid fork "
+            "edip erken donuyor ve pid dosyasi olu ebeveynin pid'ini tasiyor"
+        )
+
+    def test_the_kill_targets_the_pid_the_command_wrote(self, tmp_path, monkeypatch):
+        """Sarmal bir PID dosyasi yazar ve oldurme AYNI dosyayi okur;
+        iki yer ayrisirsa oldurme baska bir surece gider."""
+        import re
+
+        sahte, oldurmeler = self._kur(monkeypatch)
+        sb = _sandbox(tmp_path, Settings(workspace=tmp_path))
+
+        sb.run("sleep 30", timeout=2)
+
+        kosum = sahte.ilk("exec")
+        sarmal = next(a for a in kosum if "echo $$" in a)
+        yol = re.search(r"/tmp/deerx-\w+\.pid", sarmal)
+        assert yol is not None, sarmal
+        assert yol.group(0) in oldurmeler[0]
+        # `exec` sart: komut kabugun COCUGU olsaydi dosya kabugun pid'ini
+        # tasirdi ve oldurme yanlis surece giderdi.
+        assert "exec sh -c" in sarmal
+        # Komut ayri bir arguman olarak gecer; `--` ayraci YOK (olculdu:
+        # ayraci koymak onu $0 yapar ve `"$0"` okuyan sarmal `--`
+        # calistirir).
+        assert kosum[-1] == "sleep 30" and "--" not in kosum
+
+    def test_the_agent_is_told_the_process_was_killed(self, tmp_path, monkeypatch):
+        """`run_command` zaman asiminda yalnizca kismi ciktiyi gosterir.
+        Oldurmenin gerceklestigi orada yazmazsa ajan "surec hala kosuyor
+        olabilir" varsayimiyla ayni portu yeniden dener."""
+        self._kur(monkeypatch)
+        sb = _sandbox(tmp_path, Settings(workspace=tmp_path))
+
+        sonuc = sb.run("sleep 30", timeout=2)
+
+        assert t("sandbox.timeout_killed", seconds=2) in sonuc.stdout
+
+    def test_a_normal_run_is_not_disturbed(self, tmp_path, monkeypatch):
+        """Sarmal, komutun kendi ciktisini ve cikis kodunu degistirmemeli."""
+        sahte = _sahte_docker(
+            monkeypatch, inspect=(0, "running\n", ""), exec=(3, "merhaba\n", "uyari\n"),
+        )
+        sb = _sandbox(tmp_path, Settings(workspace=tmp_path))
+
+        sonuc = sb.run("echo merhaba", timeout=30)
+
+        assert (sonuc.returncode, sonuc.stdout, sonuc.stderr) == (3, "merhaba\n", "uyari\n")
+        assert not sonuc.timed_out and sahte.sayi("exec") == 1
+
+
 @docker_gerekli
 class TestGercekKonteyner:
     """Docker ile uctan uca. Yavas ama kanit bunlar."""
@@ -260,6 +484,80 @@ class TestGercekKonteyner:
             "durdurma konteyner icindeki sureci oldurmedi; port dolu kaldi "
             "ve ayni portu tekrar kullanmak imkansiz olurdu"
         )
+
+    @pytest.mark.slow
+    def test_a_timeout_kills_the_process_inside_the_container(self, ortam):
+        """ASIL KANIT: zaman asimindan sonra surec konteynerde YOK.
+
+        Yerel istemciyi oldurmek icerideki sureci oldurmuyordu; olculdu.
+        Kalan surec portu tutar ve kosu bitene kadar onu kimse tanimaz.
+        """
+        _ayar, sb = ortam
+        sonuc = sb.run("sleep 31337", timeout=3)
+
+        assert sonuc.timed_out and sonuc.returncode == 124
+        # `ps` her imajda yok; `/proc` her Linux konteynerinde var.
+        dokum = sb.run(
+            "cat /proc/*/cmdline 2>/dev/null | tr '\\0' ' '", timeout=60
+        ).stdout
+        assert "31337" not in dokum, (
+            "zaman asimindan sonra surec konteynerde yasamaya devam ediyor"
+        )
+
+    @pytest.mark.slow
+    def test_a_loopback_only_service_is_refused_and_stopped(self, ortam, tmp_path):
+        """ASIL KANIT: 127.0.0.1'e baglanan servis "hazir" sayilmamali.
+
+        Yayinlanan port konteynerin adresine yonlendirilir; geri donguye
+        baglanan bir servis calisir gorunur ama konaktaki tarayici ona
+        hicbir zaman ulasamaz.
+        """
+        from deerx.services import ServiceManager
+
+        ayar, sb = ortam
+        port = ayar.sandbox_port_base + 1
+        m = ServiceManager(
+            log_dir=tmp_path / ".deerx" / "services",
+            events=EventLog(None, echo=False),
+            sandbox=sb,
+        )
+        try:
+            with pytest.raises(ToolError) as bilgi:
+                m.start(
+                    name="yalnizyerel",
+                    command=f"python -m http.server {port} --bind 127.0.0.1",
+                    cwd=tmp_path, port=port, ready_seconds=40,
+                )
+            assert "0.0.0.0" in str(bilgi.value), str(bilgi.value)
+            assert m.running() == [], "reddedilen servis portu tutmaya devam ediyor"
+            assert sb.dinleme_adresi(port) is None, (
+                "servis durdurulmadi; ajanin duzeltip yeniden baslatma "
+                "denemesi 'port zaten kullaniliyor' ile karsilanirdi"
+            )
+        finally:
+            m.stop_all()
+
+    @pytest.mark.slow
+    def test_binding_all_interfaces_is_accepted(self, ortam, tmp_path):
+        """Karsi test: dogru baglanan servis reddedilmemeli."""
+        from deerx.services import ServiceManager
+
+        ayar, sb = ortam
+        port = ayar.sandbox_port_base + 2
+        m = ServiceManager(
+            log_dir=tmp_path / ".deerx" / "services",
+            events=EventLog(None, echo=False),
+            sandbox=sb,
+        )
+        try:
+            m.start(
+                name="acik",
+                command=f"python -m http.server {port} --bind 0.0.0.0",
+                cwd=tmp_path, port=port, ready_seconds=40,
+            )
+            assert sb.dinleme_adresi(port) == "all"
+        finally:
+            m.stop_all()
 
 
 class TestKaynakSinirlari:
@@ -1140,3 +1438,116 @@ class TestOrtamiYenidenKurGercektenKurar:
             assert "sil" in metin or "destroy" in metin, (
                 "uyari metni degistiyse bu testin gerekcesi de gozden gecirilmeli"
             )
+
+
+class TestTekNesne:
+    """Bir kosuda TEK `Sandbox` nesnesi olmali.
+
+    Kabin uc yerde tutuluyordu: orkestratorun `_sandbox` alani, servis
+    yoneticisinin `sandbox` alani ve arac baglaminin `_sandbox` alani.
+    Ilk ikisi ayni nesneyi gosteriyordu, ucuncusu BOS basliyor ve
+    `tools/shell._sandbox` orada bir sey bulamayinca KENDI nesnesini
+    kuruyordu.
+
+    Iki nesne iki ayri `_kirik` isareti ve iki ayri kilit demek:
+    orkestrator kabini "kurulamiyor" bilirken arac katmanindaki nesne
+    ayni `docker run`u her arac cagrisinda yeniden deniyor, servis
+    durdurma da PID dosyasini baska bir nesnenin yolundan ariyordu.
+    """
+
+    def _orkestrator(self, settings, monkeypatch):
+        from deerx.pipeline.orchestrator import Orchestrator
+
+        # `close`/`destroy` gercek `docker` calistirir; bu testler
+        # makinede konteyner aramamali.
+        monkeypatch.setattr(Sandbox, "close", lambda _self: None)
+        monkeypatch.setattr(Sandbox, "destroy", lambda _self: None)
+        settings.execution = "docker"
+        return Orchestrator(settings, events=EventLog(None, echo=False), stream=False)
+
+    def test_run_command_uses_the_orchestrators_sandbox(self, settings, monkeypatch):
+        """Arac katmani orkestratorun kabinini bulmali, yenisini kurmamali."""
+        from deerx.tools.shell import _sandbox as kabini_bul
+
+        with self._orkestrator(settings, monkeypatch) as orch:
+            assert orch.services.sandbox is not None
+            # Orkestrator kabini KURULUSTA baglama da yazar; arac katmani
+            # onu servis yoneticisine gitmeden bulur.
+            assert orch.ctx._sandbox is orch.services.sandbox  # noqa: SLF001
+            assert kabini_bul(orch.ctx) is orch.services.sandbox
+
+    def test_the_rebuilt_sandbox_replaces_the_old_one_everywhere(
+        self, settings, monkeypatch
+    ):
+        """"Ortami yeniden kur"dan sonra eski nesne hicbir yerde kalmamali.
+
+        Kalsaydi bir sonraki komut ESKI ayarlarla (eski imaj, eski port
+        araligi) kurulmus nesneyi kullanirdi -- yeniden kurmanin amaci tam
+        olarak bu.
+        """
+        from deerx.tools.shell import _sandbox as kabini_bul
+
+        with self._orkestrator(settings, monkeypatch) as orch:
+            eski = orch.services.sandbox
+            orch.reset_sandbox()
+            yeni = orch.services.sandbox
+            assert yeni is not None and yeni is not eski
+            assert orch.ctx._sandbox is yeni  # noqa: SLF001
+            assert kabini_bul(orch.ctx) is yeni
+
+    def test_a_context_without_its_own_sandbox_takes_the_services_one(
+        self, tmp_path, monkeypatch
+    ):
+        """Turetilmis baglam (`child()`) kabini bos devralmis olabilir.
+
+        O halde bile yeni bir nesne KURULMAMALI: servis yoneticisininki
+        ayni konteynerin sahibi. Olcut sifir docker cagrisi -- yeni nesne
+        kurulsaydi `ensure()` ile `docker inspect`e giderdi.
+        """
+        from deerx.tools.shell import _sandbox as kabini_bul
+
+        sahte = _sahte_docker(monkeypatch)
+        ayar = _docker_ayarlari(tmp_path)
+        kabin = _sandbox(tmp_path, ayar)
+        ctx = ToolContext(
+            settings=ayar,
+            events=EventLog(None, echo=False),
+            services=type("SahteYonetici", (), {"sandbox": kabin})(),
+        )
+
+        assert kabini_bul(ctx) is kabin
+        assert sahte.cagrilar == [], "hazir kabin dururken docker cagrildi"
+        assert ctx._sandbox is kabin, "bulunan kabin baglama yazilmadi"  # noqa: SLF001
+
+
+class TestKopanKabinDonguyuKeser:
+    """Kabin kosunun ORTASINDA koparsa ajan donmeyi surdurmemeli.
+
+    Kabin kopmasi arac hatasi gibi gorunuyor ve modele oyle donuyordu:
+    model hatayi kendi komutunda ariyor, izin listesini, yolu, tirnaklari
+    duzeltmeyi deniyor ve tur butcesi bitene kadar ayni duvara tosluyordu.
+    Hicbir komut calismayacakken.
+    """
+
+    def test_a_dead_sandbox_marks_the_tool_result(self, tmp_path, monkeypatch):
+        """Isaret `ToolResult.data` ile gider: modele degil, donguye."""
+        sahte = _sahte_docker(monkeypatch)
+        ayar = _docker_ayarlari(tmp_path, approval_mode="auto")
+        ayar.ensure_dirs()
+        kabin = _sandbox(tmp_path, ayar)
+        # Kabin bir kez kurulamadi; `_kirik` sonraki her cagriyi docker'a
+        # gitmeden ayni hatayla keser (bkz. TestKirikKabin).
+        kabin._kirik = SandboxUnavailable(  # noqa: SLF001 - testin kurdugu durum
+            "kabin kurulamiyor", key="bind_mount_broken",
+        )
+        ctx = ToolContext(
+            settings=ayar,
+            events=EventLog(None, echo=False),
+            services=type("SahteYonetici", (), {"sandbox": kabin})(),
+        )
+
+        sonuc = build_registry().execute("run_command", {"command": "ls"}, ctx)
+
+        assert sonuc.is_error
+        assert sonuc.data == {"sandbox_down": True}, sonuc.data
+        assert sahte.cagrilar == [], "kirik kabin docker'a gitti"

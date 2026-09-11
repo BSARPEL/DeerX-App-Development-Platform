@@ -14,6 +14,7 @@ from ..config import Settings
 from ..errors import ApprovalDenied, ToolError, WorkspaceError
 from ..i18n import language, t
 from ..logging import EventLog, console, get_logger
+from ..sandbox import SandboxUnavailable
 
 if TYPE_CHECKING:  # pragma: no cover
     from ..browser import BrowserSession
@@ -360,6 +361,19 @@ class ToolRegistry:
                 outcome = tool.run(ctx, **arguments)
         except ApprovalDenied as exc:
             return ToolResult.error(str(exc))
+        except SandboxUnavailable as exc:
+            # Kabin koptu. Modele bu da bir arac hatasi olarak doner (o
+            # turu tamamlamak icin gerekli) ama YALNIZCA oyle donmesi
+            # yetmiyordu: hicbir komut calismayacagi halde model ayni
+            # duvara tur butcesi bitene kadar tosluyor, kirk tur
+            # "izin listesi", "yol yanlis" diye kendi komutunu duzeltmeye
+            # calisiyordu. Isaret ajan dongusunu kestirir; sebep
+            # metninde zaten yaziyor.
+            return ToolResult(
+                content=f"{t('tool.error_prefix')}: {exc}",
+                is_error=True,
+                data={"sandbox_down": True},
+            )
         except (ToolError, WorkspaceError) as exc:
             return ToolResult.error(str(exc))
         except TypeError as exc:

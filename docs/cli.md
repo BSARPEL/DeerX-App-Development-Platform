@@ -177,13 +177,27 @@ dependencies are met.
 
 ### `deerx artifacts [name]`
 
-Lists produced artifacts, or renders one. Markdown is formatted.
+Lists produced artifacts, or renders one. Markdown is formatted. The bytes come
+from the database first and the folder second, so an artifact whose file was
+deleted still reads.
+
+A binary artifact — a zip, an image, a PDF — is **summarised, not dumped**: name,
+size, sha256 and how to get it. Printing an archive as text used to end in a
+`UnicodeDecodeError` traceback.
+
+| Flag | |
+|---|---|
+| `--export <path>` | Write the artifact to a file |
+| `--verify` | Recompute the stored copy's sha256 |
+| `--backfill` | Copy artifacts still only on disk into the database |
+| `--checkpoint` | Empty the write-ahead log before backing up `deerx.db` |
 
 ## Delivery
 
 ### `deerx package`
 
-Checks the readiness gate and produces the delivery zip. See
+Checks the readiness gate and produces the delivery zip, recorded as a
+single-step run — the same as the web and MCP routes. See
 [Delivery packages](delivery.md).
 
 | Flag | |

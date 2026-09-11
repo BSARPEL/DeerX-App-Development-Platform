@@ -97,14 +97,22 @@ kosar:
 ```toml
 [deerx]
 execution = "docker"
-sandbox_image = "python:3.13-slim"
+sandbox_image = "python:3.13"
 sandbox_port_base = 8100
 sandbox_port_count = 10
 ```
 
 Konteynerde **izin listesi uygulanmaz** — korunacak konak yoktur ve patlama
-yaricapi kosu bitince silinen bir konteynerdir. Ajan `rm` calistirir, paket
-kurar, surec oldurur.
+yaricapi konteynerdir. Ajan `rm` calistirir, paket kurar, surec oldurur.
+Konteyner kosu bitince *durdurulur*, silinmez: kurulum komutu yalnizca
+kuruluste kostugu icin her seferinde silmek her acilista arac zincirini
+yeniden kurmak demek olurdu. *Ortami yeniden kur* siler.
+
+Izin listesinin kapatmadigi bir delik vardi: `docker` listede ve tek bir
+`docker run -v /:/host`, `--privileged` ya da `--pid=host` oteki butun citleri
+asiyor. Bu bayraklar iki kipte de reddedilir. Bu bir cit, kapsayicilik degil --
+`docker build` ve goreli bagli noktalar calismaya devam eder; bir kabuk izin
+listesinden cikmaya kararli biri cikabilir.
 
 Uc kisit, ucu de olculdu (Windows, Docker 29.7.2):
 

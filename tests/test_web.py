@@ -359,6 +359,221 @@ class TestArtifacts:
         assert client.get("/api/artifacts/silinmis.md").status_code == 404
 
 
+def _cikti_satirlari(client, sorgu: str = "") -> dict:
+    """`/api/artifacts` yanitindaki butun satirlar, ad -> satir.
+
+    Gruplama kosu bazli ve testlerin cogu tek bir satirin alanlarina
+    bakiyor; her testte iki kat dongu yazmak anlatilan seyi gizlerdi.
+    """
+    data = client.get(f"/api/artifacts{sorgu}").json()
+    return {i["name"]: i for g in data["groups"] for i in g["items"]}
+
+
+class TestCiktiIndirmeDBden:
+    """Cikti baytlari veritabaninda durur; disk ikinci sirada.
+
+    Sebep olculdu: `artifacts/` dizini temizlenmis ya da proje baska bir
+    makineye tasinmis bir kurulumda Ciktilar ekrani her satiri "0 B"
+    gosteriyor, her indirme 404 veriyordu -- oysa ayni baytlar
+    veritabaninda duruyordu. Ekranin "indirilebilir" dedigi sey ile
+    sunucunun verdigi sey ayni olmali.
+    """
+
+    def _blobla(self, client, settings, name: str, veri: bytes, kind: str = "report"):
+        """Ciktiyi hem diske hem veritabanina yazar (`save_artifact` gibi)."""
+        path = settings.artifacts_dir / name
+        path.write_bytes(veri)
+        client.app.state.deerx.orchestrator.state.add_artifact(
+            Artifact(name=name, kind=kind, path=str(path), summary="ozet"),
+            blob=veri,
+        )
+        return path
+
+    def test_download_streams_the_blob_after_the_file_is_deleted(self, client, settings):
+        """Dosya silinmis olsa da indirme calismali; ustelik baytlari
+        bellege toplamadan, saglamasini ETag olarak vererek."""
+        import hashlib
+
+        veri = ("# Rapor\n\n" + "x" * 5000).encode("utf-8")
+        self._blobla(client, settings, "rapor.md", veri).unlink()
+
+        response = client.get("/api/artifacts/rapor.md/download")
+        assert response.status_code == 200
+        assert response.content == veri
+        assert response.headers["content-length"] == str(len(veri))
+        etiket = '"' + hashlib.sha256(veri).hexdigest() + '"'
+        assert response.headers["etag"] == etiket
+
+        # Tarayicinin elindeki kopya guncelse govde ikinci kez akitilmaz.
+        yeniden = client.get(
+            "/api/artifacts/rapor.md/download", headers={"If-None-Match": etiket}
+        )
+        assert yeniden.status_code == 304
+
+        detail = client.get("/api/artifacts/rapor.md").json()
+        assert detail["stored"] is True
+        assert detail["bytes"] == len(veri)
+        assert detail["sha256"] == hashlib.sha256(veri).hexdigest()
+        assert "<h1>Rapor</h1>" in detail["html"]
+
+    def test_a_row_without_a_blob_is_listed_but_not_downloadable(self, client, settings):
+        """Blob'suz eski bir kaydin dosyasi da silinmisse: satir LISTEDE
+        kalir ama "yok" der. Once sessizce "0 B" yaziyordu ve ariza ancak
+        tiklayinca anlasiliyordu."""
+        path = settings.artifacts_dir / "eski.md"
+        path.write_text("eski", encoding="utf-8")
+        client.app.state.deerx.orchestrator.state.add_artifact(
+            Artifact(name="eski.md", kind="report", path=str(path), summary="")
+        )
+        path.unlink()
+
+        satir = _cikti_satirlari(client)["eski.md"]
+        assert satir["stored"] is False
+        assert satir["exists"] is False
+        assert satir["bytes"] == 0
+        assert client.get("/api/artifacts/eski.md").status_code == 404
+        assert client.get("/api/artifacts/eski.md/download").status_code == 404
+
+    def test_every_text_format_carries_a_download_link(self, client, settings):
+        """Metin ciktilarinda indirme baglantisi HIC yoktu: bir raporu
+        dosya olarak almanin tek yolu adresi elle yazmakti."""
+        for ad, govde in (
+            ("plan.md", b"# Plan\n"),
+            ("mockup.html", b"<p>x</p>"),
+            ("notlar.txt", b"duz metin"),
+            ("olcum.json", b'{"a": 1}'),
+        ):
+            self._blobla(client, settings, ad, govde)
+            detail = client.get(f"/api/artifacts/{ad}").json()
+            assert detail["download"].endswith("/download"), ad
+            assert client.get(detail["download"]).content == govde, ad
+
+    def test_the_package_downloads_from_the_database(self, client, settings, state_of):
+        """Teslimat zip'i `deliveries/` silinse de indirilebilmeli: paket
+        kullanicinin isini teslim ettigi seydir, dizin bir onbellek."""
+        (settings.workspace / "app.py").write_text("x = 1\n", encoding="utf-8")
+        state_of.add_task(Task(key="T-001", title="Kur", status=Status.DONE))
+        for phase in (Phase.QA, Phase.REVIEW):
+            state_of.start_phase(phase)
+            state_of.finish_phase(phase, summary="tamam")
+        name = client.post("/api/package", json={}).json()["name"]
+        (settings.deliveries_dir / name).unlink()
+
+        response = client.get(f"/api/artifacts/{name}/download")
+        assert response.status_code == 200
+        assert response.content[:2] == b"PK"
+        assert response.headers["content-length"] == str(len(response.content))
+        assert "attachment" in response.headers["content-disposition"]
+
+
+class TestHepsiniIndir:
+    """Bir kosunun on ciktisini almak on tiklama demekti.
+
+    `/api/artifacts.zip` hepsini tek dosyada verir. Zip'e yalnizca
+    ULASILABILIR ciktilar girer: baytlari ne veritabaninda ne diskte olan
+    bir cikti icin sifir baytlik bir dosya koymak, eksigi kullanicidan
+    gizlemek olurdu.
+    """
+
+    def test_the_zip_holds_every_reachable_artifact(self, client, settings):
+        import io
+        import zipfile
+
+        project = client.app.state.deerx.orchestrator.state
+        project.add_artifact(
+            Artifact(name="a.md", kind="report",
+                     path=str(settings.artifacts_dir / "a.md"), summary=""),
+            blob=b"veritabaninda",
+        )
+        diskte = settings.artifacts_dir / "b.md"
+        diskte.write_text("yalnizca diskte", encoding="utf-8")
+        project.add_artifact(
+            Artifact(name="b.md", kind="report", path=str(diskte), summary="")
+        )
+        yok = settings.artifacts_dir / "c.md"
+        yok.write_text("gidecek", encoding="utf-8")
+        project.add_artifact(
+            Artifact(name="c.md", kind="report", path=str(yok), summary="")
+        )
+        yok.unlink()
+
+        response = client.get("/api/artifacts.zip")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("application/zip")
+        with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+            assert sorted(zf.namelist()) == ["a.md", "b.md"]
+            assert zf.read("a.md") == b"veritabaninda"
+            assert zf.read("b.md") == b"yalnizca diskte"
+
+    def test_the_run_filter_narrows_the_bundle(self, client, settings):
+        """Kullanici "bu kosunun ciktilarini" indirmek ister; projenin
+        butun tarihcesini degil."""
+        import io
+        import zipfile
+
+        project = client.app.state.deerx.orchestrator.state
+        for ad, kosu in (("bir.md", "r1"), ("iki.md", "r2")):
+            project.add_artifact(
+                Artifact(name=ad, kind="report",
+                         path=str(settings.artifacts_dir / ad), summary=""),
+                run_id=kosu,
+                blob=ad.encode("utf-8"),
+            )
+        response = client.get("/api/artifacts.zip?run_id=r1")
+        with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+            assert zf.namelist() == ["bir.md"]
+
+    def test_an_empty_project_says_so_instead_of_sending_an_empty_zip(self, client):
+        """Bos bir zip indirmek "calisti" der ve kullaniciyi dosyayi acip
+        bakmaya zorlar; 404 dogrudan soyler."""
+        response = client.get("/api/artifacts.zip")
+        assert response.status_code == 404
+        assert response.json()["error"]
+
+
+class TestListeStatYapmaz:
+    """Liste, baytlari veritabaninda olan bir cikti icin diske DOKUNMAZ.
+
+    Eski liste her satirda `is_file()` + `stat()` kosturuyordu: yuz
+    ciktilik bir projede iki yuz syscall, ag surucusunde duran bir
+    calisma alaninda ise saniyelerce asili kalan bir ekran. Ekranin iki
+    bucuk saniyede bir yokladigi dusunulurse bu bedel her yoklamada
+    yeniden odeniyordu.
+    """
+
+    def test_the_listing_never_stats_a_stored_artifact(self, client, settings, monkeypatch):
+        project = client.app.state.deerx.orchestrator.state
+        for i in range(50):
+            ad = f"rapor-{i:02d}.md"
+            project.add_artifact(
+                Artifact(name=ad, kind="report",
+                         path=str(settings.artifacts_dir / ad), summary=""),
+                blob=b"x" * 64,
+            )
+
+        dokunulan: list[Path] = []
+        gercek_stat = Path.stat
+        gercek_is_file = Path.is_file
+
+        def sayan_stat(self, *args, **kwargs):
+            dokunulan.append(self)
+            return gercek_stat(self, *args, **kwargs)
+
+        def sayan_is_file(self, *args, **kwargs):
+            dokunulan.append(self)
+            return gercek_is_file(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "stat", sayan_stat)
+        monkeypatch.setattr(Path, "is_file", sayan_is_file)
+        data = client.get("/api/artifacts").json()
+
+        assert data["total"] == 50
+        # Yalnizca cikti dizinine yapilan dokunuslar sayilir: istegin geri
+        # kalani (sunucunun kendi dosyalari) bu testin konusu degil.
+        kok = settings.artifacts_dir
+        assert [str(p) for p in dokunulan if kok in p.parents] == []
+
+
 class TestMarkdownSafety:
     def test_raw_html_is_escaped(self):
         html = render_markdown("<script>alert(1)</script>\n\n<img onerror=x>")
@@ -1211,6 +1426,35 @@ class TestPackageApi:
         with zipfile.ZipFile(io.BytesIO(blob)) as zf:
             body = b"".join(zf.read(n) for n in zf.namelist())
         assert b"cok-gizli" not in body
+
+
+class TestPaketListesiDBden:
+    """Paket listesi `deliveries/` dizininden DEGIL kayittan kurulur.
+
+    Dizini taramanin iki ayri yanlisi vardi: dizine elle atilmis herhangi
+    bir zip paket gibi listeleniyor (raporu yok, indirilince rastgele bir
+    dosya iniyor), `--output` ile baska bir yere yazilan gercek paket ise
+    hic gorunmuyordu. Kayit tek gercek kaynak.
+    """
+
+    def test_a_stray_zip_in_the_folder_is_not_a_package(self, client, settings):
+        settings.deliveries_dir.mkdir(parents=True, exist_ok=True)
+        (settings.deliveries_dir / "elle-atilmis.zip").write_bytes(b"PK\x03\x04rastgele")
+        assert client.get("/api/package").json()["packages"] == []
+
+    def test_a_package_written_outside_the_folder_is_listed(self, client, settings, state_of):
+        disari = settings.workspace / "disari" / "teslimat.zip"
+        disari.parent.mkdir(parents=True, exist_ok=True)
+        veri = b"PK\x03\x04" + b"\x00" * 64
+        disari.write_bytes(veri)
+        state_of.add_artifact(
+            Artifact(name="teslimat.zip", kind="package", path=str(disari), summary=""),
+            blob=veri,
+        )
+        rows = client.get("/api/package").json()["packages"]
+        assert [r["name"] for r in rows] == ["teslimat.zip"]
+        assert rows[0]["bytes"] == len(veri)
+        assert rows[0]["has_report"] is True
 
 
 class TestArchiveArtifacts:
@@ -4414,3 +4658,327 @@ class TestPlanSilinincePlanArkasindaOluAnahtarBirakmaz:
         _, temizlenen = durum.delete_plan(a["id"])
         assert temizlenen == 0
         assert durum.get_task("B-2").deps == ["B-1"]
+
+
+class TestHerCiktiIndirilebilir:
+    """En sik uretilen ciktilar -- rapor, plan, mockup -- alinamiyordu.
+
+    Indirme YALNIZCA detay bolmesinde ve yalnizca ikili/goruntu
+    bicimlerindeydi; bir markdown raporunu almanin tek yolu Kaynak
+    sekmesinden kopyalamakti. Oysa `/api/artifacts/<ad>/download` ucu
+    kayitli her dosyayi zaten veriyordu -- eksik olan arayuzdu.
+    """
+
+    @staticmethod
+    def _js() -> str:
+        from deerx.web.app import STATIC_DIR
+
+        return (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    @staticmethod
+    def _html() -> str:
+        from deerx.web.app import STATIC_DIR
+
+        return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+    def test_every_text_format_carries_a_download_link(self, client, settings):
+        """Sunucu tarafi: her bicim `download` gondermeli."""
+        for ad, govde in (
+            ("rapor.md", "# Rapor\n"),
+            ("mockup.html", "<p>x</p>"),
+            ("notlar.txt", "duz metin"),
+        ):
+            yol = settings.artifacts_dir / ad
+            yol.write_text(govde, encoding="utf-8")
+            client.app.state.deerx.orchestrator.state.add_artifact(
+                Artifact(name=ad, kind="report", path=str(yol), summary="x"),
+                blob=govde.encode("utf-8"),
+            )
+            detay = client.get(f"/api/artifacts/{ad}").json()
+            assert detay.get("download", "").endswith("/download"), ad
+
+    def test_the_row_offers_a_download(self):
+        """Arayuz tarafi: satirin kendisinde indirme olmali."""
+        js = self._js()
+        assert 'class="artifact-dl"' in js, "satirda indirme baglantisi yok"
+        assert "function ciktiSatiri(" in js
+        govde = js[js.index("function ciktiSatiri("):]
+        govde = govde[:govde.index("\n}\n")]
+        assert "item.download" in govde
+        assert "artifacts.gone" in govde, "dosyasi yok olan satir sessizce '0 B' gorunuyor"
+
+    def test_the_detail_toolbar_offers_a_download(self):
+        js = self._js()
+        cubuk = js[js.index("const toolbar = `"):]
+        cubuk = cubuk[:cubuk.index("`;")]
+        assert "data.download" in cubuk, "metin detayinda indirme dugmesi yok"
+
+    def test_the_header_offers_a_bundle(self):
+        html = self._html()
+        assert 'id="btn-download-all"' in html
+        assert "/api/artifacts.zip" in html
+        assert 'data-i18n="artifacts.downloadAll"' in html
+        assert "btn-download-all" in self._js()
+
+    def test_the_row_separator_moved_to_the_wrapper(self):
+        """`.artifact-item + .artifact-item` kardesligi sarmalla bozuldu;
+        ayirici cizgi sarmala tasinmazsa satirlar birbirine yapisir."""
+        from deerx.web.app import STATIC_DIR
+
+        css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+        assert ".artifact-row + .artifact-row" in css
+        assert ".artifact-dl {" in css
+
+    def test_the_scope_chips_reach_the_other_projects(self):
+        html, js = self._html(), self._js()
+        assert 'id="artifact-scope"' in html
+        assert 'data-i18n="artifacts.scopeThis"' in html
+        assert 'data-i18n="artifacts.scopeAll"' in html
+        assert "/api/activity/artifacts" in js, "capraz uc arayuzde kullanilmiyor"
+        assert "state.artifactScope" in js
+
+
+class TestOrtamSorunuSoyler:
+    """Ekran "kurulmamis" diyordu ve bu uc ayri seyin ortak adiydi.
+
+    Docker yok, konteyner henuz kurulmadi, calisma alani baglanamiyor --
+    ucu de ayni sari rozetle gorunuyordu ve sebep ancak kosunun ilk
+    komutunda, olay akisinin ortasinda cikiyordu.
+    """
+
+    @staticmethod
+    def _saglik(monkeypatch, *, problems=(), warnings=(), status="absent"):
+        from deerx.sandbox import Sandbox, SandboxHealth
+
+        sayac = []
+
+        def sahte(self, **kw):
+            sayac.append(kw)
+            return SandboxHealth(
+                docker_cli=True, daemon="29.7.2",
+                container_status=None if status == "absent" else status,
+                image_present=True, mount_ok=not problems,
+                problems=[dict(p) for p in problems],
+                warnings=[dict(w) for w in warnings],
+            )
+
+        monkeypatch.setattr(Sandbox, "probe", sahte)
+        return sayac
+
+    def test_the_problem_has_a_name(self, client, settings, monkeypatch):
+        self._saglik(monkeypatch, problems=[{"key": "bind_mount_broken", "args": {}}])
+        settings.execution = "docker"
+
+        kabin = client.get("/api/environment").json()["sandbox"]
+        assert kabin["problems"][0]["key"] == "bind_mount_broken"
+        assert kabin["status"] == "unavailable", "sorun varken durum 'kurulmamis' diyor"
+
+    def test_host_mode_never_probes_docker(self, client, settings, monkeypatch):
+        """Konak kipinde kabin YOKTUR; onu yoklamak bos bekleme olurdu."""
+        sayac = self._saglik(monkeypatch)
+        assert settings.execution == "host"
+
+        veri = client.get("/api/environment").json()
+        assert sayac == [], "konak kipinde docker yoklandi"
+        assert veri["sandbox"]["status"] == "host"
+        assert veri["sandbox"]["problems"] == []
+        assert veri["ports"]["enforced"] is False, (
+            "konak kipinde port araligi uygulaniyormus gibi gosteriliyor"
+        )
+
+    def test_the_deep_probe_is_only_asked_for(self, client, settings, monkeypatch):
+        """Derin yoklama bir dakika surebilir; her ekran acilisinda degil,
+        yalnizca dugmeye basilinca."""
+        sayac = self._saglik(monkeypatch)
+        settings.execution = "docker"
+
+        client.get("/api/environment")
+        assert sayac[-1].get("deep") is not True
+
+        client.get("/api/environment?probe=1")
+        assert sayac[-1]["deep"] is True
+        assert sayac[-1]["ttl"] == 0.0, "dugme onbellekteki sonucu geri gosteriyor"
+
+    def test_the_screen_prints_the_problem_and_the_fix(self):
+        from deerx.web.app import STATIC_DIR
+
+        js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+        html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        assert "env.issue." in js
+        assert "env.issueFix." in js
+        assert 'class="issue-list"' in js
+        assert 'id="env-probe"' in html
+        assert "probe=1" in js
+        # Konak kipi nominaldir: sari "engelli" rozeti yanlis okunuyordu.
+        assert 'k.execution === "host" ? ""' in js
+
+
+class TestDockerTestDugmesi:
+    """Kullanici docker'i secip kaydediyor, "yalitilmis" rozetini goruyor
+    ve kosunun neden baslamadigini ancak olay akisinda ogreniyordu."""
+
+    def test_the_probe_runs_a_real_container(self, client, settings, monkeypatch):
+        from deerx.sandbox import Sandbox, SandboxHealth
+
+        gorulen = {}
+
+        def sahte(self, **kw):
+            gorulen.update(kw)
+            gorulen["image"] = self.image
+            return SandboxHealth(
+                docker_cli=True, daemon="x", container_status=None,
+                image_present=True, mount_ok=True, tools={"node": False},
+            )
+
+        monkeypatch.setattr(Sandbox, "probe", sahte)
+        cevap = client.post("/api/settings/test-sandbox", json={"image": "node:22"})
+        assert cevap.status_code == 200, cevap.text
+        assert gorulen["deep"] is True, "sig yoklama kabini gercekten denemez"
+        assert gorulen["image"] == "node:22", "kaydedilmemis imaj denenmiyor"
+        assert cevap.json()["ok"] is True
+
+    def test_the_probe_is_admin_only(self, settings):
+        """Govdeden gelen imajla bir konteyner KALDIRIYOR; kapisiz
+        birakmak izleyiciye istedigi imaji kosturma izni vermek olurdu."""
+        from starlette.testclient import TestClient
+
+        from deerx.web.app import build_app
+
+        with TestClient(build_app(settings)) as client:
+            auth = client.app.state.deerx.auth
+            auth.create_first_admin(
+                auth.issue_setup_token(), "yonetici", "cok-uzun-parola-1"
+            )
+            client.post(
+                "/api/auth/login",
+                json={"username": "yonetici", "password": "cok-uzun-parola-1"},
+            )
+            client.post(
+                "/api/users",
+                json={"username": "ekip", "password": "ikinci-uzun-parola"},
+            )
+            client.post("/api/auth/logout")
+            client.post(
+                "/api/auth/login",
+                json={"username": "ekip", "password": "ikinci-uzun-parola"},
+            )
+            assert client.post("/api/settings/test-sandbox", json={}).status_code == 403
+
+    def test_turning_isolation_on_without_docker_warns_but_saves(
+        self, client, settings, monkeypatch
+    ):
+        """Reddetmek, makineye gore degisen bir ayar ekrani demektir;
+        sessizce kaydetmek ise kosunun neden baslamadigini soylememek."""
+        import deerx.web.app as web_app
+
+        monkeypatch.setattr(web_app.shutil, "which", lambda ad: None)
+        cevap = client.post("/api/settings", json={"execution": "docker"})
+        assert cevap.status_code == 200, cevap.text
+        assert "sandbox.no_docker" in cevap.json()["warnings"]
+        assert settings.execution == "docker"
+
+    def test_the_settings_view_says_whether_docker_exists(self, client):
+        goruntu = client.get("/api/overview").json()["settings"]
+        assert isinstance(goruntu["docker_found"], bool)
+
+    def test_the_button_declares_its_role(self):
+        from deerx.web.app import STATIC_DIR
+
+        html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+        satir = next(s for s in html.splitlines() if 'id="sandbox-probe"' in s)
+        assert 'data-needs-role="admin"' in satir
+        assert "btn-ghost" not in satir, "tek basina duran eylem ghost olamaz"
+        assert "/api/settings/test-sandbox" in js
+        assert "sandbox.stateNoDocker" in js
+
+
+class TestDosyaPenceresiTekKapiDegil:
+    """Belge eklemenin tek yolu isletim sisteminin dosya penceresiydi.
+
+    O pencere bizim denetimimizde degil: agdaki bir surucu, bir bulut
+    kabuk eklentisi ya da pencerenin tarayicinin arkasinda acilmasi onu
+    kilitliyor ve kullanicinin sartnameyi indeksleyecek baska hicbir yolu
+    kalmiyordu -- `deerx ingest` icin terminale gitmek disinda.
+
+    Ustelik pencere cogu zaman gereksizdi: yukleme hedefi zaten
+    `<calisma alani>/docs/` ve secilen dosya cogunlukla oradaydi; pencere
+    ayni baytlari ayni yere geri yaziyordu.
+    """
+
+    def test_a_file_already_in_docs_is_indexed_without_an_upload(self, client, settings):
+        docs = settings.workspace / "docs"
+        docs.mkdir(parents=True, exist_ok=True)
+        (docs / "elle-konmus.md").write_text(
+            "# Elle konmus sartname\n\nBir yapilacaklar uygulamasi.\n", encoding="utf-8"
+        )
+
+        cevap = client.post("/api/ingest-docs", json={})
+        assert cevap.status_code == 200, cevap.text
+        veri = cevap.json()
+        assert veri["indexed"] >= 1, "docs/ altindaki dosya indekslenmedi"
+        assert "elle-konmus.md" in [f["name"] for f in veri["files"]]
+        assert veri["failed"] == []
+
+    def test_a_second_pass_does_not_redo_the_work(self, client, settings):
+        """Degismemis dosya atlanir; ikinci tiklama bos is yapmaz."""
+        docs = settings.workspace / "docs"
+        docs.mkdir(parents=True, exist_ok=True)
+        (docs / "sabit.md").write_text("# Sabit\n\nicerik\n", encoding="utf-8")
+
+        client.post("/api/ingest-docs", json={})
+        ikinci = client.post("/api/ingest-docs", json={}).json()
+        sabit = next(f for f in ikinci["files"] if f["name"] == "sabit.md")
+        assert sabit["ok"] and sabit["chunks"] == 0, (
+            "degismemis dosya yeniden indekslendi"
+        )
+
+    def test_an_unreadable_file_is_named_not_swallowed(self, client, settings):
+        """Biri okunamadiysa kullanici HANGISI oldugunu bilmeli; yoksa
+        eksik bir bilgi tabaniyla kosar."""
+        docs = settings.workspace / "docs"
+        docs.mkdir(parents=True, exist_ok=True)
+        (docs / "bozuk.pdf").write_bytes(b"bu bir pdf degil")
+        (docs / "saglam.md").write_text("# Saglam\n\nicerik\n", encoding="utf-8")
+
+        veri = client.post("/api/ingest-docs", json={}).json()
+        assert "bozuk.pdf" in veri["failed"]
+        assert "saglam.md" not in veri["failed"], "bir bozuk dosya otekini dusurdu"
+
+    def test_it_is_refused_while_a_run_is_going(self, client, settings, monkeypatch):
+        """Kosu sirasinda bilgi tabanini degistirmek, ajanin altindaki
+        zemini oynatmak olurdu -- yukleme ucuyla ayni kural."""
+        monkeypatch.setattr(
+            type(client.app.state.deerx.runner), "is_running", property(lambda self: True)
+        )
+        assert client.post("/api/ingest-docs", json={}).status_code == 409
+
+    def test_the_screen_offers_the_second_door(self):
+        from deerx.web.app import STATIC_DIR
+
+        html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+        # Etiket iki satira yayiliyor; tek satira bakmak yaniltir.
+        etiket = html[html.index('<button class="btn btn-ghost btn-sm" id="btn-ingest-docs"'):]
+        etiket = etiket[:etiket.index(">") + 1]
+        assert 'data-needs-role="developer"' in etiket
+        assert "/api/ingest-docs" in js
+
+
+class TestCiktiDetayiSatirinIcineGirmez:
+    """Satir sarmali eklenince detay kutusu satirin ICINE dusuyordu.
+
+    `.artifact-row` iki sutunlu bir izgara (ad + indirme); kutuyu dugmeden
+    sonra eklemek onu o izgaranin ucuncu hucresi yapiyor ve kart listenin
+    uzerine biniyordu -- ekranda olculdu.
+    """
+
+    def test_the_detail_is_placed_after_the_row_wrapper(self):
+        from deerx.web.app import STATIC_DIR
+
+        js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+        govde = js[js.index("async function openArtifact("):]
+        govde = govde[:govde.index("\n}\n")]
+        assert 'closest(".artifact-row")' in govde, (
+            "detay hala dugmeden sonra ekleniyor; kutu satirin icine duser"
+        )

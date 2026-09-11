@@ -1391,6 +1391,36 @@ td.num { font-family: var(--mono); font-size: var(--fs-meta); text-align: right;
 }
 .artifact-item + .artifact-item { border-top: 1px solid var(--border); }
 .artifact-item:hover { background: var(--surface-2); }
+
+/* Satir sarmali: ad dugmesi + indirme baglantisi. Ayirici cizgi SARMALA
+   tasindi, yoksa `.artifact-item + .artifact-item` kardesligi bozulur ve
+   satirlar birbirine yapisirdi. */
+.artifact-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+.artifact-row + .artifact-row { border-top: 1px solid var(--border); }
+.artifact-row:hover { background: var(--surface-2); }
+.artifact-dl {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: var(--ctl-h-sm);
+  min-width: var(--ctl-h-sm);
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  font-size: var(--fs-body);
+  text-decoration: none;
+}
+.artifact-dl:hover {
+  border-color: var(--control-border);
+  color: var(--text);
+  background: var(--surface);
+}
+/* Grup basligindaki indirme, basligin kendi izgarasinin disinda durur. */
+.artifact-group-dl { position: absolute; top: 4px; right: 8px; }
+.artifact-head-actions { display: flex; align-items: center; gap: 8px; }
 /* Secili satir: solda bir seritle isaretlenir. Sadece zemin rengiyle
    isaretlemek, detay hemen altinda acikken zaten belli olan seyi
    tekrarlamak ve listeyi alacalandirmak olurdu. */
@@ -1980,6 +2010,15 @@ body[data-blocked] .view.is-active { display: none; }
 .dropzone-title { font-size: var(--fs-body); font-weight: 600; }
 .dropzone-hint { font-size: var(--fs-meta); color: var(--text-3); }
 
+/* Ikinci kapi, bırakma alaninin hemen altinda: dosya penceresi tek
+   arizali kapi olmasin. */
+.dropzone-alt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: -8px;
+  margin-bottom: 12px;
+}
 .upload-status { min-height: 20px; margin-bottom: 12px; font-size: var(--fs-body); color: var(--text-2); }
 .upload-ok  { color: var(--text-2); }
 .upload-err { color: var(--err); }
@@ -2790,6 +2829,9 @@ body[data-blocked] .view.is-active { display: none; }
 .plan-error { color: var(--err); font-size: var(--fs-body); }
 
 /* ── Ciktilar: kosu bazli gruplar ────────────────────────────────────── */
+/* Konumlandirma kabi: kosu indirme baglantisi baslikta degil, grubun
+   sag ust kosesinde durur -- baslik bir dugme ve icine dugme konmaz. */
+.artifact-group { position: relative; }
 .artifact-group + .artifact-group { margin-top: 16px; }
 .artifact-group-head {
   display: flex; align-items: center; gap: 8px;

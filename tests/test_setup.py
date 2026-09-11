@@ -242,6 +242,88 @@ class TestSummary:
             assert not kurulum.Adim("x", durum).engel
 
 
+class TestDockerAdimiKabiniOlcer:
+    """Docker adimi daemon'a "merhaba" demekle yetinemez.
+
+    OLCULDU: Docker Desktop'in konak baglantisi koptugunda `docker info`
+    SORUNSUZ yanit veriyor -- eski adim "ok" diyordu -- ama her `docker
+    run` "mkdir /run/desktop/mnt/host/c: file exists" ile dusuyordu.
+    Kullanici kurulumu yesil gorup kosuyu baslatiyor ve arizayi ilk arac
+    cagrisinda, en pahali anda ogreniyordu.
+    """
+
+    @staticmethod
+    def _docker_var(monkeypatch):
+        monkeypatch.setattr(kurulum, "_var_mi", lambda p: p == "docker")
+        monkeypatch.setattr(kurulum, "_calistir", lambda *a, **k: (0, "29.7.2\n"))
+
+    @staticmethod
+    def _saglik(monkeypatch, *, problems=(), warnings=()):
+        from deerx.sandbox import Sandbox, SandboxHealth
+
+        def sahte(self, **_kw):
+            return SandboxHealth(
+                docker_cli=True, daemon="29.7.2", container_status=None,
+                image_present=True, mount_ok=not problems,
+                problems=[dict(p) for p in problems],
+                warnings=[dict(w) for w in warnings],
+            )
+
+        monkeypatch.setattr(Sandbox, "probe", sahte)
+
+    def test_without_settings_it_behaves_as_before(self, monkeypatch):
+        """`setup` calisma alanini ayarlardan ONCE kuruyor ve adimi orada
+        ayarsiz cagiriyor; zorunlu bir parametre TypeError verirdi."""
+        self._docker_var(monkeypatch)
+        adim = kurulum.docker()
+        assert adim.durum == "ok"
+        assert not adim.engel
+
+    def test_host_mode_never_probes_the_sandbox(self, settings, monkeypatch):
+        """Konak kipinde kabin hic kurulmayacak; onu yoklamak bir dakika
+        bosa beklemek olurdu."""
+        from deerx.sandbox import Sandbox
+
+        self._docker_var(monkeypatch)
+        cagrildi = []
+        monkeypatch.setattr(
+            Sandbox, "probe", lambda self, **kw: cagrildi.append(1)
+        )
+        assert settings.execution == "host"
+        assert kurulum.docker(settings).durum == "ok"
+        assert not cagrildi, "konak kipinde kabin yoklandi"
+
+    def test_a_broken_mount_blocks_the_setup(self, settings, monkeypatch):
+        self._docker_var(monkeypatch)
+        self._saglik(monkeypatch, problems=[{"key": "bind_mount_broken", "args": {}}])
+        settings.execution = "docker"
+
+        adim = kurulum.docker(settings)
+        assert adim.durum == "eksik", "kopuk baglanti engel sayilmadi"
+        assert adim.engel
+        assert "Docker Desktop" in adim.detay, "care metni kayip"
+
+    def test_a_missing_image_is_a_warning_with_a_pull_command(self, settings, monkeypatch):
+        """Imaji `docker run` kendisi ceker; taze bir kurulumu durdurmak
+        yanlis alarm olurdu."""
+        self._docker_var(monkeypatch)
+        self._saglik(monkeypatch, warnings=[{"key": "image_missing", "args": {}}])
+        settings.execution = "docker"
+
+        adim = kurulum.docker(settings)
+        assert adim.durum == "uyari"
+        assert not adim.engel
+        assert adim.komut.startswith("docker pull ")
+
+    def test_the_no_docker_message_talks_about_isolation(self, monkeypatch):
+        """Metin yalnizca SearXNG'den soz ediyordu; yalitimi acan kisi
+        Docker'in ona da gerektigini oradan anlayamazdi."""
+        monkeypatch.setattr(kurulum, "_var_mi", lambda p: False)
+        adim = kurulum.docker()
+        assert "execution" in adim.detay
+        assert "SearXNG" in t("setup.no_docker_searxng")
+
+
 class TestStepNamesAreTranslated:
     def test_the_table_follows_the_language(self, settings, monkeypatch):
         """Ingilizce bir kosuda tablo "Calisma alani" basiyordu.

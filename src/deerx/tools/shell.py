@@ -245,6 +245,13 @@ def _bare_command(pattern: str) -> bool:
     """
     if not pattern or " " in pattern or "/" in pattern or "\\" in pattern:
         return False
+    # Bir SECENEK BAYRAGI komut adi degildir. `--privileged` tek kelime ve
+    # tireler atilinca alfanumerik gorunuyor, yani buradan "ciplak komut"
+    # diye geciyordu ve YALNIZCA komut konumunda araniyordu -- oysa
+    # `docker run --privileged x` komutunun basi `docker`. Kalip fiilen
+    # hicbir seyi engellemiyordu.
+    if pattern.startswith("-"):
+        return False
     return pattern.replace(".", "").replace("-", "").replace("_", "").isalnum()
 
 def check_command(policy: Any, command: str, *, yalitilmis: bool = False) -> str:
@@ -343,14 +350,23 @@ class RunCommand(Tool):
             signature=f"shell:{command}",
         )
 
-        limit = timeout or policy.timeout_seconds
+        # Tavan: ajanin verdigi zaman asimi sinirsiz olamaz. Sinirlandi ise
+        # bunu SONUCA yaziyoruz -- komut kesildiginde modelin "ben 999999
+        # demistim" diye kendi kodunda hata aramasi bir turu yakardi.
+        istenen = timeout or policy.timeout_seconds
+        limit = min(istenen, policy.max_timeout_seconds)
+        kirpildi = limit < istenen
         ctx.events.emit("tool", "shell", t("shell.run", command=command[:140]))
         try:
             if ctx.settings.execution == "docker":
                 # Yalitilmis ortamda komut konagi hic gormez: `rm` de calisir,
                 # paket de kurulur, surec de oldurulur -- patlama yaricapi
-                # konteynerdir. Izin listesi yine de uygulanir; yalitim onun
-                # YERINE degil, USTUNE gelir.
+                # konteynerdir. Izin listesi burada UYGULANMAZ
+                # (`check_command(..., yalitilmis=True)`): liste konagi
+                # korumak icin var, konteynerde koruyacak konak yok. Yasak
+                # kaliplar (`rm -rf /` gibi) iki kipte de uygulanir --
+                # calisma alani konteynere bagli oldugu icin onlar
+                # kullanicinin PROJESINI siler.
                 sonuc = _sandbox(ctx).run(command, timeout=limit, workdir=workdir)
                 code, stdout, stderr, timed_out = (
                     sonuc.returncode, sonuc.stdout, sonuc.stderr, sonuc.timed_out
@@ -374,6 +390,8 @@ class RunCommand(Tool):
             )
 
         parts = [f"exit_code: {code}{_cikis_kodu_notu(code)}"]
+        if kirpildi:
+            parts.append(t("shell.timeout_capped", limit=limit))
         if stdout.strip():
             parts.append(f"--- stdout ---\n{stdout.rstrip()}")
         if stderr.strip():
@@ -422,10 +440,23 @@ def _cikis_kodu_notu(code: int) -> str:
 
 
 def _sandbox(ctx: ToolContext):
-    """Kosuya ait konteyner; ilk komutta kurulur, sonra yeniden kullanilir."""
+    """Kosuya ait konteyner. Kosu boyunca TEK nesne olmali.
+
+    Sira onemli: once baglamin kendi kabini, sonra servis yoneticisininki,
+    en son yeni bir nesne. Ikinci basamak olmadan bir ihtimal kaliyordu:
+    orkestrator kabini `services.sandbox`a veriyor ama baglama yazmayi
+    atlarsa (ya da baglam `child()` ile turetilmisken ebeveyn kabinini
+    sonradan kurarsa) burasi IKINCI bir `Sandbox` kuruyordu. Ayni
+    konteynere iki nesne demek iki ayri `_kirik` isareti ve iki ayri
+    kilit demek: biri "kabin kurulamiyor" bilirken oteki ayni `docker
+    run`u her arac cagrisinda yeniden deniyor, servis durdurma da PID
+    dosyasini baska bir nesnenin yolundan ariyordu.
+    """
     from ..sandbox import Sandbox
 
     mevcut = getattr(ctx, "_sandbox", None)
+    if mevcut is None and ctx.services is not None:
+        mevcut = getattr(ctx.services, "sandbox", None)
     if mevcut is None:
         mevcut = Sandbox(
             workspace=ctx.settings.workspace,
@@ -437,8 +468,12 @@ def _sandbox(ctx: ToolContext):
             pids_limit=ctx.settings.sandbox_pids,
             setup=ctx.settings.sandbox_setup,
         )
+        # Yalnizca YENI nesne icin: hazir gelen kabini orkestrator kosu
+        # basinda zaten kurdu ve `run()` da kendi icinde `ensure` eder.
         mevcut.ensure()
-        ctx._sandbox = mevcut  # noqa: SLF001 - baglami tasiyan tek yer
+    # Bulunan nesne baglama yazilir; sonraki komut servis yoneticisine
+    # gitmeden dogrudan bulur.
+    ctx._sandbox = mevcut  # noqa: SLF001 - baglami tasiyan tek yer
     return mevcut
 
 

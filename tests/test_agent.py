@@ -320,6 +320,60 @@ class TestAgentLoop:
         assert len(messages[-1]["content"][0]["content"]) == 20_000
 
 
+class TestKabinKopunca:
+    """Kabin koptuysa dongu donmeye devam etmemeli.
+
+    Kabin kopmasi arac hatasi gibi gorunuyor ve modele oyle donuyordu:
+    model sebebi KENDI komutunda ariyor, yolu, tirnaklari, izin listesini
+    duzeltmeyi deniyor ve tur butcesi bitene kadar ayni duvara tosluyordu.
+    Hicbir komut calismayacakken. Isaret `ToolResult.data` ile gelir --
+    modele giden metne degil, donguye.
+    """
+
+    def test_the_loop_stops_when_a_tool_reports_a_dead_sandbox(
+        self, agent_factory, monkeypatch
+    ):
+        from deerx.tools import ToolRegistry, ToolResult
+
+        def kabin_yok(_self, _name, _arguments, _ctx):
+            return ToolResult(
+                content="HATA: kabin kurulamiyor",
+                is_error=True,
+                data={"sandbox_down": True},
+            )
+
+        monkeypatch.setattr(ToolRegistry, "execute", kabin_yok)
+        cagri = ToolCall(id="1", name="read_project_state", arguments={})
+        agent = agent_factory(
+            [make_result(calls=[cagri]) for _ in range(5)], max_iterations=5
+        )
+
+        result = agent.run("gorev")
+
+        assert not result.ok
+        assert result.stop_reason == "sandbox_down"
+        assert result.iterations == 1, (
+            "kabin koptuktan sonra da tur harcandi; butun butce ayni duvara gider"
+        )
+        assert "kabin" in (result.error or "")
+
+    def test_an_ordinary_tool_error_still_lets_the_model_retry(self, agent_factory):
+        """Sinirin ote tarafi: sirandan bir arac hatasi donguyu KESMEZ.
+
+        Modelin kendi duzeltebilecegi bir hatada (yanlis arguman, eksik
+        dosya) tek bir tur birakmak, ajani ise yaramaz hale getirirdi.
+        """
+        cagri = ToolCall(id="1", name="read_project_state", arguments={"yok": 1})
+        agent = agent_factory(
+            [make_result(calls=[cagri]), make_result(text="duzelttim")],
+            max_iterations=5,
+        )
+
+        result = agent.run("gorev")
+
+        assert result.ok and result.iterations == 2
+
+
 class TestRoleWiring:
     def test_each_role_gets_only_its_tools(self, settings, ctx):
         from deerx.agents import build_agent

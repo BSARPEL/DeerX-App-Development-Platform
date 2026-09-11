@@ -147,3 +147,21 @@ allow_prefixes = [
     "sed", "awk", "sort", "uniq", "cut", "diff", "tr",
     "docker", "make", "go", "cargo",
 ]
+
+# Kosulsuz reddedilenler. `docker` izin listesinde oldugu icin buradaki
+# bayraklar sart: kok bagliyla bir konteyner konagin tamamini okur,
+# `--privileged` cekirdege uzanir, `--pid=host` konaktaki surecleri
+# oldurebilir. Izin listesinin korudugu her sey o tek komutla asilirdi.
+deny_substrings = [
+    "rm -rf /", "mkfs", "shutdown", "reboot", "format ",
+    "/dev/sda", "curl | sh", "wget | sh", "chmod 777 /",
+    "git push --force", "git reset --hard origin",
+    "--privileged", "--pid=host", "--pid host",
+    "--network=host", "--network host",
+    "-v /:", "-v c:/:", "-v c:\\:",
+    "--mount type=bind,source=/",
+]
+
+# Ajanin verdigi `timeout` icin tavan (saniye). Sinirsiz birakilirsa tek
+# bir asili komut kosuyu gunlerce bekletebilir.
+max_timeout_seconds = 1800

@@ -145,3 +145,40 @@ def _role_for(pattern: str) -> str:
         "staging-raporu.md": "staging",
         "canli-cikis-raporu.md": "live",
     }.get(pattern, "_shared")
+
+
+class TestOrtamYonergede:
+    """Ajan komutlarin NEREDE kostugunu bastan bilmeli.
+
+    OLCULDU: QA yonergesindeki `port=3000` ornegi docker kipinde her
+    kosuda ILK denemede reddediliyordu (`sandbox.port_outside_range`) --
+    yani her kosu, ayarlardan bilinebilen bir bilgiyi ogrenmek icin bir
+    tur yakiyordu. Ayni sekilde konak kipinde izin listesini gormeyen
+    ajan `uvicorn ...` yazip reddedilince hatayi kendi komutunda ariyordu.
+    """
+
+    def test_docker_mode_names_the_port_range_and_the_bind_address(self, settings):
+        settings.execution = "docker"
+        settings.sandbox_port_base = 8100
+        settings.sandbox_port_count = 10
+        metin = compose_system("qa", settings)
+        assert "8100-8109" in metin, "yayinlanan port araligi yonergede yok"
+        assert "0.0.0.0" in metin, "baglanma adresi kurali yonergede yok"
+        assert settings.sandbox_image in metin
+
+    def test_host_mode_names_the_allow_list_not_the_port_range(self, settings):
+        assert settings.execution == "host"
+        metin = compose_system("qa", settings)
+        assert "pytest" in metin, "izin listesi yonergede yok"
+        assert "0.0.0.0" not in metin, "konak kipinde olmayan bir kural anlatiliyor"
+
+    def test_the_placeholder_is_filled_in_both_languages(self, settings):
+        for dil in ("tr", "en"):
+            settings.language = dil
+            assert "{environment}" not in compose_system("architect", settings)
+
+    def test_the_qa_prompt_no_longer_promises_port_3000(self):
+        """Ornek bir port vermek, ajanin ortamdan OGRENMESI gereken seyi
+        yonergeyle yanlislamaktir."""
+        for yol in (PACKAGE_PROMPTS / "qa.md", EN_DIR / "qa.md"):
+            assert "port=3000" not in yol.read_text(encoding="utf-8"), yol.name

@@ -87,6 +87,11 @@ class ShellPolicy(BaseModel):
 
     enabled: bool = True
     timeout_seconds: int = 300
+    # `run_command`in `timeout` parametresine UST SINIR yoktu: ajan
+    # 999999 yazabiliyor ve bir kosu tek bir asili komutta gunlerce
+    # bekleyebiliyordu. Varsayilan otuz dakika, `npm install`in ya da bir
+    # derlemenin rahatca sigacagi bir tavan.
+    max_timeout_seconds: int = 1800
     # Bos liste => her sey serbest (yalnizca deny listesi uygulanir).
     allow_prefixes: list[str] = Field(
         default_factory=lambda: [
@@ -119,6 +124,16 @@ class ShellPolicy(BaseModel):
             "rm -rf /", "mkfs", "shutdown", "reboot", "format ",
             "/dev/sda", "curl | sh", "wget | sh", "chmod 777 /",
             "git push --force", "git reset --hard origin",
+            # `docker` izin listesinde -- derleme ve compose icin gerekli.
+            # Ama izin listesinin korudugu her sey bu tek komutla
+            # asilabilirdi: konteyner kok bagliyla konagin tamamini
+            # okuyabilir, `--privileged` ile cekirdege uzanabilir,
+            # `--pid=host` ile konaktaki surecleri oldurebilir. Cit
+            # delikse yoktur.
+            "--privileged", "--pid=host", "--pid host",
+            "--network=host", "--network host",
+            "-v /:", "-v c:/:", "-v c:\\:",
+            "--mount type=bind,source=/",
         ]
     )
 

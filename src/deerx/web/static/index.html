@@ -234,6 +234,16 @@
               <span class="dropzone-title" data-i18n="develop.dropTitle"></span>
               <span class="dropzone-hint" data-i18n="develop.dropHint"></span>
             </label>
+            <!-- Ikinci kapi. Dosya penceresi isletim sisteminin ve tek
+                 basina birakildiginda tek arizali kapiydi; ustelik
+                 secilen dosya cogunlukla zaten `docs/` altindaydi ve
+                 pencere onu ayni yere geri yaziyordu. -->
+            <div class="dropzone-alt">
+              <button class="btn btn-ghost btn-sm" id="btn-ingest-docs" type="button"
+                      data-needs-role="developer"
+                      data-i18n="develop.ingestDocs">docs/ klasörünü indeksle</button>
+              <span class="cell-meta" data-i18n="develop.ingestDocsHint">Dosya zaten klasördeyse pencereye gerek yok</span>
+            </div>
             <div class="upload-status" id="upload-status"></div>
 
             <!-- Yuklenmis belgeler bir SECIM listesi: kosunun hangi
@@ -474,6 +484,13 @@
           <h1 data-i18n="artifacts.title">Çıktılar</h1>
           <p class="view-sub" id="artifacts-sub">—</p>
         </div>
+        <div class="artifact-head-actions">
+          <div class="chips" id="artifact-scope">
+            <button class="chip chip-btn is-active" data-scope="this" type="button" data-i18n="artifacts.scopeThis">Bu proje</button>
+            <button class="chip chip-btn" data-scope="all" type="button" data-i18n="artifacts.scopeAll">Bütün projelerim</button>
+          </div>
+          <a class="btn btn-ghost" id="btn-download-all" href="/api/artifacts.zip" download data-i18n="artifacts.downloadAll">Hepsini indir</a>
+        </div>
       </div>
       <section class="delivery" id="delivery-panel">
         <div class="delivery-main">
@@ -546,8 +563,11 @@
           <h1 data-i18n="env.title">Ortam</h1>
           <p class="view-sub" id="env-scope">—</p>
         </div>
-        <button class="btn btn-danger" id="env-rebuild" type="button" data-needs-role="owner"
-                data-i18n="env.rebuild">Ortamı yeniden kur</button>
+        <div class="artifact-head-actions">
+          <button class="btn" id="env-probe" type="button" data-i18n="env.probe">Sağlığı ölç</button>
+          <button class="btn btn-danger" id="env-rebuild" type="button" data-needs-role="owner"
+                  data-i18n="env.rebuild">Ortamı yeniden kur</button>
+        </div>
       </div>
       <div id="env-body"></div>
     </section>
@@ -904,6 +924,11 @@
                 <input type="number" id="set-sandbox-pids" min="16" max="100000" step="16">
               </label>
             </div>
+            <div class="run-actions" id="sandbox-probe-row" hidden>
+              <button class="btn" id="sandbox-probe" type="button" data-needs-role="admin"
+                      data-i18n="sandbox.probe">Docker'ı test et</button>
+            </div>
+            <p class="note" id="sandbox-probe-note"></p>
             <p class="note" id="sandbox-note"></p>
           </div>
         </section>

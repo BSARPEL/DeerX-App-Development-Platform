@@ -242,6 +242,16 @@ class Orchestrator:
             # cagrilabilir alarak bagimliligi tek yone ceviriyoruz.
             spawn=self._spawn_subagent,
         )
+        # Kabin baglama da YAZILIR. Arac katmani (`tools/shell._sandbox`)
+        # baglamda bir kabin bulamazsa kendi nesnesini kuruyordu ve boylece
+        # ayni konteyner icin IKI `Sandbox` ornegi olusuyordu. Ikisi de kendi
+        # `_kirik` isaretini tutar: orkestrator kabini kurulamaz bilirken
+        # arac katmanindaki ikinci nesne ayni `docker run`u her arac
+        # cagrisinda yeniden deniyor, her biri saniyelerce (kopuk mount'ta
+        # bir dakika) bekliyordu.
+        self.ctx._sandbox = self._sandbox  # noqa: SLF001 - baglami tasiyan tek yer
+        # Kosu basinda olculen kabin sagligi; `_kabini_hazirla` doldurur.
+        self._saglik: Any = None
         self._client: LLMClient | None = None
         # Onceki surec yarida kesildiyse gorevler `running` kalmis olabilir;
         # su an hicbir sey kosmadigi icin hepsi yetimdir ve kuyruga doner.
@@ -330,6 +340,11 @@ class Orchestrator:
                 setup=self.settings.sandbox_setup,
             )
         self.services.sandbox = self._sandbox
+        # Kurulustaki ile ayni gerekce: tek nesne. Burada yazilmazsa
+        # "Ortami yeniden kur"dan sonraki ilk `run_command` baglamda kabin
+        # bulamaz ve UCUNCU bir nesne kurardi -- ustelik yeni ayarlarla
+        # degil, kendi okudugu ayarlarla.
+        self.ctx._sandbox = self._sandbox  # noqa: SLF001 - baglami tasiyan tek yer
 
     def _stopped(self) -> bool:
         return self.should_stop is not None and self.should_stop()
@@ -352,6 +367,65 @@ class Orchestrator:
 
     def __exit__(self, *exc: object) -> None:
         self.close()
+
+    # ------------------------------------------------------------------ #
+    # Kosu oncesi ortam
+    # ------------------------------------------------------------------ #
+    def _kabini_hazirla(self, run_id: str) -> str | None:
+        """Kabini kosu BASLAMADAN kurar; kurulamadiysa sebebini doner.
+
+        Kabin eskiden ilk `run_command` cagrisinda kuruluyordu. Docker
+        kapaliyken ya da calisma alani baglanamadiginda bunun bedeli sudur:
+        kosu baslar, model cagrilir, ilk komut "kabin kurulamiyor" ile
+        duser, model hatayi KENDI komutunda arar ve ayni duvara tur
+        butcesi bitene kadar toslar. Para harcanmis, tek satir is
+        uretilmemis, sebep de olay akisinin ortasinda kaybolmustur.
+
+        Tek durus burada: sebep TEK bir 'sandbox' olayidir, kosu FAILED
+        kapanir ve model HIC cagrilmaz. Konak kipinde (`execution` docker
+        degil) hicbir sey yapilmaz -- kabin de yoktur.
+        """
+        if self.settings.execution != "docker" or self._sandbox is None:
+            return None
+
+        from ..sandbox import SandboxUnavailable
+
+        try:
+            self._sandbox.ensure()
+        except SandboxUnavailable as exc:
+            self.events.emit(
+                "error", "sandbox",
+                t("sandbox.unavailable", error=str(exc)),
+                run_id=run_id,
+            )
+            # Kosu kaydina HAM sebep yazilir: `sandbox.unavailable` ona bir
+            # cerceve ekliyor ("kosu baslamadan durdu") ve o cerceve kosu
+            # listesinde zaten gorunuyor; ayrintiyi ikinci kez sarmalamak
+            # care satirini (Docker Desktop'i yeniden baslatin) kirpma
+            # sinirinin disina iterdi.
+            return str(exc)
+
+        # Araclar YALNIZCA derin yoklamada olculur (`sandbox._derin_yokla`);
+        # sig sonucun `tools` sozlugu BOSTUR ve bos sozluk "olculmedi"
+        # demektir, "yok" degil. Derin yoklama burada pahali degil: `ensure`
+        # az once dondu, yani konteyner ayakta ve olcum gecici bir
+        # `docker run` degil, calisan konteynere tek bir `docker exec`.
+        # Bedelini yalnizca package.json tasiyan projeler oder; node'a
+        # ihtiyaci olmayan bir kosu fazladan tek docker cagrisi yapmaz.
+        node_gerekli = (self.settings.workspace / "package.json").is_file()
+        self._saglik = self._sandbox.probe(deep=node_gerekli, node_gerekli=node_gerekli)
+        for uyari in self._saglik.warnings:
+            if uyari["key"] != "node_missing":
+                continue
+            # Kosuyu DURDURMAZ: imaj degistirmeden de ilerlenebilir, karar
+            # kullanicinin. Ama bunu ilk `npm install` dustugunde ogrenmek
+            # bir turu ve modelin guvenini harciyordu.
+            self.events.emit(
+                "warn", "sandbox",
+                t("sandbox.node_missing", **uyari["args"]),
+                run_id=run_id,
+            )
+        return None
 
     # ------------------------------------------------------------------ #
     # Genel kosu
@@ -425,7 +499,26 @@ class Orchestrator:
 
         report = RunReport(run_id=run_id, seq=seq, workflow_id=workflow["id"],
                            workflow_seq=workflow["seq"])
-        for index, phase in enumerate(phases):
+
+        # Ortam kapisi: kosu ancak komutlarin KOSABILECEGI bir yerde
+        # baslar. `run.begins` olayindan SONRA cagrilir ki durus kosunun
+        # icinde, kendi kimligiyle gorunsun -- kosusuz bir hata olay
+        # akisinda hicbir kosuya ait olmaz ve arayuzde kaybolur.
+        kabin_hatasi = self._kabini_hazirla(run_id)
+        if kabin_hatasi is not None and phases:
+            # Ilk faz FAILED kaydedilir: kosu gecmisinde bos bir kabuk
+            # degil, nerede ve neden durdugu yazili bir adim kalsin.
+            self.state.start_run_step(run_id, phases[0], 0)
+            self.state.finish_run_step(
+                run_id, phases[0], status=Status.FAILED, error=kabin_hatasi
+            )
+            report.phases.append(
+                PhaseResult(phase=phases[0], status=Status.FAILED, error=kabin_hatasi)
+            )
+        # Donguye HIC girilmez; asagidaki kapanis kodu (servisler, tarayici,
+        # `finish_run`) normal akar ve kosuyu FAILED olarak muhurler.
+        sira = [] if kabin_hatasi is not None else phases
+        for index, phase in enumerate(sira):
             if self._stopped():
                 self.events.emit("warn", "run", t("run.cancelled"))
                 report.phases.append(

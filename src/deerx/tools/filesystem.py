@@ -18,6 +18,59 @@ _SKIP_DIRS = {
 _MAX_READ_BYTES = 400_000
 
 
+def _ciktidan_oku(ctx: ToolContext, target: Path) -> str | None:
+    """Yol bir ciktiysa ve veritabaninda duruyorsa metnini doner.
+
+    Kosul dar tutuldu: yol `artifacts_dir` ALTINDA olmali ve o adda bir
+    cikti kaydi bulunmali. Boylece calisma alanindaki siradan bir dosyanin
+    yoklugu yine "yok" diye bildirilir; yalnizca ciktilarin diskteki
+    kopyasi temizlenmis olmasi "icerik gitti" anlamina gelmez.
+    """
+    if ctx.state is None:
+        return None
+    try:
+        if target.parent.resolve() != ctx.settings.artifacts_dir.resolve():
+            return None
+    except OSError:  # pragma: no cover - cozulemeyen yol
+        return None
+
+    kayit = next(
+        (a for a in ctx.state.list_artifacts() if a.name == target.name), None
+    )
+    if kayit is None:
+        return None
+    try:
+        veri = ctx.state.artifact_bytes(kayit, limit=_MAX_READ_BYTES)
+    except ToolError:
+        raise
+    if veri is None:
+        return None
+    try:
+        return veri.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ToolError(t("fs.not_text", path=target.name, error=exc)) from exc
+
+
+def _numarali(
+    ctx: ToolContext, target: Path, text: str, offset: int, limit: int,
+    *, veritabanindan: bool = False,
+) -> ToolResult:
+    """Satir numarali govde; duzenleme yaparken hizalamayi kolaylastirir."""
+    lines = text.splitlines()
+    start = max(1, offset)
+    end = min(len(lines), start + max(1, limit) - 1)
+    body = "\n".join(f"{i:>5}\t{lines[i - 1]}" for i in range(start, end + 1))
+    note = ""
+    if end < len(lines):
+        note = f"\n\n[{len(lines) - end} satir daha var; offset={end + 1} ile devam edin]"
+    # Kaynagin veritabani oldugu SOYLENIR: ajan dosyayi diskte arayip
+    # bulamazsa (or. `run_command` ile `cat`) sebebini bilsin.
+    kaynak = f" · {t('fs.from_database')}" if veritabanindan else ""
+    return ToolResult(
+        content=f"{ctx.relative(target)} ({len(lines)} satir{kaynak})\n\n{body}{note}"
+    )
+
+
 class ReadFile(Tool):
     name = "read_file"
     description = """
@@ -36,9 +89,22 @@ class ReadFile(Tool):
     }
 
     def run(self, ctx: ToolContext, path: str, offset: int = 1, limit: int = 800) -> ToolResult:
-        target = ctx.resolve_path(path, must_exist=True)
+        target = ctx.resolve_path(path)
         if target.is_dir():
             raise ToolError(t("fs.is_a_dir", path=path))
+
+        if not target.is_file():
+            # Diskte yok. Bir CIKTI olabilir: ciktilarin kaynagi artik
+            # veritabani ve `.deerx/artifacts/` yalnizca bir ayna. Ajan
+            # kendi yazdigi raporu geri okumak istediginde, aynadaki kopya
+            # temizlenmis diye "dosya yok" demek yanlis olurdu -- icerik
+            # duruyor. Yalnizca ciktilar dizini icin gecerli: calisma
+            # alanindaki siradan bir dosya icin "yok" hala "yok".
+            metin = _ciktidan_oku(ctx, target)
+            if metin is None:
+                raise ToolError(t("tool.path_missing", path=ctx.relative(target)))
+            return _numarali(ctx, target, metin, offset, limit, veritabanindan=True)
+
         if target.stat().st_size > _MAX_READ_BYTES:
             raise ToolError(t("fs.too_large", path=path, size=f"{target.stat().st_size:,}"))
 
@@ -50,14 +116,7 @@ class ReadFile(Tool):
             except Exception as exc:  # noqa: BLE001
                 raise ToolError(t("fs.not_text", path=path, error=exc)) from exc
 
-        lines = text.splitlines()
-        start = max(1, offset)
-        end = min(len(lines), start + max(1, limit) - 1)
-        body = "\n".join(f"{i:>5}\t{lines[i - 1]}" for i in range(start, end + 1))
-        note = ""
-        if end < len(lines):
-            note = f"\n\n[{len(lines) - end} satir daha var; offset={end + 1} ile devam edin]"
-        return ToolResult(content=f"{ctx.relative(target)} ({len(lines)} satir)\n\n{body}{note}")
+        return _numarali(ctx, target, text, offset, limit)
 
 
 class WriteFile(Tool):

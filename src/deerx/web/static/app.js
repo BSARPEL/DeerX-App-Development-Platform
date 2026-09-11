@@ -96,9 +96,9 @@ const emptyState = (title, hint = "", action = null) =>
 /* Yuklenirken hedefi ESKI VERIYLE birakmak yalan soyluyordu: proje
    degistirdiginizde bir saniye boyunca onceki projenin plani duruyor ve
    o sirada tiklanan satir yanlis projeye gidiyordu. */
-const busyState = () =>
+const busyState = (metin) =>
   `<p class="empty" data-busy="1" role="status"><span class="spinner"></span>` +
-  `<strong>${esc(t("app.loading"))}</strong></p>`;
+  `<strong>${esc(metin || t("app.loading"))}</strong></p>`;
 
 /* Durum kodu ANLAM tasir. Ucu de "Yuklenemedi" diye ayni griye boyandiginda
    kullanici ne yapacagini bilmiyordu: yetki mi istesin, listeye mi donsun,
@@ -209,6 +209,8 @@ const state = {
   // Ciktilar: acik kosu gruplari. Bos ise en yeni kosu acik gelir.
   artifactGroups: [],
   openArtifactRuns: new Set(),
+  // Ciktilar ekraninin kapsami: "this" bu proje, "all" butun projelerim.
+  artifactScope: "this",
   // Kosu kaydindan onceki ciktilar varsayilan olarak gizli; kullanici
   // acikca isterse gosterilir.
   // Genel durum istegi neden dustu; ayarlar ekrani bunu yaziyor.
@@ -1414,32 +1416,67 @@ function initDocPicker() {
 // kullanici olay akisinda gecen bir port numarasini yakalayip adresi
 // kendi kurmak zorundaydi.
 
+/* Kabin sorunlarini kelimeyle yazar: ne oldu ve NE YAPMALI.
+
+   Sorun anahtari sunucudan geliyor, metin buradan: dil degistiginde eski
+   dilde yazilmis bir cumle ekranda kalmasin. Taninmayan bir anahtar
+   (sunucu yeni, arayuz eski) sessizce kaybolmaz -- ham sebep gosterilir. */
+function kabinSorunlari(kayitlar, kind) {
+  if (!kayitlar || !kayitlar.length) return "";
+  return `<div class="issue-list">${kayitlar.map((sorun) => {
+    const anahtar = `env.issue.${sorun.key}`;
+    const metin = t(anahtar);
+    const care = t(`env.issueFix.${sorun.key}`);
+    const govde = metin === anahtar
+      ? esc(String(sorun.args?.error || sorun.key))
+      : `${esc(metin)}${care.startsWith("env.issueFix.") ? "" : ` <span class="cell-meta">${esc(care)}</span>`}`;
+    return `<div class="issue" data-kind="${kind}">
+      <span class="issue-mark">${kind === "blocker" ? "✗" : "!"}</span>
+      <span>${govde}</span>
+    </div>`;
+  }).join("")}</div>`;
+}
+
 function renderEnvironment(data) {
   const k = data.sandbox;
   const p = data.ports;
   const servisler = data.services || [];
+  const sorunlar = k.problems || [];
+  const uyarilar = k.warnings || [];
+  const araclar = Object.keys(k.tools || {});
 
   $("#env-scope").textContent = t("env.scope", { name: data.project.name });
   $("#env-rebuild").hidden = k.execution !== "docker";
+  $("#env-probe").hidden = k.execution !== "docker";
+
+  // Rozet UC durumu ayirir. Once hepsi ayni sariydi: konak kipi de,
+  // henuz kurulmamis bir kabin de, kurulamayan bir kabin de "engelli"
+  // gorunuyordu -- oysa ilki tamamen normal, sonuncusu arizadir.
+  const ton = sorunlar.length ? "failed"
+    : k.status === "running" ? "done"
+    : k.execution === "host" ? "" : "blocked";
 
   $("#env-body").innerHTML = `
     <section class="panel">
       <header class="panel-head">
         <h2 data-i18n-skip>${esc(t("env.container"))}</h2>
-        <span class="badge" data-v="${esc(k.status === "running" ? "done" : "blocked")}">${
-          esc(tv("envStatus", k.status))
-        }</span>
+        <span class="badge" data-v="${esc(ton)}">${esc(tv("envStatus", k.status))}</span>
       </header>
       <div class="panel-body">
+        ${kabinSorunlari(sorunlar, "blocker")}
+        ${kabinSorunlari(uyarilar, "warning")}
         <dl class="detail-grid">
           <dt>${esc(t("env.mode"))}</dt><dd>${esc(tv("execution", k.execution))}</dd>
           ${k.execution === "docker" ? `
             <dt>${esc(t("env.image"))}</dt><dd>${esc(k.image)}</dd>
             <dt>${esc(t("env.name"))}</dt><dd>${esc(k.name)}</dd>
             <dt>${esc(t("env.limits"))}</dt><dd>${esc(k.memory)} · ${esc(String(k.cpus))} CPU</dd>` : ""}
+          ${araclar.length ? `
+            <dt>${esc(t("env.tools"))}</dt><dd>${araclar.map((ad) =>
+              `${esc(ad)}: ${esc(k.tools[ad] ? t("env.toolYes") : t("env.toolNo"))}`).join(" · ")}</dd>` : ""}
           <dt>${esc(t("env.ports"))}</dt><dd>${p.base}–${p.last}</dd>
         </dl>
-        <p class="note">${esc(t("env.portsHint"))}</p>
+        <p class="note">${esc(p.enforced === false ? t("env.portsHintHost") : t("env.portsHint"))}</p>
       </div>
     </section>
 
@@ -1462,11 +1499,16 @@ function renderEnvironment(data) {
     </section>`;
 }
 
-async function loadEnvironment() {
+/* `derin` yalnizca kullanici "Sagligi olc" dedigi zaman true olur.
+
+   Derin yoklama gercek bir konteyner kaldirir ve bir dakikaya kadar
+   surebilir. Ekran her acilista bunu yapsaydi, tam da teshis etmesi
+   gereken arizada (kopuk baglanti) bir dakika bos ekran gosterirdi. */
+async function loadEnvironment({ derin = false } = {}) {
   // Beklerken eski projenin verisi ekranda kalmaz.
-  $("#env-body").innerHTML = busyState();
+  $("#env-body").innerHTML = derin ? busyState(t("env.probing")) : busyState();
   try {
-    renderEnvironment(await api("/api/environment"));
+    renderEnvironment(await api(`/api/environment${derin ? "?probe=1" : ""}`));
   } catch (error) {
     $("#env-body").innerHTML = hataDurumu(error);
   }
@@ -1481,6 +1523,8 @@ function initEnvironment() {
       loadEnvironment();
     } catch (error) { toast(error.message, "err"); }
   });
+
+  $("#env-probe").addEventListener("click", () => loadEnvironment({ derin: true }));
 }
 
 // ─── Projeler ─────────────────────────────────────────────────────────────
@@ -2300,10 +2344,18 @@ function yalitimiGoster(kip) {
   const kabin = kip === "docker";
   const alanlar = $("#sandbox-fields");
   if (alanlar) alanlar.hidden = !kabin;
+  const satir = $("#sandbox-probe-row");
+  if (satir) satir.hidden = !kabin;
   const durum = $("#sandbox-state");
   if (durum) {
-    durum.textContent = t(kabin ? "sandbox.stateDocker" : "sandbox.stateHost");
-    durum.dataset.tone = "";
+    // Docker bu makinede YOKSA bunu KAYDETMEDEN soyle. Eskiden kullanici
+    // konteyneri secip kaydediyor, "yalitilmis" rozetini goruyor ve
+    // kosunun neden baslamadigini ancak olay akisinda ogreniyordu.
+    const yok = kabin && state.overview?.settings?.docker_found === false;
+    durum.textContent = yok
+      ? t("sandbox.stateNoDocker")
+      : t(kabin ? "sandbox.stateDocker" : "sandbox.stateHost");
+    durum.dataset.tone = yok ? "err" : "";
   }
   const not = $("#sandbox-note");
   if (not) not.textContent = t(kabin ? "sandbox.noteDocker" : "sandbox.noteHost");
@@ -2417,6 +2469,12 @@ function initSaveButton(scope) {
           : t("settings.noChange"),
         kac ? "ok" : "info",
       );
+      // Sunucunun uyarilari: ayar KAYDEDILDI ama makinede karsiligi yok
+      // (or. yalitim acildi, Docker kurulu degil). Sessiz kalmak, kosunun
+      // neden baslamadigini kullaniciya soylememek olurdu.
+      (sonuc.warnings || []).forEach((anahtar) => {
+        if (anahtar === "sandbox.no_docker") toast(t("sandbox.noDockerWarn"), "warn", 8000);
+      });
       await loadOverview();
       renderSettings();
     } catch (error) {
@@ -2472,12 +2530,15 @@ function initSettings() {
     $("#search-state").dataset.tone = hatali ? "err" : "";
   });
 
-  const probe = async (button, note, url, render) => {
+  // `govde` ve `bekleme`: kabin yoklamasi KAYDEDILMEMIS form degerlerini
+  // denemek ister (kullanici imaji degistirip once test etmeli) ve bir
+  // dakikaya kadar surebilir -- "Deneniyor…" orada yetersiz kalirdi.
+  const probe = async (button, note, url, render, govde = {}, bekleme = "") => {
     button.disabled = true;
     note.dataset.tone = "";
-    note.innerHTML = `<span class="spinner"></span> ${esc(t("settings.trying"))}`;
+    note.innerHTML = `<span class="spinner"></span> ${esc(bekleme || t("settings.trying"))}`;
     try {
-      const result = await post(url, {});
+      const result = await post(url, govde);
       note.dataset.tone = result.ok ? "ok" : "err";
       note.textContent = render(result);
     } catch (error) {
@@ -2506,6 +2567,33 @@ function initSettings() {
       r.ok
         ? t("browser.testOk", { binary: r.binary, seconds: r.seconds, title: r.title })
         : `${r.error}${r.binary ? ` (${r.binary})` : ""}`));
+
+  // "Docker kurulu" demek yetmiyor: daemon yanit verse bile calisma alani
+  // konteynere baglanamayabilir. Ayari kaydedip kirk dakikalik bir kosu
+  // baslattiktan sonra bunu ogrenmekle bu dugmeye basmak arasindaki fark,
+  // bir kosu.
+  $("#sandbox-probe").addEventListener("click", () =>
+    probe(
+      $("#sandbox-probe"), $("#sandbox-probe-note"), "/api/settings/test-sandbox",
+      (r) => r.ok
+        ? t("sandbox.probeOk", {
+            image: r.image,
+            tools: Object.keys(r.tools || {})
+              .map((ad) => `${ad}: ${r.tools[ad] ? t("env.toolYes") : t("env.toolNo")}`)
+              .join(" · "),
+          })
+        : (r.problems || []).map((s) => {
+            const anahtar = `env.issue.${s.key}`;
+            const metin = t(anahtar);
+            return metin === anahtar ? String(s.args?.error || s.key) : metin;
+          }).join(" · ") || t("sandbox.stateNoDocker"),
+      {
+        image: $("#set-sandbox-image").value,
+        port_base: Number($("#set-sandbox-port-base").value) || 0,
+        port_count: Number($("#set-sandbox-port-count").value) || 0,
+      },
+      t("sandbox.probing"),
+    ));
 }
 
 
@@ -3948,7 +4036,112 @@ function initPlan() {
 }
 
 // ─── Ciktilar ─────────────────────────────────────────────────────────────
+/* Tek bir cikti satiri: ad + meta, yaninda indirme baglantisi.
+
+   Indirme eskiden YALNIZCA detay bolmesinde ve yalnizca ikili/goruntu
+   bicimlerinde vardi; en sik uretilen ciktilar (rapor, plan, mockup)
+   ekranda okunabiliyor ama alinamiyordu. Artik her satirda.
+
+   `exists === false` olan satir "0 B" diye normal gorunuyordu ve ariza
+   ancak tiklandiginda anlasiliyordu; artik kelimeyle yaziyor. Indirme
+   baglantisi o satirda BASILMAZ: olmayan bir seye goturen bir dugme,
+   dugmenin kendisinden kotudur. */
+function ciktiSatiri(item) {
+  const yok = item.exists === false;
+  const meta = [
+    item.phase ? t("phase." + item.phase) : "",
+    tv("kind", item.kind),
+    yok ? t("artifacts.gone") : fmtBytes(item.bytes),
+    !yok && item.stored === false ? t("artifacts.onDiskOnly") : "",
+  ].filter(Boolean).join(" · ");
+  const indir = !yok && item.download
+    ? `<a class="artifact-dl" href="${esc(item.download)}" download
+          title="${esc(t("artifacts.downloadOne"))}"
+          aria-label="${esc(t("artifacts.downloadOne"))}">⤓</a>`
+    : "";
+  return `
+    <div class="artifact-row">
+      <button class="artifact-item${item.name === state.activeArtifact ? " is-active" : ""}"
+              data-artifact="${esc(item.name)}" type="button">
+        <span class="artifact-name">${esc(item.name)}</span>
+        <span class="artifact-meta">${esc(meta)}</span>
+      </button>${indir}
+    </div>`;
+}
+
+/* Baska projelerin ciktilari: proje > kosu > cikti.
+
+   Ayri bir ekran acilmadi. Ciktilar zaten burada aranıyor ve ayri bir ray
+   maddesi yeni bir rota, yeni bir gorunum ve detay bolmesinin kopyasini
+   isterdi -- ekranin pahali parcasi tam olarak o.
+
+   Satirin indirme baglantisi capraz UCA gider; ada tiklamak once PROJEYI
+   degistirir, sonra ciktiyi acar. Baglam degisikligi gizlenmez: sol rayda
+   proje adi degisir. */
+async function loadActivityArtifacts() {
+  const list = $("#artifact-list");
+  list.innerHTML = busyState();
+  detayKutusu().innerHTML = emptyState(t("artifacts.crossHint"));
+  $("#btn-download-all").hidden = true;
+  try {
+    const data = await api("/api/activity/artifacts");
+    const projeler = data.projects || [];
+    const okunamayan = data.unreadable
+      ? t(data.unreadable === 1 ? "artifacts.unreadableOne" : "artifacts.unreadable",
+          { n: data.unreadable })
+      : "";
+    $("#artifacts-sub").textContent = [
+      data.total
+        ? t("artifacts.count", { n: data.total, runs: projeler.length })
+        : t("artifacts.activityEmpty"),
+      okunamayan,
+    ].filter(Boolean).join(" · ");
+
+    if (!data.total) {
+      list.innerHTML = emptyState(t("artifacts.activityEmpty"), t("artifacts.activityHint"));
+      return;
+    }
+
+    list.innerHTML = projeler.map((proje) => `
+      <div class="artifact-group" data-open="1">
+        <div class="artifact-group-head" data-i18n-skip>
+          <span class="artifact-group-goal">${esc(proje.name)}</span>
+          <span class="artifact-group-count">${proje.total}</span>
+        </div>
+        <div class="artifact-group-body">
+          ${proje.runs.map((kosu) => kosu.items.map((oge) => `
+            <div class="artifact-row">
+              <button class="artifact-item" type="button"
+                      data-cross-slug="${esc(proje.slug)}" data-cross-name="${esc(oge.name)}">
+                <span class="artifact-name">${esc(oge.name)}</span>
+                <span class="artifact-meta">${esc([
+                  kosu.seq === null ? t("artifacts.beforeRuns") : `#${kosu.seq}`,
+                  tv("kind", oge.kind),
+                  oge.stored ? fmtBytes(oge.bytes) : t("artifacts.notStored"),
+                ].filter(Boolean).join(" · "))}</span>
+              </button>
+              ${oge.download ? `<a class="artifact-dl" href="${esc(oge.download)}" download
+                    title="${esc(t("artifacts.downloadOne"))}"
+                    aria-label="${esc(t("artifacts.downloadOne"))}">⤓</a>` : ""}
+            </div>`).join("")).join("")}
+        </div>
+      </div>`).join("");
+
+    $$("[data-cross-slug]", list).forEach((button) => {
+      button.addEventListener("click", async () => {
+        state.activeArtifact = button.dataset.crossName;
+        state.artifactScope = "this";
+        await switchProject(button.dataset.crossSlug);
+        showView("artifacts");
+      });
+    });
+  } catch (error) {
+    list.innerHTML = hataDurumu(error);
+  }
+}
+
 async function loadArtifacts() {
+  if (state.artifactScope === "all") return loadActivityArtifacts();
   const list = $("#artifact-list");
   // Beklerken eski projenin verisi ekranda kalmaz.
   list.innerHTML = busyState();
@@ -3956,6 +4149,7 @@ async function loadArtifacts() {
     const data = await api(
       "/api/artifacts");
     state.artifactGroups = data.groups;
+    $("#btn-download-all").hidden = !data.total;
     $("#artifacts-sub").textContent = data.total
       ? t("artifacts.count", { n: data.total, runs: data.groups.length })
       : t("artifacts.empty");
@@ -4022,14 +4216,12 @@ async function loadArtifacts() {
           ${attachments ? `<span class="artifact-attach" title="${esc(t("artifacts.attachment"))}">🗜 ${attachments}</span>` : ""}
           <span class="artifact-group-count">${group.items.length}</span>
         </button>
+        ${group.run_id ? `<a class="artifact-dl artifact-group-dl"
+             href="/api/artifacts.zip?run_id=${encodeURIComponent(group.run_id)}" download
+             title="${esc(t("artifacts.downloadRun"))}"
+             aria-label="${esc(t("artifacts.downloadRun"))}">⤓</a>` : ""}
         <div class="artifact-group-body"${open ? "" : " hidden"}>
-          ${group.items.map((item) => `
-            <button class="artifact-item${item.name === state.activeArtifact ? " is-active" : ""}"
-                    data-artifact="${esc(item.name)}" type="button">
-              <span class="artifact-name">${esc(item.name)}</span>
-              <span class="artifact-meta">${
-                item.phase ? `${esc(t("phase." + item.phase))} · ` : ""}${esc(tv("kind", item.kind))} · ${fmtBytes(item.bytes)}</span>
-            </button>`).join("")}
+          ${group.items.map((item) => ciktiSatiri(item)).join("")}
         </div>
       </div>`;
     }).join("");
@@ -4038,7 +4230,10 @@ async function loadArtifacts() {
       head.addEventListener("click", () => {
         const key = head.dataset.group;
         const wrap = head.parentElement;
-        const body = head.nextElementSibling;
+        // `nextElementSibling` DEGIL: basligin yanina kosu indirme
+        // baglantisi girdi ve o kardes artik govde degil. Sinifla aramak
+        // siraya bagli olmaktan kurtarir.
+        const body = $(".artifact-group-body", wrap);
         body.hidden = !body.hidden;
         wrap.dataset.open = body.hidden ? "0" : "1";
         head.setAttribute("aria-expanded", String(!body.hidden));
@@ -4122,7 +4317,13 @@ async function openArtifact(name) {
   // Detay, listenin YANINDA degil, secilen satirin ALTINDA acilir. Yan
   // panel ekran boyuydu ve tek bir dosya adi icin yarim ekran harcıyordu;
   // ayrica hangi satira ait oldugu ancak vurgudan anlasiliyordu.
-  const satir = $(`[data-artifact="${CSS.escape(name)}"]`);
+  // Dugmenin KENDISI degil, satir SARMALI. Dugme artik iki sutunlu bir
+  // izgaranin (ad + indirme) icinde duruyor; detay kutusunu dugmeden
+  // sonra eklemek onu o izgaranin UCUNCU hucresi yapiyor ve kutu satirin
+  // icine, indirme baglantisinin ustune biniyordu -- olculdu, ekranda
+  // listenin uzerine tasan bir kart olarak goruldu.
+  const dugme = $(`[data-artifact="${CSS.escape(name)}"]`);
+  const satir = dugme?.closest(".artifact-row") || dugme;
   if (satir) {
     // Kosu grubu kapaliysa detay gorunmez bir yerde acilirdi: kutu
     // yerlesir, ekranda hicbir sey degismez. Grubu ac.
@@ -4166,11 +4367,16 @@ async function openArtifact(name) {
       return;
     }
 
+    // Indirme metin bicimlerinde de var: rapor, plan ve mockup en sik
+    // uretilen ciktilar ve bunlari almanin tek yolu Kaynak sekmesinden
+    // kopyalamakti. Eski bir sunucu `download` gondermiyorsa baglanti
+    // basilmaz -- olmayan bir adrese goturmez.
     const toolbar = `
       <div class="artifact-toolbar">
         <button class="artifact-close" type="button" data-close-artifact
                 title="${esc(t("artifacts.closeDetail"))}"
                 aria-label="${esc(t("artifacts.closeDetail"))}">✕</button>
+        ${data.download ? `<a class="btn btn-ghost btn-sm" href="${esc(data.download)}" download>${esc(t("app.download"))}</a>` : ""}
         <div class="chips">
           <button class="chip chip-btn is-active" data-mode="render" type="button">${esc(t("artifacts.render"))}</button>
           <button class="chip chip-btn" data-mode="raw" type="button">${esc(t("artifacts.source"))}</button>
@@ -4732,6 +4938,7 @@ function boot() {
   initApproval();
   initUpload();
   initDelivery();
+  initArtifactScope();
   initStepPicker();
   initQuestionNav();
   initPlans();
@@ -4967,6 +5174,40 @@ function initUpload() {
   zone.addEventListener("drop", (event) => {
     if (event.dataTransfer?.files?.length) uploadFiles(event.dataTransfer.files);
   });
+
+  /* Ikinci kapi: dosya penceresini hic acmadan indeksleme.
+
+     Pencere isletim sisteminin ve bizim denetimimizde degil; takildiginda
+     (agdaki bir surucu, bulut kabuk eklentisi, pencerenin tarayicinin
+     arkasinda acilmasi) kullanicinin sartnameyi indeksleyecek baska bir
+     yolu KALMIYORDU. Ustelik pencere cogu zaman gereksizdi: yukleme
+     hedefi `<calisma alani>/docs/` ve secilen dosya zaten oradaydi. */
+  const dugme = $("#btn-ingest-docs");
+  const durum = $("#upload-status");
+  dugme.addEventListener("click", async () => {
+    dugme.disabled = true;
+    durum.className = "upload-status";
+    durum.innerHTML = `<span class="spinner"></span> ${esc(t("app.loading"))}`;
+    try {
+      const sonuc = await post("/api/ingest-docs", {});
+      const toplam = sonuc.files.length;
+      durum.className = "upload-status upload-ok";
+      durum.textContent = sonuc.indexed
+        ? t("develop.ingestDocsDone", { indexed: sonuc.indexed, total: toplam })
+        : t("develop.ingestDocsNone");
+      // Basarisiz dosyalar sessizce yutulmaz: biri okunamadiysa kullanici
+      // hangisi oldugunu bilmeli, yoksa eksik bir bilgi tabaniyla kosar.
+      sonuc.failed.forEach((ad) => toast(t("upload.failed", { name: ad, msg: "" }), "err"));
+      await loadOverview();
+      loadDocuments();
+    } catch (error) {
+      durum.className = "upload-status upload-err";
+      durum.textContent = error.message;
+    } finally {
+      dugme.disabled = false;
+      applyPermissions();   // yetki kapattiysa kapali kalsin
+    }
+  });
 }
 
 // ─── Teslimat paketi ──────────────────────────────────────────────────────
@@ -5021,6 +5262,23 @@ function syncPackageButton() {
   button.textContent = t(ready ? "delivery.package" : "delivery.packageAnyway");
   button.disabled = !ready && !force.checked;
   button.title = button.disabled ? t("delivery.forceHint") : "";
+}
+
+/* Kapsam cipleri. Plan ekranindaki `.chip-btn` deseninin aynisi:
+   secili cip `is-active`, secim `state`te durur ve liste yeniden cizilir. */
+function initArtifactScope() {
+  $$("#artifact-scope .chip-btn").forEach((cip) => {
+    cip.addEventListener("click", () => {
+      if (state.artifactScope === cip.dataset.scope) return;
+      state.artifactScope = cip.dataset.scope;
+      // Kapsam degisince acik detay baska bir projeye ait olabilir;
+      // birakmak yanlis projenin ciktisini gostermek olurdu.
+      state.activeArtifact = null;
+      $$("#artifact-scope .chip-btn").forEach((d) =>
+        d.classList.toggle("is-active", d === cip));
+      loadArtifacts();
+    });
+  });
 }
 
 function initDelivery() {

@@ -253,7 +253,7 @@ execution = "docker"
 ```
 
 Inside a container the allow-list is not applied, because there is no host to
-protect and the container is deleted when the run ends. See
+protect. The container is stopped, not deleted, when the run ends. See
 [Security](security.md) for what that does and does not isolate — the workspace
 is mounted, so the machine is protected but the project is not.
 
@@ -278,6 +278,60 @@ sandbox_port_count = 10
 ```
 
 `--network host` does **not** reach the Windows host; only published ports do.
+
+### Docker Desktop cannot bind the workspace
+
+**Symptom.** With `execution = "docker"` every command fails with the same
+line:
+
+```
+docker: Error response from daemon: error while creating mount source path
+'/run/desktop/mnt/host/c/...': mkdir /run/desktop/mnt/host/c: file exists
+```
+
+The Environment screen says the sandbox cannot be built, and `deerx setup`
+reports Docker as a blocker.
+
+**Cause, measured.** Docker Desktop's view of the host drives, inside its WSL2
+VM, has come loose: `/run/desktop/mnt/host/c` answers with an I/O error. The
+daemon itself is healthy — `docker info` answers, named volumes work, existing
+containers run — so a check that only asks `docker info` reports everything as
+fine while every bind mount fails.
+
+**Fix.** Quit Docker Desktop completely (tray icon → Quit, not just closing the
+window), start it again, then press **Check health** on the Environment screen.
+If the problem survives a restart, `wsl --shutdown` and start Docker Desktop
+again.
+
+Until it is fixed, `execution = "host"` keeps working: the workspace is not
+mounted anywhere, it is simply where the commands run.
+
+### The environment screen says the sandbox cannot be built
+
+**Symptom.** The container badge is red and the screen lists a problem.
+
+**Cause.** The named problems are: Docker not installed, the daemon not
+answering, the workspace not binding (above), the image missing or unpullable, a
+published port already busy on the host, or a container of the same name left
+behind. Each line carries what to do.
+
+**Fix.** Follow the line. The screen's *Check health* button re-runs the deep
+probe — it starts a real container and mounts the workspace, so it tells you
+whether the fix worked without starting a run.
+
+### A service is listening but only on 127.0.0.1
+
+**Symptom.** `start_service` refuses with "the published port stays empty", or
+`preview_open` cannot reach the app.
+
+**Cause, measured.** A published port only works if the service inside the
+container binds `0.0.0.0`. Vite, Next, Flask and uvicorn all default to
+localhost, which is invisible from outside the container. The readiness check
+now reads `/proc/net/tcp` *inside* the container, so it can tell "listening on
+all interfaces" from "listening on loopback" and says which one it found.
+
+**Fix.** Bind all interfaces: `--host 0.0.0.0` (Vite, uvicorn), `--bind 0.0.0.0`
+(gunicorn, `http.server`), or `HOST=0.0.0.0` in the environment.
 
 ### The container has no `git`, `gcc` or `node`
 

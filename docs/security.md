@@ -96,14 +96,22 @@ instead:
 ```toml
 [deerx]
 execution = "docker"
-sandbox_image = "python:3.13-slim"
+sandbox_image = "python:3.13"
 sandbox_port_base = 8100
 sandbox_port_count = 10
 ```
 
 Inside the container the **allow-list is not applied** — there is no host to
-protect, and the blast radius is a container that is deleted when the run
-ends. The agent can `rm`, install packages, and kill processes.
+protect, and the blast radius is the container. The agent can `rm`, install
+packages, and kill processes. The container is *stopped* at the end of a run,
+not deleted: the setup command only runs at creation, so deleting it every time
+would reinstall the toolchain on every start. *Rebuild environment* deletes it.
+
+One gap the allow-list did not close: `docker` is on it, and a single
+`docker run -v /:/host`, `--privileged` or `--pid=host` reaches past every other
+fence. Those flags are refused in both modes. This is a fence, not a sandbox —
+`docker build` and relative bind mounts still work, and anyone determined to get
+out of a shell allow-list can.
 
 Three constraints, all measured on Windows with Docker 29.7.2:
 

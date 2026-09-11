@@ -118,7 +118,13 @@ The same rule covers `.png`, `.pdf` and other binary artifacts. On the MCP side,
 `deerx_artifact <package.zip>` returns this report rather than bytes.
 
 Manual packaging creates a single-step run record — without it, the package
-would belong to no run and would be unreachable from the Runs view.
+would belong to no run and would be unreachable from the Runs view. All three
+routes go through the same helper, so a package built from the CLI or over MCP
+carries a run too; it used to be true only on the web.
+
+The zip is stored in the database alongside the copy in `.deerx/teslimat/`, so
+it downloads even after the folder is cleared, and a teammate can pull it from
+the cross-project artifact list without opening the project.
 
 ## See also
 

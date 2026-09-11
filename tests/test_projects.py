@@ -1021,6 +1021,207 @@ class TestCaprazTaramaYetkisi:
         assert toplam_adsiz >= 1, "sahipsiz kosu hic sayilmamis"
 
 
+class TestCaprazIndirme:
+    """Baska bir projenin ciktisini indirmek.
+
+    Capraz liste bir ciktinin VAR oldugunu soyluyorsa, onu almanin da bir
+    yolu olmali -- yoksa liste bir vitrin olur. Ama yol, taramanin
+    kendisine koyulan kisidi bozmamali: salt okunur baglanti, `runtime()`
+    yok, goc yok, diske hic dokunulmaz.
+    """
+
+    @pytest.fixture
+    def sunucu(self, settings):
+        from starlette.testclient import TestClient
+
+        from deerx.web.app import build_app
+
+        with TestClient(build_app(settings)) as client:
+            auth = client.app.state.deerx.auth
+            auth.create_first_admin(
+                auth.issue_setup_token(), "yonetici", "cok-uzun-parola-1"
+            )
+            client.post(
+                "/api/auth/login",
+                json={"username": "yonetici", "password": "cok-uzun-parola-1"},
+            )
+            client.post(
+                "/api/users",
+                json={"username": "ekip", "password": "ikinci-uzun-parola"},
+            )
+            yield client
+
+    @staticmethod
+    def _proje(sunucu, tmp_path, ad, *, kim="yonetici", icerik=b"# rapor\n", kosulu=True):
+        """Kendi veritabani olan ikinci bir proje; icinde blob'lu bir cikti."""
+        from deerx.pipeline.models import Artifact
+        from deerx.pipeline.state import ProjectState
+
+        kok = tmp_path / ad
+        (kok / ".deerx").mkdir(parents=True)
+        durum = ProjectState(kok / ".deerx" / "deerx.db")
+        try:
+            run_id = ""
+            if kosulu:
+                run_id = "k1"
+                durum.start_run(run_id, goal="hedef", phases=["design"], started_by=kim)
+                durum.finish_run(run_id, status="done")
+            durum.add_artifact(
+                Artifact(name=f"{ad}.md", kind="report", path=str(kok / f"{ad}.md")),
+                run_id=run_id,
+                blob=icerik,
+            )
+        finally:
+            durum.close()
+        cevap = sunucu.post("/api/projects", json={"name": ad, "path": str(kok)})
+        assert cevap.status_code == 200, cevap.text
+        return cevap.json()["project"]["id"], kok / ".deerx" / "deerx.db"
+
+    @staticmethod
+    def _gec(sunucu, ad, parola="ikinci-uzun-parola"):
+        sunucu.post("/api/auth/logout")
+        assert sunucu.post(
+            "/api/auth/login", json={"username": ad, "password": parola}
+        ).status_code == 200
+
+    def test_the_listing_says_which_artifacts_can_be_downloaded(self, sunucu, tmp_path):
+        """`stored` ve `bytes` SQL'den gelir; hicbir `stat()` cagrilmaz."""
+        self._proje(sunucu, tmp_path, "alfa", icerik=b"x" * 40)
+
+        veri = sunucu.get("/api/activity/artifacts").json()
+        proje = [p for p in veri["projects"] if p["name"] == "alfa"][0]
+        oge = proje["runs"][0]["items"][0]
+        assert oge["stored"] is True
+        assert oge["bytes"] == 40
+        assert oge["sha256"]
+        assert oge["download"].endswith("/download")
+        assert str(proje["id"]) in oge["download"]
+
+    def test_a_member_downloads_the_bytes(self, sunucu, tmp_path):
+        _pid, _db = self._proje(sunucu, tmp_path, "beta", icerik=b"# beta raporu\n")
+        veri = sunucu.get("/api/activity/artifacts").json()
+        oge = [p for p in veri["projects"] if p["name"] == "beta"][0]["runs"][0]["items"][0]
+
+        cevap = sunucu.get(oge["download"])
+        assert cevap.status_code == 200
+        assert cevap.content == b"# beta raporu\n"
+        assert cevap.headers["content-type"] == "application/octet-stream"
+        assert "attachment" in cevap.headers["content-disposition"]
+
+    def test_the_download_leaves_the_other_database_untouched(self, sunucu, tmp_path):
+        """Tarama gibi indirme de SALT OKUNUR: dosyanin boyutu ve
+        degistirilme zamani ayni kalmali (`-wal`/`-shm` haric; okuyucunun
+        paylasilan bellege yazmasi mesru)."""
+        _pid, db = self._proje(sunucu, tmp_path, "gama")
+        veri = sunucu.get("/api/activity/artifacts").json()
+        oge = [p for p in veri["projects"] if p["name"] == "gama"][0]["runs"][0]["items"][0]
+
+        once = (db.stat().st_size, db.stat().st_mtime_ns)
+        assert sunucu.get(oge["download"]).status_code == 200
+        assert (db.stat().st_size, db.stat().st_mtime_ns) == once, (
+            "indirme hedef veritabanini degistirdi"
+        )
+
+    def test_a_non_member_gets_404_not_403(self, sunucu, tmp_path):
+        """403 "yetkin yok" demek, projenin VAR OLDUGUNU soylemektir.
+        Uye olmayan biri kimlikleri deneyerek varlik listesi cikaramamali."""
+        pid, _db = self._proje(sunucu, tmp_path, "delta")
+        self._gec(sunucu, "ekip")
+        cevap = sunucu.get(f"/api/activity/artifacts/{pid}/delta.md/download")
+        assert cevap.status_code == 404
+
+    def test_a_runless_artifact_is_only_visible_to_the_all_scope(self, sunucu, tmp_path):
+        """Kosusuz cikti kimseye atfedilemez: `me` kipinde ne listede ne
+        indirmede gorunur, `all` kipinde ikisinde de gorunur."""
+        pid, _db = self._proje(sunucu, tmp_path, "epsilon", kosulu=False)
+
+        benim = sunucu.get("/api/activity/artifacts").json()
+        assert "epsilon" not in [p["name"] for p in benim["projects"]]
+        assert sunucu.get(
+            f"/api/activity/artifacts/{pid}/epsilon.md/download"
+        ).status_code == 404
+
+        herkes = sunucu.get("/api/activity/artifacts?who=all").json()
+        proje = [p for p in herkes["projects"] if p["name"] == "epsilon"][0]
+        assert proje["runs"][0]["seq"] is None
+        assert sunucu.get(
+            f"/api/activity/artifacts/{pid}/epsilon.md/download?who=all"
+        ).status_code == 200
+
+    def test_someone_elses_artifact_is_not_downloadable_by_name(self, sunucu, tmp_path):
+        """Listenin gostermedigi bir ciktiyi adres tahmin ederek almak
+        mumkun olmamali: kapsam kurali iki ucta da ayni."""
+        pid, _db = self._proje(sunucu, tmp_path, "zeta", kim="yonetici")
+        durum = sunucu.app.state.deerx
+        proje = next(p for p in durum.projects.all_projects() if p.name == "zeta")
+        durum.projects.set_member(proje.id, 2, "developer")
+
+        self._gec(sunucu, "ekip")
+        assert sunucu.get(
+            f"/api/activity/artifacts/{pid}/zeta.md/download"
+        ).status_code == 404, "baskasinin kosusundaki cikti adla indirildi"
+
+    def test_an_old_database_is_listed_but_not_downloadable(self, sunucu, tmp_path):
+        """`artifact_blobs` tablosu OLMAYAN bir projede liste 200 doner,
+        cikti `stored: false` gorunur, indirme 404 der ve tablo ORTAYA
+        CIKMAZ -- tarama gibi indirme de goc kosturmaz."""
+        import sqlite3
+
+        kok = tmp_path / "eski"
+        (kok / ".deerx").mkdir(parents=True)
+        db = kok / ".deerx" / "deerx.db"
+        with sqlite3.connect(db) as conn:
+            conn.execute(
+                "CREATE TABLE runs (id TEXT PRIMARY KEY, seq INTEGER NOT NULL,"
+                " workflow_id TEXT NOT NULL DEFAULT '',"
+                " title TEXT NOT NULL DEFAULT '',"
+                " title_key TEXT NOT NULL DEFAULT '',"
+                " title_args TEXT NOT NULL DEFAULT '{}',"
+                " goal TEXT NOT NULL DEFAULT '',"
+                " status TEXT NOT NULL DEFAULT 'done',"
+                " cost_usd REAL NOT NULL DEFAULT 0,"
+                " started_at REAL NOT NULL DEFAULT 0,"
+                " started_by TEXT NOT NULL DEFAULT '',"
+                " finished_at REAL)"
+            )
+            conn.execute(
+                "CREATE TABLE artifacts (id INTEGER PRIMARY KEY, name TEXT NOT NULL"
+                " UNIQUE, kind TEXT NOT NULL DEFAULT 'other', path TEXT NOT NULL,"
+                " summary TEXT NOT NULL DEFAULT '', run_id TEXT NOT NULL DEFAULT '',"
+                " phase TEXT NOT NULL DEFAULT '', created_at REAL NOT NULL)"
+            )
+            conn.execute(
+                "INSERT INTO runs (id, seq, started_at, started_by)"
+                " VALUES ('k1', 1, 100.0, 'yonetici')"
+            )
+            conn.execute(
+                "INSERT INTO artifacts (name, path, run_id, created_at)"
+                " VALUES ('eski.md', '/yok/eski.md', 'k1', 100.0)"
+            )
+        cevap = sunucu.post("/api/projects", json={"name": "eski", "path": str(kok)})
+        pid = cevap.json()["project"]["id"]
+
+        veri = sunucu.get("/api/activity/artifacts").json()
+        oge = [p for p in veri["projects"] if p["name"] == "eski"][0]["runs"][0]["items"][0]
+        assert oge["stored"] is False
+        assert oge["bytes"] == 0
+        assert oge["download"] == "", "saklanmamis cikti icin indirme adresi verilmis"
+
+        assert sunucu.get(
+            f"/api/activity/artifacts/{pid}/eski.md/download"
+        ).status_code == 404
+
+        with sqlite3.connect(db) as conn:
+            tablolar = {
+                r[0] for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+        assert "artifact_blobs" not in tablolar, (
+            "capraz uc hedef veritabaninda tablo yaratti"
+        )
+
+
 class TestAkisDogruProjeyiDinler:
     """Canli akis YANLIS projenin olaylarini gosterebiliyordu.
 

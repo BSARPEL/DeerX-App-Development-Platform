@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import json
 import os
+import shutil
 import sqlite3
 import time
 from collections import OrderedDict
@@ -59,7 +60,7 @@ from ..pipeline.artifacts import (  # noqa: F401 - uzanti tablolari burada da ad
     IMAGE_SUFFIXES,
     artifact_format,
 )
-from ..pipeline.state import BLOB_PARCA
+from ..pipeline.state import ARTIFACT_MAX_BYTES, BLOB_PARCA
 from ..rag.loaders import SUPPORTED_SUFFIXES
 from .auth import (
     AUDIT_KEEP,
@@ -643,6 +644,68 @@ def _blob_akisi(db: Path, artifact_id: int, *, chunk: int | None = None) -> Iter
         conn.close()
 
 
+def _ek_basligi(name: str, *, inline: bool = False) -> str:
+    """`Content-Disposition` degeri; ASCII disi adlar icin RFC 5987 kopyasi.
+
+    `FileResponse` bunu kendisi kurardi ama veritabanindan akitilan bir
+    yanitta dosya yok: basligi bu katman yaziyor. Cift tirnak ve satir
+    sonu ADAN ATILIR -- basliga kacislanmadan giren bir tirnak `filename`i
+    erkenden bitirir ve tarayiciya baska bir ad okutur.
+    """
+    tur = "inline" if inline else "attachment"
+    temiz = name.replace('"', "").replace("\r", "").replace("\n", "")
+    try:
+        temiz.encode("ascii")
+    except UnicodeEncodeError:
+        return f"{tur}; filename*=utf-8''{quote(temiz)}"
+    return f'{tur}; filename="{temiz}"'
+
+
+def _dosya_adi(name: str) -> str:
+    """Proje adindan indirme dosyasi adi; yalnizca harf, rakam, `-` ve `_`.
+
+    Calisma alani adinda bosluk, Turkce harf ya da isletim sisteminin
+    kabul etmedigi bir imge olabilir. Paketleyici ayni kurali kendi
+    kokunde uyguluyor (`packaging._safe_name`); kural burada ozel olarak
+    tekrarlaniyor cunku web katmani boru hattinin ozel adlarina
+    baglanmamali.
+    """
+    temiz = "".join(ch if ch.isalnum() and ch.isascii() or ch in "-_" else "-"
+                    for ch in name)
+    return temiz.strip("-") or "proje"
+
+
+def _zaman_damgasi(path: str) -> float | None:
+    """Diskteki dosyanin degistirilme zamani; dosya yoksa None.
+
+    Bozuk ya da cok uzun bir yol icin `OSError`/`ValueError` yutulur:
+    kayitli yolun okunamamasi listeyi cokertmemeli, o satir yalnizca
+    zamansiz kalmali.
+    """
+    if not path:
+        return None
+    try:
+        return Path(path).stat().st_mtime
+    except (OSError, ValueError):
+        return None
+
+
+def _dosya_akisi(fp: Any, boy: int = 1024 * 1024) -> Iterator[bytes]:
+    """Acik bir dosyayi parca parca akitir ve SONUNDA kapatir.
+
+    Tuketici yarida birakirsa `finally` yine kosar: gecici zip dosyasi
+    (`SpooledTemporaryFile`) diskte artik olarak kalmaz.
+    """
+    try:
+        while True:
+            parca = fp.read(boy)
+            if not parca:
+                return
+            yield parca
+    finally:
+        fp.close()
+
+
 def _proje_tara(db: Path, okuyucu: Callable[..., Any]) -> tuple[Any, str]:
     """Tek projeyi acar, `okuyucu`ya verir, kapatir; (sonuc, durum) doner.
 
@@ -704,6 +767,10 @@ def settings_snapshot(
             "has_api_key": settings.llm_ready,
             "llm_hint": settings.llm_hint,
             "embedding_model": settings.rag.embedding_model,
+            # Ucuz bir `which`: yalitimi secen kisi Docker'in bu makinede
+            # olmadigini KAYDETMEDEN gormeli. Daemon'a sorulmaz -- o,
+            # "Docker'i test et" dugmesinin isi ve saniyeler surebilir.
+            "docker_found": shutil.which("docker") is not None,
         }
     )
     return view
@@ -925,7 +992,16 @@ def build_app(settings: Settings) -> Starlette:
             # anahtarlari var ve bir denetim gunlugu, sizdirdigi anda
             # korudugu seyin karsisina gecer.
             _audit(request, "settings.change", detail=", ".join(sorted(changed)))
-        return _json({"ok": True, "changed": changed})
+
+        # Yalitim aciliyor ama Docker yok: ayar KAYDEDILIR (kullanici
+        # Docker'i sonra kurabilir; reddetmek, makineye gore degisen bir
+        # ayar ekrani demektir) ve uyari yanitla birlikte doner. Sessizce
+        # kaydetmek, kullaniciya "yalitilmis" rozetini gosterip kosunun
+        # neden basliamadigini soylememek olurdu.
+        uyarilar = []
+        if changed.get("execution") == "docker" and shutil.which("docker") is None:
+            uyarilar.append("sandbox.no_docker")
+        return _json({"ok": True, "changed": changed, "warnings": uyarilar})
 
     async def test_llm(request: Request) -> Response:
         """Model ucuna gercek bir cagri yapar.
@@ -1109,6 +1185,64 @@ def build_app(settings: Settings) -> Starlette:
             }
 
         return _json(await asyncio.to_thread(run_probe))
+
+    async def test_sandbox(request: Request) -> Response:
+        """Kabini GERCEKTEN kurmayi dener: imaj, calisma alani, araclar.
+
+        "Docker kurulu" demek yetmiyor: daemon yanit verse bile calisma
+        alani konteynere baglanamayabilir (OLCULDU: Docker Desktop'in
+        konak baglantisi koptugunda `docker info` sorunsuz, her `docker
+        run` "mkdir /run/desktop/mnt/host/c: file exists"). Ayari kaydedip
+        kirk dakikalik bir kosu baslattiktan sonra bunu ogrenmekle bu
+        dugmeye basmak arasindaki fark, bir kosu.
+
+        YONETICI kapisi var -- oteki `test-*` uclarindan farki bu: govdeden
+        gelen imaj adiyla bir konteyner KALDIRIYOR. Kapisiz birakmak,
+        izleyici rolundeki birine calisma alani bagli olarak istedigi
+        imaji kosturma izni vermek olurdu. Kimlik dogrulama hic
+        kurulmamissa yerel kurulum tek kisiliktir ve o kisi yoneticidir.
+        """
+        if not _is_admin(request):
+            return _error(t("api.admin_only"), 403)
+        try:
+            body = await _body(request)
+        except DeerXError as exc:
+            return _error(str(exc))
+
+        ayar = state.settings
+        # Kaydedilmemis form degerleri de denenebilir: kullanici imaji
+        # degistirip once TEST etmek ister, kaydedip kosu baslatmak degil.
+        imaj = str(body.get("image") or ayar.sandbox_image).strip() or ayar.sandbox_image
+        try:
+            taban = int(body.get("port_base") or ayar.sandbox_port_base)
+            sayi = int(body.get("port_count") or ayar.sandbox_port_count)
+        except (TypeError, ValueError):
+            taban, sayi = ayar.sandbox_port_base, ayar.sandbox_port_count
+
+        from ..sandbox import Sandbox
+
+        kabin = Sandbox(
+            workspace=ayar.workspace, image=imaj,
+            port_base=taban, port_count=sayi,
+        )
+
+        def probe() -> dict[str, Any]:
+            import time as _time
+
+            basladi = _time.perf_counter()
+            saglik = kabin.probe(
+                deep=True,
+                ttl=0.0,
+                node_gerekli=(ayar.workspace / "package.json").is_file(),
+            )
+            return {
+                "ok": saglik.ok,
+                "image": imaj,
+                "seconds": round(_time.perf_counter() - basladi, 1),
+                **saglik.to_dict(),
+            }
+
+        return _json(await asyncio.to_thread(probe))
 
     # ---------------------------------------------------------------- #
     # Proje hafizasi
@@ -1335,10 +1469,15 @@ def build_app(settings: Settings) -> Starlette:
     async def activity_artifacts(request: Request) -> Response:
         """Ayni tarama, cikti yuku.
 
-        `bytes`/`exists` DONMEZ: proje ici islerici cikti basina `stat()`
-        cagiriyor ve N projede bu binlerce dosya sistemi cagrisi demek --
-        erisilemeyen bir yolda takilir. Boyut, projeye gecildikten sonra
-        detay bolmesinde zaten gorunuyor.
+        `exists` DONMEZ ve HICBIR `stat()` cagrilmaz: proje ici islerici
+        cikti basina diske bakiyor ve N projede bu binlerce dosya sistemi
+        cagrisi demek -- erisilemeyen bir yolda takilir. `bytes` artik
+        DONER cunku kaynagi disk degil, `artifact_blobs` satiri: boyut
+        SQL'in icinden gelir ve hicbir seye dokunmaz.
+
+        `stored` ayni sorgudan cikar ve ekranin dogru soylemesini saglar:
+        blob'u olmayan bir cikti listede GORUNUR ama indirme baglantisi
+        tasimaz -- "yok" demek yerine "projeye gecince" demek.
         """
         kim, hepsi, hata = _kim_cozumle(request)
         if hata is not None:
@@ -1352,22 +1491,40 @@ def build_app(settings: Settings) -> Starlette:
             adli = "started_by" in var_runs
             if not hepsi and not adli:
                 return {"gruplar": [], "ozet": None, "toplam": 0}
+            # Blob tablosu bu projede henuz olmayabilir (hic acilmamis eski
+            # bir veritabani). JOIN'i kosulsuz yazmak "no such table" ile
+            # butun projeyi "okunamadi" yapardi; yoklugu bir sutun degeri.
+            var_blob = bool(_tabloda_var(conn, "artifact_blobs"))
+            blob_secim = (
+                " b.bytes AS blob_bytes, b.sha256 AS blob_sha256"
+                if var_blob else " NULL AS blob_bytes, '' AS blob_sha256"
+            )
+            blob_join = (
+                " LEFT JOIN artifact_blobs b ON b.artifact_id = a.id" if var_blob else ""
+            )
 
+            # Kosusuz ciktilar YALNIZCA `all` kipinde gorunur ve orada
+            # LEFT JOIN ile gelir: "kim baslatti" sorusunun cevabi yokken
+            # onlari bir kisiye atfetmek uydurma olurdu. Adli kipte INNER
+            # JOIN + `started_by` suzgeci kalir.
+            join = "LEFT JOIN" if hepsi else "JOIN"
             kosul = "" if hepsi else " WHERE r.started_by = ?"
             param = () if hepsi else (kim,)
             satirlar = conn.execute(
-                "SELECT a.name, a.kind, a.phase, a.run_id,"
+                "SELECT a.id AS artifact_id, a.name, a.kind, a.phase, a.run_id,"
                 " r.seq, r.title, r.title_key, r.title_args, r.goal,"
                 " r.started_at, " + ("r.started_by" if adli else "'' AS started_by") +
-                " FROM artifacts a JOIN runs r ON r.id = a.run_id" + kosul +
-                " ORDER BY r.started_at DESC, a.name",
+                "," + blob_secim +
+                f" FROM artifacts a {join} runs r ON r.id = a.run_id" + blob_join +
+                kosul + " ORDER BY r.started_at DESC, a.name",
                 param,
             ).fetchall()
 
             gruplar: dict[str, dict[str, Any]] = {}
             for r in satirlar:
-                g = gruplar.setdefault(r["run_id"], {
-                    "run_id": r["run_id"], "seq": r["seq"],
+                anahtar = r["run_id"] if r["seq"] is not None else ""
+                g = gruplar.setdefault(anahtar, {
+                    "run_id": anahtar, "seq": r["seq"],
                     "title": r["title"] or "", "title_key": r["title_key"] or "",
                     "title_args": json.loads(r["title_args"] or "{}"),
                     "goal": r["goal"] or "",
@@ -1375,8 +1532,13 @@ def build_app(settings: Settings) -> Starlette:
                     "started_by": r["started_by"] or "",
                     "items": [],
                 })
+                saklandi = r["blob_bytes"] is not None
                 g["items"].append({
                     "name": r["name"], "kind": r["kind"], "phase": r["phase"] or "",
+                    "format": artifact_format(r["name"]),
+                    "stored": saklandi,
+                    "bytes": int(r["blob_bytes"]) if saklandi else 0,
+                    "sha256": r["blob_sha256"] if saklandi else "",
                 })
             return {
                 "gruplar": list(gruplar.values()),
@@ -1394,6 +1556,18 @@ def build_app(settings: Settings) -> Starlette:
             if not sonuc["gruplar"]:
                 continue
             toplam += sonuc["toplam"]
+            # Indirme adresi ancak burada kurulabilir: proje kimligini
+            # okuyucu bilmiyor (salt okunur baglanti yalnizca o projenin
+            # dosyasini goruyor). Blob'u olmayan satirda adres BOS kalir --
+            # tiklanabilir ama 404 donen bir baglanti vermek, olmayan bir
+            # sey vaat etmektir.
+            for grup in sonuc["gruplar"]:
+                for oge in grup["items"]:
+                    oge["download"] = (
+                        f"/api/activity/artifacts/{quote(str(proje.id))}"
+                        f"/{quote(oge['name'])}/download"
+                        if oge["stored"] else ""
+                    )
             projeler.append({
                 "id": proje.id, "slug": proje.slug, "name": proje.name,
                 "archived": bool(proje.archived),
@@ -1407,6 +1581,83 @@ def build_app(settings: Settings) -> Starlette:
             "total": toplam,
             "unreadable": okunamayan,
         })
+
+    async def activity_artifact_download(request: Request) -> Response:
+        """Baska bir projenin ciktisini SALT OKUNUR baglantiyla indirir.
+
+        Uc kural burada birlikte duruyor:
+
+        1. Proje `_gorulebilen_projeler` icinde degilse 404 -- 403 DEGIL:
+           "yetkin yok" demek, projenin VAR OLDUGUNU soylemektir. Uye
+           olmayan biri baska bir ekibin proje kimliklerini tek tek
+           deneyerek varlik listesi cikaramamali.
+        2. `?who=` kapsami listeyle AYNI: adli kipte satirin kosusu
+           isteyene ait olmali. Aksi halde liste gostermedigi bir ciktiyi
+           adres tahmin ederek indirmek mumkun olurdu.
+        3. Yalnizca veritabani. Disk yolu HIC acilmaz: baska projenin
+           yolu erisilemez olabilir (agdaki surucu, cikarilmis disk) ve
+           orada takilan bir istek bu sunucunun is parcacigini tutar.
+        """
+        kim, hepsi, hata = _kim_cozumle(request)
+        if hata is not None:
+            return hata
+
+        proje_id = request.path_params["project_id"]
+        name = request.path_params["name"]
+        proje = next(
+            (p for p in _gorulebilen_projeler(request) if str(p.id) == str(proje_id)),
+            None,
+        )
+        if proje is None:
+            return _error(t("api.not_found", name=name), 404)
+        db = _proje_db(proje.path)
+        if db is None:
+            return _error(t("api.artifact_not_stored", name=name), 404)
+
+        def ara() -> dict[str, Any] | None:
+            def oku(conn: sqlite3.Connection) -> dict[str, Any] | None:
+                if not _tabloda_var(conn, "artifact_blobs"):
+                    return None
+                adli = "started_by" in _tabloda_var(conn, "runs")
+                row = conn.execute(
+                    "SELECT b.artifact_id, b.bytes, b.sha256, b.media_type, "
+                    + ("r.started_by" if adli else "'' AS started_by") +
+                    " FROM artifacts a JOIN artifact_blobs b ON b.artifact_id = a.id"
+                    " LEFT JOIN runs r ON r.id = a.run_id WHERE a.name = ?",
+                    (name,),
+                ).fetchone()
+                if row is None:
+                    return None
+                if not hepsi and (row["started_by"] or "") != kim:
+                    return None
+                return {
+                    "artifact_id": int(row["artifact_id"]),
+                    "bytes": int(row["bytes"]),
+                    "sha256": row["sha256"] or "",
+                    "media_type": row["media_type"] or "application/octet-stream",
+                }
+
+            sonuc, _durum = _proje_tara(db, oku)
+            return sonuc
+
+        kayit = await asyncio.to_thread(ara)
+        if kayit is None:
+            return _error(t("api.artifact_not_stored", name=name), 404)
+
+        return StreamingResponse(
+            iterate_in_threadpool(_blob_akisi(db, kayit["artifact_id"])),
+            # Capraz kipte satir ici gosterim YOK: baska bir projenin
+            # uretmis oldugu bir dosyayi bu uygulamanin kaynaginda cizmek
+            # yeni bir yetki yuzeyi acardi. Her sey ek dosya olarak iner.
+            media_type="application/octet-stream",
+            headers={
+                "Content-Length": str(kayit["bytes"]),
+                "Content-Disposition": _ek_basligi(name),
+                "Cache-Control": "no-store",
+                "ETag": f'"{kayit["sha256"]}"',
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     async def project_state(request: Request) -> Response:
         denied = _require_role(request, "viewer")
@@ -1918,8 +2169,15 @@ def build_app(settings: Settings) -> Starlette:
             "image": ayar.sandbox_image,
             "memory": ayar.sandbox_memory,
             "cpus": ayar.sandbox_cpus,
-            "status": "off",
+            # Konak kipinde kabin YOKTUR; "kurulmamis" demek sanki bir
+            # eksiklik varmis gibi okunuyordu. Kendi sozcugu var.
+            "status": "host",
             "name": "",
+            "problems": [],
+            "warnings": [],
+            "tools": {},
+            "deep": False,
+            "checked_at": 0.0,
         }
         if ayar.execution == "docker":
             from ..sandbox import Sandbox
@@ -1930,9 +2188,30 @@ def build_app(settings: Settings) -> Starlette:
                 port_count=ayar.sandbox_port_count,
             )
             kabin["name"] = olcek.name
-            # `_durum` docker'a soruyor; docker yoksa None doner ve
-            # "kurulu degil" demek dogru cevaptir.
-            kabin["status"] = olcek._durum() or "absent"  # noqa: SLF001
+            # Ekran eskiden yalnizca `docker inspect` durumunu yaziyordu:
+            # "kurulmamis" hem "docker yok" hem "henuz kurulmadi" hem de
+            # "calisma alani baglanamiyor" icin ayni cevapti ve kullanici
+            # sebebi ancak kosunun ilk komutunda, olay akisinin ortasinda
+            # goruyordu. Yoklama sebebi ADLANDIRIYOR.
+            #
+            # Sig yoklama varsayilan (~100 ms). Derin yoklama gercek bir
+            # konteyner kaldirir ve YALNIZCA `?probe=1` ile kosar: her
+            # ekran acilisinda kosaydi, tam da teshis etmesi gereken
+            # arizada (kopuk baglanti) bir dakika asili kalirdi.
+            derin = request.query_params.get("probe") == "1"
+            node_gerekli = (ayar.workspace / "package.json").is_file()
+            if derin:
+                # Kullanici "Sagligi olc" dedi: onbellek atlanir, yoksa
+                # dugme az once olculmus bir sonucu geri gosterir ve
+                # hicbir sey yapmamis gibi gorunur.
+                saglik = await asyncio.to_thread(
+                    olcek.probe, deep=True, ttl=0.0, node_gerekli=node_gerekli
+                )
+            else:
+                saglik = await asyncio.to_thread(
+                    olcek.probe, node_gerekli=node_gerekli
+                )
+            kabin.update(saglik.to_dict())
 
         servisler = calisan.orchestrator.services.describe_all()
         return _json({
@@ -1941,6 +2220,10 @@ def build_app(settings: Settings) -> Starlette:
                 "base": ayar.sandbox_port_base,
                 "count": ayar.sandbox_port_count,
                 "last": ayar.sandbox_port_base + ayar.sandbox_port_count - 1,
+                # Aralik YALNIZCA yalitilmis kipte uygulanir. Konak
+                # kipinde de gostermek "portlarim kisitli" izlenimi
+                # veriyordu; ekran bunu artik kelimeyle ayiriyor.
+                "enforced": ayar.execution == "docker",
             },
             "sandbox": kabin,
             "services": servisler,
@@ -2493,6 +2776,74 @@ def build_app(settings: Settings) -> Starlette:
         user = getattr(request.state, "user", None)
         return getattr(user, "username", "") or ""
 
+    async def ingest_docs(request: Request) -> Response:
+        """`docs/` altinda ZATEN duran dosyalari indeksler.
+
+        Arayuzde belge eklemenin tek yolu isletim sisteminin dosya
+        penceresiydi ve o pencere tek arizali kapiydi: konak makinede
+        takildiginda (agdaki bir surucu, bulut kabuk eklentisi, pencerenin
+        arkada acilmasi) kullanicinin sartnameyi indeksleyecek baska
+        hicbir yolu kalmiyordu -- `deerx ingest` icin terminale gitmek
+        disinda.
+
+        Ustelik o pencere cogu zaman ayni dosyayi ayni yere geri
+        yaziyordu: yukleme hedefi `<calisma alani>/docs/` ve kullanicinin
+        sectigi dosya cogunlukla zaten oradaydi. Bu uc, yazmayi hic
+        yapmadan yalnizca indeksler.
+
+        `force` verilmezse degismemis dosyalar atlanir (`_index` icerik
+        ozetine bakar); ikinci bir tiklama bos is yapmaz.
+        """
+        denied = _require_role(request, "developer")
+        if denied is not None:
+            return denied
+        if state.runner.is_running:
+            return _error(t("api.upload_locked"), 409)
+        try:
+            body = await _body(request)
+        except DeerXError as exc:
+            return _error(str(exc))
+
+        docs_dir = state.settings.workspace / "docs"
+        if not docs_dir.is_dir():
+            return _error(t("api.no_docs_dir", path=docs_dir), 404)
+        force = bool(body.get("force", False))
+        kim = _uploader(request)
+
+        def tara() -> dict[str, Any]:
+            kb = state.orchestrator.kb
+            sonuclar = []
+            for yol in sorted(docs_dir.rglob("*")):
+                if not yol.is_file() or yol.suffix.lower() not in SUPPORTED_SUFFIXES:
+                    continue
+                sonuc = kb.ingest_file(yol, force=force, uploaded_by=kim)
+                sonuclar.append({
+                    "name": yol.name,
+                    "ok": sonuc.ok,
+                    "chunks": sonuc.chunks,
+                    "error": sonuc.error,
+                })
+            return {
+                "ok": True,
+                "files": sonuclar,
+                "indexed": sum(1 for s in sonuclar if s["ok"] and s["chunks"]),
+                "skipped": sum(1 for s in sonuclar if s["ok"] and not s["chunks"]),
+                "failed": [s["name"] for s in sonuclar if not s["ok"]],
+                "stats": kb.stats(),
+            }
+
+        outcome = await asyncio.to_thread(tara)
+        _audit(
+            request, "knowledge.ingest_docs",
+            detail=f"{outcome['indexed']}/{len(outcome['files'])}",
+        )
+        state.runner.emit(
+            "tool", t("actor.upload"),
+            t("api.docs_indexed", indexed=outcome["indexed"],
+              total=len(outcome["files"])),
+        )
+        return _json(outcome)
+
     async def upload(request: Request) -> Response:
         """Sartname dosyasini `docs/` altina yazar ve indeksler.
 
@@ -2584,29 +2935,37 @@ def build_app(settings: Settings) -> Starlette:
             return denied
         from ..pipeline.packaging import check_readiness
 
-        readiness = check_readiness(state.orchestrator.state)
-        packages = sorted(
-            state.settings.deliveries_dir.glob("*.zip"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )
-        # Raporu ancak proje hafizasinda kayitli paketler icin gosterebiliriz;
-        # dizine elle atilmis bir zip'in artifakt kaydi olmaz.
-        known = {a.name for a in state.orchestrator.state.list_artifacts()}
+        project = state.orchestrator.state
+        readiness = check_readiness(project)
+        # Liste artik `deliveries/` dizininden DEGIL proje hafizasindan
+        # kurulur. Dizini taramanin iki yanlisi vardi: dizine elle atilmis
+        # bir zip paket gibi listeleniyor (raporu yok, indirilince rastgele
+        # bir dosya iniyor), `--output` ile baska bir yere yazilan gercek
+        # paket ise hic gorunmuyordu. Kayit tek gercek kaynak; siralama da
+        # dosya zaman damgasindan degil kayit sirasindan gelir.
+        infos = [i for i in project.list_artifact_infos(check_disk=False)
+                 if i.kind == "package"]
+        satirlar = []
+        for info in reversed(infos[-10:]):
+            boyut = info.bytes if info.stored else project.artifact_size(info)
+            satirlar.append(
+                {
+                    "name": info.name,
+                    "bytes": boyut or 0,
+                    # Zaman damgasi yalnizca diskteki dosyadan okunabiliyor;
+                    # veritabaninda duran bir paket icin uydurulmaz.
+                    "created_at": _zaman_damgasi(info.path),
+                    # Raporu okuyabilmek icin baytlara ulasabilmek gerekir:
+                    # kaydi olup baytlari gitmis bir paketin raporu yok.
+                    "has_report": boyut is not None,
+                }
+            )
         return _json(
             {
                 "ready": readiness.ok,
                 "blockers": [i.message for i in readiness.blockers],
                 "warnings": [i.message for i in readiness.warnings],
-                "packages": [
-                    {
-                        "name": p.name,
-                        "bytes": p.stat().st_size,
-                        "created_at": p.stat().st_mtime,
-                        "has_report": p.name in known,
-                    }
-                    for p in packages[:10]
-                ],
+                "packages": satirlar,
             }
         )
 
@@ -2621,45 +2980,27 @@ def build_app(settings: Settings) -> Starlette:
         if state.runner.is_running:
             return _error(t("api.package_locked"), 409)
 
-        from ..pipeline.packaging import PackagingError, PackagingNotReady, build_package
+        from ..pipeline.packaging import (
+            PackagingError,
+            PackagingNotReady,
+            package_with_run,
+        )
 
         force = bool(body.get("force", False))
 
         def run_build() -> dict[str, Any]:
-            # Elle paketleme de tek adimli bir kosudur. Kosu kaydi olmadan
-            # uretilen paket hicbir kosuya ait olmaz ve Ciktilar'da gorunmez.
-            import uuid
-
+            # Elle paketleme de tek adimli bir kosudur; kaydi `package_with_run`
+            # aciyor. Web, CLI ve MCP ayni yardimciyi cagirir, yoksa "elle
+            # paketleme kosu kaydi olusturur" cumlesi yalnizca web icin
+            # dogru kalirdi. Artifakt kaydini `build_package` yapar.
             project = state.orchestrator.state
-            run_id = uuid.uuid4().hex[:12]
-            seq = project.start_run(
-                run_id,
-                goal=project.get_meta("goal", "") or "Elle paketleme",
-                phases=[str(Phase.PACKAGE)],
+            result, run_id, seq = package_with_run(
+                project,
+                state.settings.workspace,
+                state.settings.deliveries_dir,
+                goal=project.get_meta("goal", ""),
+                force=force,
             )
-            project.start_run_step(run_id, Phase.PACKAGE, 0)
-            try:
-                result = build_package(
-                    project,
-                    state.settings.workspace,
-                    state.settings.deliveries_dir,
-                    goal=project.get_meta("goal", ""),
-                    force=force,
-                    run_id=run_id,
-                )
-            except Exception as exc:
-                project.finish_run_step(
-                    run_id, Phase.PACKAGE, status=Status.FAILED, error=str(exc)
-                )
-                project.finish_run(run_id, status=Status.FAILED, error=str(exc))
-                raise
-
-            summary = f"{result.file_count} dosya · {result.total_bytes / 1e6:.1f} MB"
-            project.finish_run_step(
-                run_id, Phase.PACKAGE, status=Status.DONE, summary=summary
-            )
-            project.finish_run(run_id, status=Status.DONE)
-            # Artifakt kaydini `build_package` yapar.
             return {**result.to_dict(), "run_id": run_id, "seq": seq}
 
         try:
@@ -2772,86 +3113,120 @@ def build_app(settings: Settings) -> Starlette:
         denied = _require_role(request, "viewer")
         if denied is not None:
             return denied
-        project = state.orchestrator.state
-        runs = {r["id"]: r for r in project.list_runs(200)}
-        # Kosu bir IS AKISININ adimi; cikti da o is akisina aittir. Numara
-        # tek tek sorulmuyor: is akislari bir kez okunup eslesme kuruluyor,
-        # aksi halde her cikti icin ayri bir sorgu giderdi.
-        akislar = {w["id"]: w["seq"] for w in project.list_workflows(200)}
-        groups: dict[str, dict[str, Any]] = {}
-        orphans = 0
-        for artifact in project.list_artifacts():
-            path = Path(artifact.path)
-            run = runs.get(artifact.run_id)
-            if run is None:
-                orphans += 1
-            key = artifact.run_id if run else ""
-            group = groups.setdefault(
-                key,
-                {
-                    "run_id": key,
-                    "seq": run["seq"] if run else None,
-                    # Hangi is akisina ait. Eski kayitlarda `workflow_id`
-                    # bos olabilir; o zaman numara da yok, uydurulmaz.
-                    "workflow_id": run["workflow_id"] if run else "",
-                    "workflow_seq": (
-                        akislar.get(run["workflow_id"]) if run else None
-                    ),
-                    "title": run["title"] if run else "",
-                    # Baslik arayuzde cevrilir; yazilmis metin yedek.
-                    "title_key": run["title_key"] if run else "",
-                    "title_args": run["title_args"] if run else {},
-                    "goal": run["goal"] if run else "",
-                    "started_at": run["started_at"] if run else None,
-                    "items": [],
-                },
-            )
-            group["items"].append(
-                {
-                    "name": artifact.name,
-                    "kind": artifact.kind,
-                    "summary": artifact.summary,
-                    "phase": artifact.phase,
-                    "phase_label": (
-                        Phase(artifact.phase).label if artifact.phase in _PHASE_NAMES else ""
-                    ),
-                    "run_id": artifact.run_id,
-                    "exists": path.is_file(),
-                    "bytes": path.stat().st_size if path.is_file() else 0,
-                    "format": _artifact_format(artifact.name),
-                }
-            )
 
-        # En yeni kosu basta; kosusu bilinmeyenler en sonda.
-        ordered = sorted(
-            groups.values(),
-            key=lambda g: (g["seq"] is None, -(g["seq"] or 0)),
-        )
-        total = sum(len(g["items"]) for g in ordered)
-        return _json({"groups": ordered, "total": total, "orphans": orphans})
+        def topla() -> dict[str, Any]:
+            project = state.orchestrator.state
+            runs = {r["id"]: r for r in project.list_runs(200)}
+            # Kosu bir IS AKISININ adimi; cikti da o is akisina aittir. Numara
+            # tek tek sorulmuyor: is akislari bir kez okunup eslesme kuruluyor,
+            # aksi halde her cikti icin ayri bir sorgu giderdi.
+            akislar = {w["id"]: w["seq"] for w in project.list_workflows(200)}
+            groups: dict[str, dict[str, Any]] = {}
+            orphans = 0
+            # `check_disk=False` bilerek: baytlari veritabaninda duran bir
+            # cikti icin diske HIC bakilmaz. Eski liste her satirda
+            # `is_file()` + `stat()` kosturuyordu; yuz ciktilik bir projede
+            # iki yuz syscall ve ag surucusunde duran bir calisma alaninda
+            # saniyelerce asili kalan bir ekran demekti. Diske yalnizca
+            # blob'suz kayitlar icin, okuma sirasini tek yerde tutan
+            # `artifact_size` uzerinden inilir.
+            for info in project.list_artifact_infos(check_disk=False):
+                boyut = info.bytes if info.stored else project.artifact_size(info)
+                run = runs.get(info.run_id)
+                if run is None:
+                    orphans += 1
+                key = info.run_id if run else ""
+                group = groups.setdefault(
+                    key,
+                    {
+                        "run_id": key,
+                        "seq": run["seq"] if run else None,
+                        # Hangi is akisina ait. Eski kayitlarda `workflow_id`
+                        # bos olabilir; o zaman numara da yok, uydurulmaz.
+                        "workflow_id": run["workflow_id"] if run else "",
+                        "workflow_seq": (
+                            akislar.get(run["workflow_id"]) if run else None
+                        ),
+                        "title": run["title"] if run else "",
+                        # Baslik arayuzde cevrilir; yazilmis metin yedek.
+                        "title_key": run["title_key"] if run else "",
+                        "title_args": run["title_args"] if run else {},
+                        "goal": run["goal"] if run else "",
+                        "started_at": run["started_at"] if run else None,
+                        "items": [],
+                    },
+                )
+                group["items"].append(
+                    {
+                        "name": info.name,
+                        "kind": info.kind,
+                        "summary": info.summary,
+                        "phase": info.phase,
+                        "phase_label": (
+                            Phase(info.phase).label if info.phase in _PHASE_NAMES else ""
+                        ),
+                        "run_id": info.run_id,
+                        # `exists` artik "diskte duruyor mu" degil "bir yerden
+                        # INDIRILEBILIR mi": baytlari veritabaninda olan bir
+                        # cikti, diskteki dosyasi silinmis olsa da vardir.
+                        "exists": boyut is not None,
+                        "stored": info.stored,
+                        "bytes": boyut or 0,
+                        "sha256": info.sha256,
+                        # Indirme adresi satirda GELIR: arayuz onu kurmak icin
+                        # ad kacislama kurallarini ikinci kez bilmek zorunda
+                        # kalmasin.
+                        "download": f"/api/artifacts/{quote(info.name)}/download",
+                        "format": _artifact_format(info.name),
+                    }
+                )
+
+            # En yeni kosu basta; kosusu bilinmeyenler en sonda.
+            ordered = sorted(
+                groups.values(),
+                key=lambda g: (g["seq"] is None, -(g["seq"] or 0)),
+            )
+            total = sum(len(g["items"]) for g in ordered)
+            return {"groups": ordered, "total": total, "orphans": orphans}
+
+        # Liste bir dizi SQLite sorgusu; olay dongusunu bloklamasin diye
+        # is parcaciginda kosar. `ProjectState` baglantiyi is parcacigi
+        # basina acar, paylasmaz -- bu cagri o yuzden guvenli.
+        return _json(await asyncio.to_thread(topla))
 
     async def artifact_detail(request: Request) -> Response:
         denied = _require_role(request, "viewer")
         if denied is not None:
             return denied
         name = request.path_params["name"]
-        match = next(
-            (a for a in state.orchestrator.state.list_artifacts() if a.name == name), None
-        )
-        if match is None:
+        project = state.orchestrator.state
+        info = project.artifact_info(name, check_disk=False)
+        if info is None:
             return _error(t("api.not_found", name=name), 404)
-        path = Path(match.path)
-        if not path.is_file():
-            return _error(t("api.file_missing", path=path), 404)
+        # Okuma sirasi: once veritabani, sonra disk, sonra yok. Baytlarina
+        # hicbir yerden ulasilamayan bir cikti "listede ama indirilemez"
+        # olur ve detay 404 verir -- kayit yok demek DEGIL, icerik yok demek.
+        boyut = info.bytes if info.stored else project.artifact_size(info)
+        if boyut is None:
+            return _error(t("api.file_missing", path=info.path), 404)
 
         fmt = _artifact_format(name)
+        indirme = f"/api/artifacts/{quote(name)}/download"
         payload: dict[str, Any] = {
             "name": name,
-            "kind": match.kind,
-            "summary": match.summary,
+            "kind": info.kind,
+            "summary": info.summary,
             "format": fmt,
-            "path": str(path),
-            "bytes": path.stat().st_size,
+            # `path` KALIR: disk yolunu okuyan harici tuketiciler var ve
+            # blob'a gecmek onlari kirmamali. Yaninda artik icerigin nerede
+            # durdugu da soyleniyor.
+            "path": info.path,
+            "bytes": boyut,
+            "stored": info.stored,
+            "sha256": info.sha256,
+            # Indirme baglantisi HER bicimde doner. Metin ciktilarinda yoktu
+            # ve bir raporu dosya olarak almanin hicbir yolu bulunmuyordu.
+            "download": indirme,
         }
 
         if fmt == "archive":
@@ -2859,11 +3234,18 @@ def build_app(settings: Settings) -> Starlette:
             # olur. Yerine indirme baglantisi + icindeki teslimat raporu doner.
             from ..pipeline.packaging import list_entries, read_manifest
 
-            entries = list_entries(path)
-            report = read_manifest(path)
+            kaynak = project.open_artifact(info)
+            if kaynak is None:
+                return _error(t("api.file_missing", path=info.path), 404)
+            # Zip diske acilmadan, acik dosya uzerinden okunur: veritabanindaki
+            # kopya icin gecici dosya yazmak 250 MB'lik bir paketi diske iki
+            # kez dolasmak olurdu. Ikinci okuma icin basa sarilir.
+            with kaynak:
+                entries = list_entries(kaynak)
+                kaynak.seek(0)
+                report = read_manifest(kaynak)
             payload.update(
                 {
-                    "download": f"/api/artifacts/{quote(name)}/download",
                     "entry_count": len(entries),
                     "entries": entries[:200],
                     "report": report,
@@ -2875,15 +3257,16 @@ def build_app(settings: Settings) -> Starlette:
         if fmt == "image":
             # `src` tarayicinin dogrudan cizebilecegi adres; `download`
             # dosyayi diske indirir. Ikisi ayni uc, farkli baslik.
-            payload["download"] = f"/api/artifacts/{quote(name)}/download"
-            payload["src"] = f"/api/artifacts/{quote(name)}/download?inline=1"
+            payload["src"] = f"{indirme}?inline=1"
             return _json(payload)
 
         if fmt == "binary":
-            payload["download"] = f"/api/artifacts/{quote(name)}/download"
             return _json(payload)
 
-        raw = path.read_text(encoding="utf-8", errors="replace")
+        ham = project.artifact_bytes(info)
+        if ham is None:
+            return _error(t("api.file_missing", path=info.path), 404)
+        raw = ham.decode("utf-8", errors="replace")
         payload["raw"] = raw
         if fmt == "markdown":
             payload["html"] = render_markdown(raw)
@@ -2895,39 +3278,147 @@ def build_app(settings: Settings) -> Starlette:
         if denied is not None:
             return denied
         name = request.path_params["name"]
-        match = next(
-            (a for a in state.orchestrator.state.list_artifacts() if a.name == name), None
-        )
-        if match is None:
+        project = state.orchestrator.state
+        info = project.artifact_info(name, check_disk=False)
+        if info is None:
             return _error(t("api.not_found", name=name), 404)
-        path = Path(match.path)
-        if not path.is_file():
-            return _error(t("api.file_missing", path=path), 404)
 
         # `?inline=1` yalnizca tarama goruntuleri icin gecerli: sayfa onlari
         # `<img>` ile cizer. Baska her sey `octet-stream` olarak iner --
         # ajanin urettigi bir dosyayi tarayiciya "bunu goster" diye vermek
-        # onu uygulamanin kaynaginda calistirmak olurdu.
+        # onu uygulamanin kaynaginda calistirmak olurdu. Karar ADIN
+        # uzantisindan verilir, diskteki dosyadan degil: blob'dan sunulan
+        # bir goruntunun diskte karsiligi olmayabilir.
+        media = None
         if request.query_params.get("inline") == "1":
-            suffix = path.suffix.lower()
-            media = IMAGE_MEDIA_TYPES.get(suffix)
-            if media is not None:
-                return FileResponse(
-                    path,
-                    media_type=media,
-                    headers={
-                        "Cache-Control": "no-store",
-                        "Content-Disposition": f'inline; filename="{path.name}"',
-                        "Content-Security-Policy": "default-src 'none'; sandbox",
-                        "X-Content-Type-Options": "nosniff",
-                    },
-                )
+            media = IMAGE_MEDIA_TYPES.get(Path(name).suffix.lower())
 
+        if info.stored:
+            # Sunum veritabanindan. `ETag` saglamanin kendisi: ayni adla
+            # yeniden yazilan bir cikti yeni bir saglama alir, tarayicinin
+            # elindeki kopya kendiliginden gecersizlesir.
+            etiket = f'"{info.sha256}"'
+            if request.headers.get("if-none-match") == etiket:
+                return Response(
+                    status_code=304,
+                    headers={"ETag": etiket, "Cache-Control": "no-store"},
+                )
+            basliklar = {
+                "Content-Length": str(info.bytes),
+                "Cache-Control": "no-store",
+                "ETag": etiket,
+                "X-Content-Type-Options": "nosniff",
+                "Content-Disposition": _ek_basligi(name, inline=media is not None),
+            }
+            if media is not None:
+                basliklar["Content-Security-Policy"] = "default-src 'none'; sandbox"
+            # Akitma: 250 MB'lik bir paket icin butun baytlari bellege almak
+            # yerine parca parca gecer. Uretec `iterate_in_threadpool` ile
+            # kosar ve kendi salt-okunur baglantisini tasir.
+            return StreamingResponse(
+                iterate_in_threadpool(project.iter_artifact_bytes(info)),
+                media_type=media or "application/octet-stream",
+                headers=basliklar,
+            )
+
+        # Blob yok: eski kayit, yalnizca diskten sunulabilir.
+        path = Path(info.path)
+        if not path.is_file():
+            return _error(t("api.file_missing", path=path), 404)
+        if media is not None:
+            return FileResponse(
+                path,
+                media_type=media,
+                headers={
+                    "Cache-Control": "no-store",
+                    "Content-Disposition": f'inline; filename="{path.name}"',
+                    "Content-Security-Policy": "default-src 'none'; sandbox",
+                    "X-Content-Type-Options": "nosniff",
+                },
+            )
         return FileResponse(
             path,
             media_type="application/octet-stream",
             filename=path.name,
             headers={"Cache-Control": "no-store"},
+        )
+
+    async def artifacts_zip(request: Request) -> Response:
+        """Butun ciktilari tek bir zip olarak indirir; `?run_id=` suzer.
+
+        Tek tek indirmek bir kosunun on ciktisi icin on tiklama demekti ve
+        ekranda toplu indirmenin hicbir karsiligi yoktu. Paket BELLEGE
+        kurulmaz: `SpooledTemporaryFile` kucuk toplamlari bellekte tutar,
+        esigi asan toplami diske tasir -- yuz megabaytlik bir teslimatin
+        sunucuyu sismesi boyle onlenir.
+        """
+        denied = _require_role(request, "viewer")
+        if denied is not None:
+            return denied
+        run_id = request.query_params.get("run_id") or None
+
+        def paketle() -> tuple[str, Any, int, str]:
+            import shutil
+            import tempfile
+            import zipfile
+
+            project = state.orchestrator.state
+            secili = []
+            toplam = 0
+            for info in project.list_artifact_infos(run_id=run_id, check_disk=False):
+                boyut = info.bytes if info.stored else project.artifact_size(info)
+                if boyut is None:
+                    # Baytlari hicbir yerde olmayan cikti pakete GIRMEZ;
+                    # icinde sifir baytlik bir dosya cikan bir zip,
+                    # kullaniciya eksigi gizlemek olurdu.
+                    continue
+                toplam += boyut
+                secili.append(info)
+            if not secili:
+                return "empty", None, 0, ""
+            if toplam > ARTIFACT_MAX_BYTES:
+                return "too_big", None, toplam, ""
+
+            # Ad kosuyla birlikte anlam kazanir: ayni projeden inen iki zip
+            # ayni adi tasirsa kullanici hangisinin hangi kosu oldugunu
+            # indirme klasorunde ayirt edemez.
+            seq = None
+            if run_id is not None:
+                seq = next(
+                    (r["seq"] for r in project.list_runs(200) if r["id"] == run_id), None
+                )
+            kok = _dosya_adi(state.settings.workspace.name)
+            ad = f"{kok}-ciktilar{'' if seq is None else f'-{seq}'}.zip"
+
+            fp = tempfile.SpooledTemporaryFile(max_size=32 * 1024 * 1024)
+            with zipfile.ZipFile(fp, "w", zipfile.ZIP_DEFLATED) as zf:
+                for info in secili:
+                    kaynak = project.open_artifact(info)
+                    if kaynak is None:
+                        continue
+                    with kaynak, zf.open(info.name, "w") as hedef:
+                        shutil.copyfileobj(kaynak, hedef, BLOB_PARCA)
+            fp.seek(0, os.SEEK_END)
+            boyut = fp.tell()
+            fp.seek(0)
+            return "ok", fp, boyut, ad
+
+        durum, fp, boyut, ad = await asyncio.to_thread(paketle)
+        if durum == "empty":
+            return _error(t("api.no_artifacts"), 404)
+        if durum == "too_big":
+            return _error(
+                t("api.artifacts_zip_too_big", limit_mb=ARTIFACT_MAX_BYTES // (1024 * 1024)),
+                413,
+            )
+        return StreamingResponse(
+            iterate_in_threadpool(_dosya_akisi(fp)),
+            media_type="application/zip",
+            headers={
+                "Content-Length": str(boyut),
+                "Cache-Control": "no-store",
+                "Content-Disposition": _ek_basligi(ad),
+            },
         )
 
     # ---------------------------------------------------------------- #
@@ -3402,6 +3893,10 @@ def build_app(settings: Settings) -> Starlette:
         Route("/api/audit", audit_log),
         Route("/api/activity/runs", activity_runs),
         Route("/api/activity/artifacts", activity_artifacts),
+        Route(
+            "/api/activity/artifacts/{project_id}/{name}/download",
+            activity_artifact_download,
+        ),
         Route("/api/overview", overview),
         Route("/api/settings", update_settings, methods=["POST"]),
         Route("/api/providers", provider_catalog, methods=["GET"]),
@@ -3409,6 +3904,7 @@ def build_app(settings: Settings) -> Starlette:
         Route("/api/settings/test-browser", test_browser, methods=["POST"]),
         Route("/api/settings/test-search", test_search, methods=["POST"]),
         Route("/api/settings/test-llm", test_llm, methods=["POST"]),
+        Route("/api/settings/test-sandbox", test_sandbox, methods=["POST"]),
         Route("/api/state/{section}", project_state),
         Route("/api/tasks/{key}", update_task, methods=["POST"]),
         Route("/api/plans", plans),
@@ -3420,12 +3916,17 @@ def build_app(settings: Settings) -> Starlette:
         Route("/api/ingest", ingest, methods=["POST"]),
         Route("/api/forget", forget_document, methods=["POST"]),
         Route("/api/upload", upload, methods=["POST"]),
+        Route("/api/ingest-docs", ingest_docs, methods=["POST"]),
         Route("/api/package", package_status),
         Route("/api/package", package_build, methods=["POST"]),
         Route("/api/package/{name}", package_download),
         Route("/api/questions", questions),
         Route("/api/questions/{key}", resolve_question, methods=["POST"]),
         Route("/api/artifacts", artifacts),
+        # `.zip` ucu `{name}` yakalayicisindan ONCE: Starlette rotalari
+        # sirayla dener ve tersi sirada "artifacts.zip" adli bir cikti
+        # aranirdi.
+        Route("/api/artifacts.zip", artifacts_zip),
         Route("/api/artifacts/{name}", artifact_detail),
         Route("/api/artifacts/{name}/download", artifact_download),
         Route("/api/run", run_status),

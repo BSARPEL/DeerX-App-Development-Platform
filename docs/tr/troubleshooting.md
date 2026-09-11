@@ -250,7 +250,8 @@ execution = "docker"
 ```
 
 Konteyner içinde izin listesi uygulanmaz, çünkü korunacak bir konak yoktur ve
-konteyner koşu bitince silinir. Neyin yalıtıldığı ve neyin yalıtılmadığı için
+konteyner koşu bitince durdurulur, silinmez. Neyin yalıtıldığı ve neyin
+yalıtılmadığı için
 [Güvenlik](security.md) — çalışma alanı bağlanır, yani makine korunur ama proje
 korunmaz.
 
@@ -274,6 +275,60 @@ sandbox_port_count = 10
 ```
 
 `--network host` Windows konağına **ulaşmaz**; yalnızca yayınlanan portlar ulaşır.
+
+### Docker Desktop çalışma alanını bağlayamıyor
+
+**Belirti.** `execution = "docker"` ile her komut aynı satırla düşüyor:
+
+```
+docker: Error response from daemon: error while creating mount source path
+'/run/desktop/mnt/host/c/...': mkdir /run/desktop/mnt/host/c: file exists
+```
+
+Ortam ekranı kabinin kurulamadığını söylüyor ve `deerx setup` Docker'ı engel
+olarak bildiriyor.
+
+**Sebep, ölçüldü.** Docker Desktop'ın WSL2 sanal makinesi içindeki konak sürücü
+görünümü kopmuş: `/run/desktop/mnt/host/c` giriş/çıkış hatası veriyor. Daemon'ın
+kendisi sağlıklı — `docker info` yanıt veriyor, adlı birimler çalışıyor, mevcut
+konteynerler koşuyor — bu yüzden yalnızca `docker info` soran bir denetim her
+şeyi yolunda gösterirken her bind mount düşüyor.
+
+**Çözüm.** Docker Desktop'ı tamamen kapatın (tepsi simgesi → Quit; pencereyi
+kapatmak yetmez), yeniden başlatın, sonra Ortam ekranındaki **Sağlığı ölç**
+düğmesine basın. Sorun yeniden başlatmayı da aşarsa `wsl --shutdown` koşup
+Docker Desktop'ı yeniden açın.
+
+Düzelene kadar `execution = "host"` çalışmaya devam eder: orada çalışma alanı
+bir yere bağlanmaz, komutların koştuğu yerin kendisidir.
+
+### Ortam ekranı kabinin kurulamadığını söylüyor
+
+**Belirti.** Konteyner rozeti kırmızı ve ekran bir sorun listeliyor.
+
+**Sebep.** Adlandırılmış sorunlar şunlar: Docker kurulu değil, daemon yanıt
+vermiyor, çalışma alanı bağlanmıyor (yukarıda), imaj yok ya da çekilemiyor,
+yayınlanan portlardan biri konakta dolu, ya da aynı adlı bir konteyner kalmış.
+Her satır ne yapılacağını da yazar.
+
+**Çözüm.** Satırı izleyin. Ekrandaki *Sağlığı ölç* düğmesi derin yoklamayı
+yeniden koşar — gerçek bir konteyner kaldırıp çalışma alanını bağlar, yani
+düzeltmenin işe yarayıp yaramadığını koşu başlatmadan söyler.
+
+### Servis dinliyor ama yalnızca 127.0.0.1'de
+
+**Belirti.** `start_service` "yayınlanan port boş kalır" diye reddediyor ya da
+`preview_open` uygulamaya ulaşamıyor.
+
+**Sebep, ölçüldü.** Yayınlanan bir port ancak konteyner içindeki servis
+`0.0.0.0` adresine bağlanırsa çalışır. Vite, Next, Flask ve uvicorn'un hepsi
+varsayılan olarak localhost'a bağlanır ve bu konteyner dışından görünmez.
+Hazırlık denetimi artık konteynerin **içinden** `/proc/net/tcp` okuyor, yani
+"bütün arayüzlerde dinliyor" ile "geri döngüde dinliyor"u ayırt ediyor ve
+hangisini bulduğunu söylüyor.
+
+**Çözüm.** Bütün arayüzlere bağlayın: `--host 0.0.0.0` (Vite, uvicorn),
+`--bind 0.0.0.0` (gunicorn, `http.server`) ya da ortamda `HOST=0.0.0.0`.
 
 ### Konteynerde `git`, `gcc` ya da `node` yok
 

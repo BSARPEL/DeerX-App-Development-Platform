@@ -106,6 +106,10 @@ then looks like the user's.
 than raw bytes — the same rule the web interface follows. Handing a model an
 archive's bytes produces nothing useful and costs a great many tokens.
 
+The content is read from the database first and the folder second, so an
+artifact whose file has been deleted still reads. `deerx_package` records a
+single-step run, the same as the web and CLI routes.
+
 ## Two agents, one workspace
 
 Nothing stops the MCP server and a `deerx serve` from pointing at the same

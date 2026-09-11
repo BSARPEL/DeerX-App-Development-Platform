@@ -1734,6 +1734,19 @@ class ProjectState:
         if yazilan > _CHECKPOINT_ESIGI and not self._islem_derinligi_al():
             self._conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
 
+    def checkpoint(self) -> tuple[int, int]:
+        """WAL'i TAMAMEN bosaltir; `(kare, kopyalanan)` doner.
+
+        Yedek almadan once cagrilir: ciktilar artik veritabaninda ve
+        yalnizca `deerx.db`yi kopyalayan biri, `-wal` icinde bekleyen son
+        ciktilari KAYBEDER. Pasif kip yetmez (acik bir okuyucu varken
+        dosyayi kucultmez); TRUNCATE, yetisemezse bunu sayilarla soyler.
+        """
+        row = self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        if row is None:
+            return (0, 0)
+        return (int(row[1] or 0), int(row[2] or 0))
+
     def _artifact_adi(self, artifact_id: int) -> str:
         row = self._conn.execute(
             "SELECT name FROM artifacts WHERE id = ?", (artifact_id,)

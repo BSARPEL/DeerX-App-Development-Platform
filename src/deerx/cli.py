@@ -755,10 +755,16 @@ def package(
     """
     settings = _settings()
     with _orchestrator(settings, quiet=True) as orch:
-        from .pipeline.packaging import PackagingError, PackagingNotReady, build_package
+        from .pipeline.packaging import (
+            PackagingError,
+            PackagingNotReady,
+            package_with_run,
+        )
 
         try:
-            result = build_package(
+            # Kosu kaydiyla: terminalden uretilen paket de bir kosunun
+            # urunu olsun, yoksa Ciktilar ekraninda sahipsiz kalirdi.
+            result, _run_id, _seq = package_with_run(
                 orch.state,
                 settings.workspace,
                 output.resolve() if output else settings.deliveries_dir,
@@ -969,11 +975,37 @@ def _resolve_workflow(orch: object, raw: str) -> str:
 @app.command(help=t("cli.artifacts"))
 def artifacts(
     name: Annotated[str | None, typer.Argument(help=t("opt.artifact_name"))] = None,
+    export: Annotated[
+        Path | None, typer.Option("--export", help=t("opt.artifact_export"))
+    ] = None,
+    verify: Annotated[
+        bool, typer.Option("--verify", help=t("opt.artifact_verify"))
+    ] = False,
+    backfill: Annotated[
+        bool, typer.Option("--backfill", help=t("opt.artifact_backfill"))
+    ] = False,
+    checkpoint: Annotated[
+        bool, typer.Option("--checkpoint", help=t("opt.artifact_checkpoint"))
+    ] = False,
 ) -> None:
-    """Uretilen ciktilari listeler veya birini goruntuler."""
+    """Uretilen ciktilari listeler, goruntuler, disa aktarir ya da dogrular."""
     settings = _settings()
     with _orchestrator(settings, quiet=True) as orch:
-        items = orch.state.list_artifacts()
+        durum = orch.state
+
+        # Bakim secenekleri listeden ONCE: bos bir projede de anlamlilar.
+        if backfill:
+            console.print(t("artifact.backfilled", count=durum.backfill_artifacts()))
+        if checkpoint:
+            # Yalnizca `deerx.db`yi kopyalayan bir yedek, `-wal` icindeki
+            # son ciktilari kaybeder. TRUNCATE onu bosaltir ve dosyayi tek
+            # basina yedeklenebilir kilar.
+            durum.checkpoint()
+            console.print(t("cli.db_checkpointed"))
+        if (backfill or checkpoint) and name is None:
+            raise typer.Exit(0)
+
+        items = durum.list_artifacts()
         if not items:
             console.print(t("cli.no_artifacts"))
             raise typer.Exit(0)
@@ -1000,10 +1032,51 @@ def artifacts(
             )
             return
         path = Path(match.path)
-        if not path.is_file():
+        boyut = durum.artifact_size(match)
+        if boyut is None:
             _fail(t("cli.file_missing", path=path))
             return
-        content = path.read_text(encoding="utf-8")
+
+        if verify:
+            ok = durum.verify_artifact(name)
+            console.print(
+                t("cli.artifact_verify_ok" if ok else "cli.artifact_verify_bad", name=name)
+            )
+            if not ok:
+                raise typer.Exit(1)
+
+        if export is not None:
+            hedef = export.resolve()
+            hedef.parent.mkdir(parents=True, exist_ok=True)
+            with hedef.open("wb") as cikis:
+                for parca in durum.iter_artifact_bytes(match):
+                    cikis.write(parca)
+            console.print(t("cli.artifact_exported", path=hedef))
+            raise typer.Exit(0)
+
+        # Ikili cikti EKRANA DOKULMEZ. `read_text` zip ya da png'de
+        # UnicodeDecodeError ile geri izleme basiyordu; `errors="replace"`
+        # ise bir ekran dolusu anlamsiz karakter uretirdi. Dogru cevap
+        # ozet + nasil alinacagi.
+        from .pipeline.artifacts import artifact_format
+
+        if artifact_format(name) in {"archive", "image", "binary"}:
+            bilgi = durum.artifact_info(name)
+            console.print(
+                t(
+                    "cli.artifact_binary",
+                    name=name,
+                    mb=f"{boyut / 1e6:.2f}",
+                    sha256=(bilgi.sha256 if bilgi else "") or "-",
+                )
+            )
+            raise typer.Exit(0)
+
+        veri = durum.artifact_bytes(match)
+        if veri is None:
+            _fail(t("cli.file_missing", path=path))
+            return
+        content = veri.decode("utf-8", errors="replace")
         if path.suffix in {".md", ".markdown"}:
             console.print(Markdown(content))
         else:
@@ -1156,6 +1229,15 @@ def doctor() -> None:
         (settings.workspace / CONFIG_FILENAME).is_file(),
         str(settings.workspace / CONFIG_FILENAME),
     )
+
+    # Kabin. `doctor`da Docker satiri HIC yoktu: yalitim acikken kabinin
+    # kurulamadigini ogrenmenin tek yolu kosuyu baslatip ilk arac
+    # cagrisinin dusmesini beklemekti. Adimin kendisi `setup` ile ayni
+    # -- iki yerde iki ayri olcut birbirinden sapardi.
+    from .setup import docker as _docker_adimi
+
+    kabin = _docker_adimi(settings)
+    row(t("step.docker"), not kabin.engel, kabin.detay)
 
     for module, hint in (
         ("anthropic", "uv add anthropic"),
