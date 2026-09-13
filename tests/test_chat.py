@@ -445,3 +445,74 @@ class TestDanismanGecmisiBilir:
             str(m) for cagri in istemci.calls for m in cagri.get("messages", [])
         )
         assert "Gecmis projeleriniz" not in gonderilen
+
+
+class TestDanismanWebeBakabilir:
+    """Kullanicinin KONUSTUGU ajan, ekranin tek web araci olmayan ajaniydi.
+
+    Kirk uc aracin icinde `web_search`, `fetch_url` ve `browse_page` vardi
+    ama yalnizca `researcher` rolunde. Danisman "bu kutuphane hala bakimda
+    mi", "en son surumu ne" gibi bir soruya bakacak hicbir yol bulamiyor ve
+    bildigini sandigi seyi soyluyordu.
+
+    Danismanin dosya yazma ve komut calistirma araci YOK, yani deponun
+    enjeksiyon kurali bozulmuyor: yazabildigi tek sey proje kayitlari ve
+    is akisinin kimligi -- hepsi geri alinabilir ve hepsi kayit altinda.
+    """
+
+    def test_the_advisor_can_call_search(self, sohbet, monkeypatch):
+        orch, workflow, kur = sohbet
+        cagrilan: dict[str, object] = {}
+
+        from deerx.tools.base import ToolResult
+        from deerx.tools.browser import WebSearch
+
+        def sahte(self, ctx, query, max_results=8):  # noqa: ANN001
+            cagrilan["query"] = query
+            # Gercek arac da bu uyariyi ekliyor; sohbet yolunda kayboldugunu
+            # gormek icin cikti aynen tasiniyor.
+            return ToolResult(content=f"# Arama: {query}  (bing)\n1. X\n   https://x.example/")
+
+        monkeypatch.setattr(WebSearch, "run", sahte)
+        kur([
+            yanit(calls=[ToolCall(id="c1", name="web_search",
+                                  arguments={"query": "fastapi 0.115 breaking changes"})]),
+            yanit(text="FastAPI 0.115'te kiran bir degisiklik var."),
+        ])
+
+        cevap = orch.chat(workflow["id"], "FastAPI'nin son surumunde kiran degisiklik var mi?")
+        assert cagrilan.get("query") == "fastapi 0.115 breaking changes"
+        assert "FastAPI" in cevap.text
+        # Arama bir DEGISIKLIK degil: kullaniciya "sunu degistirdim" diye
+        # yazilmamali.
+        assert cevap.changes == [], cevap.changes
+
+    def test_the_advisor_can_read_a_page(self, sohbet, monkeypatch):
+        orch, workflow, kur = sohbet
+        okunan: dict[str, object] = {}
+
+        from deerx.tools.base import ToolResult
+        from deerx.tools.web import FetchUrl
+
+        def sahte(self, ctx, url, **kw):  # noqa: ANN001
+            okunan["url"] = url
+            return ToolResult(content="# https://example.com\nicerik")
+
+        monkeypatch.setattr(FetchUrl, "run", sahte)
+        kur([
+            yanit(calls=[ToolCall(id="c1", name="fetch_url",
+                                  arguments={"url": "https://example.com"})]),
+            yanit(text="Okudum."),
+        ])
+        orch.chat(workflow["id"], "su adresi oku: https://example.com")
+        assert okunan.get("url") == "https://example.com"
+
+    def test_the_chat_context_carries_a_browser(self, sohbet):
+        """`web_search` varsayilan kipte `ctx.browser` istiyor. Araci
+        vermek yetmez; sohbet baglaminda tarayici alani BOS kalirsa arac
+        her cagrida "tarayici oturumu kullanilamiyor" der."""
+        orch, _workflow, _kur = sohbet
+        assert hasattr(orch.ctx, "browser")
+        # Tembel kurulan bir oturum `None` olabilir; onemli olan alanin
+        # orkestratorun tarayicisina BAGLI olmasi.
+        assert orch.ctx.browser is orch.browser

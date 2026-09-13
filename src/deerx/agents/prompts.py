@@ -101,12 +101,44 @@ def describe_environment(settings: Settings) -> str:
     )
 
 
+def describe_web(role: str, settings: Settings) -> str:
+    """Bu ROLUN dis bilgiye nasil ulasacagini bir paragrafla soyler.
+
+    Ayni metni her role vermek iki yonden yanlis: `web_search` aracini
+    gormeyen bir role aramayi anlatmak, modeli var olmayan bir cagriya
+    davet eder ve o turu yakar; web araci hic olmayan bir role de
+    "arastir" demek, uydurmaya acik kapi birakir.
+
+    Uc hal var ve ucu de `TOOLSETS`ten OKUNUR, burada elle listelenmez:
+    liste iki yerde tutulsaydi biri degisip oteki kalirdi.
+    """
+    from ..tools import TOOLSETS
+
+    if not settings.enable_web:
+        return t("prompt.web_off")
+
+    araclar = set(TOOLSETS.get(role, ()))
+    if {"web_search", "browse_page"} & araclar:
+        govde = t("prompt.web_full")
+    elif "fetch_url" in araclar:
+        govde = t("prompt.web_targeted")
+    else:
+        # `record_gaps` her rolde yok (ornegin `summarizer` yalnizca okur).
+        # Olmayan bir araci onermek, az once kacindigimiz hatanin ta kendisi.
+        return t("prompt.web_none" if "record_gaps" in araclar else "prompt.web_none_plain")
+    # Enjeksiyon uyarisi yalnizca web'e ULASABILEN role gider: aracı
+    # olmayan bir role "okudugun sayfaya guvenme" demek, okumadigi bir
+    # sey hakkinda yonerge vermektir.
+    return govde + " " + t("prompt.web_untrusted")
+
+
 def compose_system(role: str, settings: Settings, *, extra: str = "") -> str:
     """Ortak on soz + role ozgu prompt + opsiyonel ek."""
     shared = load_prompt("_shared", settings).format(
         workspace=settings.workspace.as_posix(),
         artifacts=settings.artifacts_dir.as_posix(),
         environment=describe_environment(settings),
+        web=describe_web(role, settings),
         language={"tr": "Turkce", "en": "English"}.get(settings.language, settings.language),
     )
     body = load_prompt(role, settings)

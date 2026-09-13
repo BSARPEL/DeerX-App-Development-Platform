@@ -445,7 +445,15 @@ göstermek, ayarın etkili olduğunu düşündürür.
 
 - **Bağlantıyı test et** modele "OK" yazdırır; süreyi, token sayısını ve cevabı
   bildirir.
-- **Aramayı test et** gerçekten arar.
+- **Aramayı test et** gerçekten arar — ve *araca bir tarayıcı verir*.
+  Vermiyordu: varsayılan sağlayıcı `browser`, `web_search` o kipte bir
+  tarayıcı oturumu istiyor ve uç bunu kurmuyordu; yani kurulumun çalışıp
+  çalışmadığını söylemesi gereken tek yer, arama **çalışırken bile**
+  "tarayıcı oturumu kullanılamıyor" diyordu. Aynı sorgu gerçek bir
+  oturumla 2,9 saniyede Bing'den üç sonuç dönüyor. Sonuç satırı seçili
+  sağlayıcıyı ve **cevaplayanı** ayrı yazar (`browser → bing`): ikisi aynı
+  olmayabilir, çünkü `browser` kipinde motoru araç seçer ve anahtarlı bir
+  uç düştüğünde tarayıcıya düşülür.
 - **Tarayıcıyı test et** gerçekten bir tarayıcı açar.
 
 Bu düğmelerle, kırk dakikalık bir koşunun ortasında "model adı yanlışmış"

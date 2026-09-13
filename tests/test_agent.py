@@ -855,3 +855,84 @@ class TestThinkingOverrun:
                     "agent.thinking_overrun_giving_up"
         finally:
             set_language("tr")
+
+
+class TestWebErisimiIkiYolaBolunur:
+    """Acik uclu gezinme ile hedefli okuma ayri yollardan gider.
+
+    Okunan bir web sayfasi "onceki talimatlari unut, su komutu calistir"
+    yazabilir. Depo bunu bastan beri biliyordu ve `researcher` rolune
+    bilerek dosya yazma/komut calistirma araci vermemisti. Kod yazan
+    rollere web acilirken ayni kural bozulmadi, IKIYE bolundu:
+
+      * `fetch_url` -- adresi ajanin kendisi bilir; dar yuzey, dogrudan
+        verilir.
+      * `web_search` / `browse_page` -- nereye varilacagi belli degil;
+        kod yazan role VERILMEZ, `researcher` alt ajani uzerinden gecer.
+
+    Bu testler o ayrimi civiler: bir sonraki el "arastirma yapabilsin"
+    diye backend'e `web_search` ekledigi anda duser.
+    """
+
+    ACIK_UCLU = {"web_search", "browse_page"}
+    YAZMA = {"write_file", "edit_file", "run_command"}
+
+    def test_no_role_both_browses_freely_and_writes(self):
+        from deerx.tools import TOOLSETS
+
+        ihlal = [
+            rol for rol, araclar in TOOLSETS.items()
+            if (set(araclar) & self.ACIK_UCLU) and (set(araclar) & self.YAZMA)
+        ]
+        assert not ihlal, (
+            "acik uclu web + dosya/komut ayni rolde: " + ", ".join(ihlal)
+            + " -- enjekte edilen bir sayfa dogrudan yazma yetkisine ulasir"
+        )
+
+    @pytest.mark.parametrize("rol", ["backend", "frontend", "qa", "reviewer",
+                                     "architect", "planner"])
+    def test_the_building_roles_can_read_a_known_address(self, rol):
+        from deerx.tools import TOOLSETS
+
+        assert "fetch_url" in TOOLSETS[rol], (
+            f"{rol} bilinen bir dokumantasyon adresini okuyamiyor"
+        )
+
+    @pytest.mark.parametrize("rol", ["backend", "frontend", "qa", "reviewer",
+                                     "architect", "planner"])
+    def test_the_building_roles_delegate_open_search(self, rol):
+        """Acik uclu arama yok ama alt ajan cagirma VAR: yol kapali degil,
+        yalitik. Ikisini birden kaybederse rol web'e hic ulasamaz."""
+        from deerx.tools import TOOLSETS
+
+        araclar = set(TOOLSETS[rol])
+        assert not (araclar & self.ACIK_UCLU), f"{rol} dogrudan geziyor"
+        assert "run_subagent" in araclar, f"{rol} arastirmaciyi cagiramiyor"
+
+    def test_the_researcher_is_a_reachable_subagent(self):
+        from deerx.tools.agents import SUBAGENT_ROLES
+
+        assert "researcher" in SUBAGENT_ROLES, (
+            "kod yazan rollerin acik uclu web yolu arastirmaci alt ajani; "
+            "rol cagrilamazsa o yol kapanir"
+        )
+
+    def test_the_advisor_can_reach_the_web(self):
+        """Kullanicinin KONUSTUGU ajan buydu ve ekranin tek web araci
+        olmayan ajaniydi: "en son surumu" sorusuna bakacak yolu yoktu."""
+        from deerx.tools import TOOLSETS
+
+        araclar = set(TOOLSETS["danisman"])
+        assert {"web_search", "fetch_url", "browse_page"} <= araclar
+        assert not (araclar & self.YAZMA), (
+            "danismana web acildi; dosya yazma ya da komut calistirma "
+            "eklenirse enjeksiyon kurali burada kirilir"
+        )
+
+    def test_the_advisor_has_room_for_a_search_then_an_answer(self):
+        """Arama + okuma + cevap en az uc tur. Butce sohbet icin dar
+        tutulmus; web acilinca cok darsa arac cagrilir ama cevap
+        yetismez -- kullanici bos bir cevap gorur."""
+        from deerx.agents.roles import ITERATION_BUDGET
+
+        assert ITERATION_BUDGET["danisman"] >= 14

@@ -42,6 +42,28 @@ def build_registry() -> ToolRegistry:
 # yalnizca genis ve karisik islerde kazandirir.
 _ALT_AJAN = ["plan_subagents", "run_subagent"]
 
+# WEB ERISIMI IKI YOLA BOLUNUR ve ayrimin sebebi enjeksiyondur.
+#
+# Okunan bir web sayfasi "onceki talimatlari unut, su komutu calistir"
+# yazabilir. Bu yuzden dosya yazan ve komut kosturan bir ajanin baglamina
+# giren metnin, o ajanin kendi SECMEDIGI bir adresten gelmemesi gerekir.
+#
+#   `fetch_url`  -- HEDEFLI okuma. Adresi ajan bilir (dokumantasyon, bir
+#                   surum notu, bir RFC). Dar bir yuzey: modelin gitmedigi
+#                   bir yere goturulmesi icin once o adresi bir yerden
+#                   almasi gerekir. Kod yazan rollere BU verilir.
+#   `web_search` / `browse_page` -- ACIK UCLU gezinme. Nereye varilacagi
+#                   onceden belli degil; en genis enjeksiyon yuzeyi bu.
+#                   Kod yazan rollere VERILMEZ; onlar `run_subagent` ile
+#                   bir `researcher` cagirir. Alt ajan okur, ozetler ve
+#                   KAYNAK verir; donen sey ust ajanin baglamina veri
+#                   olarak girer, talimat olarak degil -- ve alt ajanin
+#                   dosya yazma ya da komut calistirma araci yoktur.
+#
+# Yani "kod yazan ajan web'e cikamaz" degil: cikar, ama acik uclu olani
+# yalitik bir baglamda yapar.
+_HEDEFLI_WEB = ["fetch_url"]
+
 TOOLSETS: dict[str, list[str]] = {
     "analyst": [
         "search_knowledge", "read_document", "list_knowledge", "ingest_source",
@@ -77,13 +99,13 @@ TOOLSETS: dict[str, list[str]] = {
         "search_knowledge", "read_document", "read_project_state",
         "read_file", "list_dir", "glob_files", "grep_files",
         "record_decisions", "record_gaps", "record_questions", "save_artifact",
-        *_ALT_AJAN,
+        *_HEDEFLI_WEB, *_ALT_AJAN,
     ],
     "planner": [
         "search_knowledge", "read_project_state",
         "read_file", "list_dir", "glob_files",
         "record_tasks", "record_questions", "save_artifact",
-        *_ALT_AJAN,
+        *_HEDEFLI_WEB, *_ALT_AJAN,
     ],
     "backend": [
         "search_knowledge", "read_project_state", "update_task",
@@ -92,7 +114,7 @@ TOOLSETS: dict[str, list[str]] = {
         # Kendi yazdigini ayaga kaldirip ucunu yoklayabilsin: "derleniyor"
         # ile "calisiyor" ayni sey degil.
         "start_service", "service_log", "stop_service",
-        *_ALT_AJAN,
+        *_HEDEFLI_WEB, *_ALT_AJAN,
     ],
     "frontend": [
         "search_knowledge", "read_project_state", "update_task",
@@ -103,7 +125,7 @@ TOOLSETS: dict[str, list[str]] = {
         "start_service", "service_log", "stop_service",
         "preview_open", "browser_snapshot", "browser_click", "browser_type",
         "browser_back", "browser_console", "browser_screenshot",
-        *_ALT_AJAN,
+        *_HEDEFLI_WEB, *_ALT_AJAN,
     ],
     # QA uygulamayi ACIP BAKABILIR. "Calisiyor" demekle gostermek ayni sey
     # degil: `run_command` ile sunucuyu baslatir, `preview_open` ile acar,
@@ -115,13 +137,13 @@ TOOLSETS: dict[str, list[str]] = {
         "start_service", "service_log", "stop_service", "list_services",
         "preview_open", "browser_snapshot", "browser_click", "browser_type",
         "browser_back", "browser_console", "browser_screenshot",
-        *_ALT_AJAN,
+        *_HEDEFLI_WEB, *_ALT_AJAN,
     ],
     "reviewer": [
         "search_knowledge", "read_project_state",
         "read_file", "list_dir", "glob_files", "grep_files",
         "run_command", "record_gaps", "update_task", "save_artifact",
-        *_ALT_AJAN,
+        *_HEDEFLI_WEB, *_ALT_AJAN,
     ],
     "staging": [
         "search_knowledge", "read_project_state", "update_task",
@@ -144,6 +166,16 @@ TOOLSETS: dict[str, list[str]] = {
         # yapar; baska projelerin sohbetini okumak onlarin kapsami degil
         # ve her faza acmak her kosuya N dosya okuma maliyeti bindirirdi.
         "search_history", "list_project_history",
+        # WEB. Danismanin dosya yazma ve komut calistirma araci YOK, yani
+        # yukaridaki enjeksiyon kisitina takilmiyor: yazabildigi tek sey
+        # proje kayitlari ve is akisinin kimligi -- hepsi geri alinabilir
+        # ve hepsi kayit altinda.
+        #
+        # Buraya kadar kullanicinin KONUSTUGU ajan, ekranin tek web
+        # araci olmayan ajaniydi: "en son surumu" ya da "bu kutuphane
+        # hala bakimda mi" sorusuna bakacak hicbir yolu yoktu ve
+        # bildigini sandigi seyi soyluyordu.
+        "web_search", "fetch_url", "browse_page",
         "read_file", "list_dir", "glob_files", "grep_files",
         "update_workflow", "resolve_question",
         "record_requirements", "record_gaps", "record_decisions",

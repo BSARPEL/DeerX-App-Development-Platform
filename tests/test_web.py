@@ -5071,3 +5071,93 @@ class TestCiktiDetayiSatirinIcineGirmez:
         assert 'closest(".artifact-row")' in govde, (
             "detay hala dugmeden sonra ekleniyor; kutu satirin icine duser"
         )
+
+
+class TestAramaSinamasiGercektenArar:
+    """"Aramayi test et" dugmesi, arama CALISIRKEN bile dusuyordu.
+
+    OLCULDU: varsayilan `search_provider` "browser" ve `web_search` o kipte
+    `ctx.browser` istiyor. Uc, arac baglamini tarayicisiz kuruyordu; dugme
+    her zaman "Tarayici oturumu bu baglamda kullanilamiyor" donuyordu --
+    yani kurulumun calisip calismadigini soylemesi gereken tek yer, yanlis
+    cevap veriyordu. Gercek aramayi ayni anda elle olctum: ayni sorgu
+    gercek bir oturumla 2,8 saniyede Bing'den uc sonuc dondu.
+
+    `test_browser` bu isi dogru yapiyor ve NEDEN gecici bir oturum actigini
+    da yaziyor: Playwright'in senkron nesneleri kendilerini olusturan is
+    parcacigina baglidir, istek baska bir parcacikta kosar.
+    """
+
+    def test_the_probe_hands_the_tool_a_browser(self, client, monkeypatch):
+        from deerx.tools.base import ToolContext, ToolRegistry
+
+        gorulen: dict[str, object] = {}
+        gercek = ToolRegistry.execute
+
+        def yakala(self, name, args, ctx: ToolContext, **kw):  # noqa: ANN001
+            gorulen["tool"] = name
+            gorulen["browser"] = ctx.browser
+            return gercek(self, name, args, ctx, **kw)
+
+        monkeypatch.setattr(ToolRegistry, "execute", yakala)
+        cevap = client.post("/api/settings/test-search", json={"query": "deerx"})
+        assert cevap.status_code == 200, cevap.text
+        assert gorulen.get("tool") == "web_search"
+        assert gorulen.get("browser") is not None, (
+            "tarayici kipinde arama sinamasi araca tarayici vermiyor; "
+            "dugme calisan bir kurulumda da 'calismiyor' der"
+        )
+
+    def test_the_probe_says_which_provider_answered(self, client, monkeypatch):
+        """Sonucta hangi ucun cevapladigi yazmali: kullanici saglayiciyi
+        degistirip test ediyor ve hangisinin denendigini gormeden
+        degisikligin ise yarayip yaramadigini bilemez."""
+        from deerx.tools.base import ToolRegistry, ToolResult
+
+        monkeypatch.setattr(
+            ToolRegistry, "execute",
+            lambda self, name, args, ctx, **kw: ToolResult(content="# Arama: x"),
+        )
+        govde = client.post("/api/settings/test-search", json={}).json()
+        assert govde["ok"] is True
+        assert govde["provider"], "hangi saglayici denendigi yazmiyor"
+        assert "seconds" in govde, "sure yazmiyor: yavas bir uc sessizce yavas kalir"
+
+    def test_the_probe_closes_what_it_opened(self, client, monkeypatch):
+        """Sinama bir Chrome aciyorsa onu KAPATMALI; her tiklamada bir
+        surec birakmak, ayar ekranini surec sizintisina cevirir."""
+        from deerx.browser import BrowserSession
+
+        kapandi: list[bool] = []
+        gercek_close = BrowserSession.close
+
+        def izle(self):
+            kapandi.append(True)
+            return gercek_close(self)
+
+        monkeypatch.setattr(BrowserSession, "close", izle)
+        cevap = client.post("/api/settings/test-search", json={"query": "deerx"})
+        assert cevap.status_code == 200, cevap.text
+        assert kapandi, "acilan tarayici kapatilmadi"
+
+    def test_the_probe_does_not_leave_a_profile_behind(self, client, monkeypatch):
+        """Tiklama basina bir Chrome profili birakmak, ayar ekranini
+        gecici klasor uretecine cevirir. OLCULDU: dort sinama sonrasi
+        sistemin gecici dizininde dort `deerx-arama-*` klasoru duruyordu."""
+        import tempfile
+        from pathlib import Path
+
+        acilanlar: list[Path] = []
+        gercek = tempfile.mkdtemp
+
+        def izle(*a, **kw):
+            yol = gercek(*a, **kw)
+            if str(kw.get("prefix", "")).startswith("deerx-"):
+                acilanlar.append(Path(yol))
+            return yol
+
+        monkeypatch.setattr(tempfile, "mkdtemp", izle)
+        client.post("/api/settings/test-search", json={"query": "deerx"})
+        assert acilanlar, "sinama profil dizini hic acmadi"
+        kalan = [p for p in acilanlar if p.exists()]
+        assert not kalan, f"geride profil kaldi: {kalan}"

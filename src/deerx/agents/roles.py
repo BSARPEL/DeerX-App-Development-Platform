@@ -36,7 +36,14 @@ ITERATION_BUDGET: dict[str, int] = {
     # Danisman bir sohbet turudur, bir faz degil: okur, cevaplar, belki bir
     # kayit degistirir. Genis butce burada bekleme suresine donusur --
     # kullanici cevabini bekliyor.
-    "danisman": 12,
+    #
+    # 12'den 16'ya cikti cunku danisman artik web'e de bakabiliyor ve bir
+    # arama tek tur degil: ara (1) -> iki sonucu oku (2) -> kayitla
+    # karsilastir (1) -> cevapla (1). 12'de bu zincir arac cagirmaya
+    # yetiyor ama CEVABA yetmiyordu; butce bitince kullanici arac
+    # gurultusu gorup cevap goremezdi. 16, dar tutma gerekcesini
+    # bozmadan bir arama turunu icine aliyor.
+    "danisman": 16,
     "analyst": 30,
     "researcher": 35,
     "assessor": 30,

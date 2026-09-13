@@ -2556,9 +2556,22 @@ function initSettings() {
         ? `${r.provider} · ${r.model} · ${r.seconds}${t("app.unitSec")} · ${r.tokens} token · ${r.text}`
         : r.error));
 
+  // Secili saglayici ile CEVAPLAYAN ayni olmayabilir: "browser" secildiginde
+  // motoru arac seciyor, anahtarli bir uc dustugunde tarayiciya dusuluyor.
+  // Ikisini ayri yazmak, ayari degistirip test eden kullaniciya
+  // degisikligin ise yarayip yaramadigini gosteren tek sey.
   $("#btn-test-search").addEventListener("click", () =>
-    probe($("#btn-test-search"), $("#search-note"), "/api/settings/test-search", (r) =>
-      `${r.provider}: ${r.result}`));
+    probe($("#btn-test-search"), $("#search-note"), "/api/settings/test-search", (r) => {
+      const uc = r.answered_by && r.answered_by !== r.provider
+        ? `${r.provider} → ${r.answered_by}`
+        : r.provider;
+      const bas = r.ok
+        ? `${uc} · ${r.seconds}${t("app.unitSec")}`
+        : uc;
+      const not = r.ok || !r.browser_note ? "" : `
+${r.browser_note}`;
+      return `${bas}: ${r.result}${not}`;
+    }));
 
   // Tarayici testi gercekten Chrome'u acip bir sayfa yukler. "Chrome kurulu"
   // demek yetmiyor: surucu eksik, profil yazilamaz ya da vekil port acamaz

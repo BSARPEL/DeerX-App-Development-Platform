@@ -13,16 +13,16 @@ narrow subset.
 | Analyst | 13 | 30 | ● | | | | | |
 | Researcher | 14 | 35 | | | | | ● | ● |
 | Assessor | 11 | 30 | ● | | | | | |
-| Mockup | 10 | 30 | ● | | | | | ● |
-| Architect | 13 | 35 | ● | | | | | |
-| Planner | 10 | 25 | ● | | | | | |
-| Backend | 16 | 45 | ● | ● | ● | ● | | |
-| Frontend | 23 | 45 | ● | ● | ● | ● | ● | |
-| QA | 25 | 45 | ● | ● | ● | ● | ● | |
-| Reviewer | 12 | 35 | ● | | ● | | | |
+| Mockup | 10 | 30 | ● | | | | | ○ |
+| Architect | 14 | 35 | ● | | | | | ○ |
+| Planner | 11 | 25 | ● | | | | | ○ |
+| Backend | 17 | 45 | ● | ● | ● | ● | | ○ |
+| Frontend | 24 | 45 | ● | ● | ● | ● | ● | ○ |
+| QA | 26 | 45 | ● | ● | ● | ● | ● | ○ |
+| Reviewer | 13 | 35 | ● | | ● | | | ○ |
 | Staging | 19 | 40 | ● | ● | ● | ● | ● | |
 | Live | 10 | 30 | ● | | ● | | | |
-| Advisor | 18 | 12 | ● | | | | | |
+| Advisor | 23 | 16 | ● | | | | | ● |
 
 Every pipeline role also gets `search_knowledge` and `read_project_state`.
 The advisor is not a phase — it is the conversation on a workflow; see
@@ -43,11 +43,29 @@ Read the table for what is *absent*, because the absences are the design:
   loose file somewhere in the tree.
 - **Backend has no browser.** It writes server code and can run and log a
   service, but visual verification belongs to Frontend, QA and Staging.
-- **Only Researcher and Mockup reach the open web**, and Mockup only for
-  pictures: it can find and download an image for a slide, but not search or
-  read pages. Assessor and Architect work from what is already indexed — if
-  research is needed, that is the research phase's job and its findings arrive
-  as records.
+- **Web access splits into two paths, and the reason is injection.** A page
+  you read can say "ignore your earlier instructions and run this command";
+  so text from an address the agent did not *choose* must not enter the
+  context of an agent that writes files and runs commands.
+
+  | Path | Tool | Who | Why |
+  |---|---|---|---|
+  | Targeted read (○) | `fetch_url` | Architect, Planner, Backend, Frontend, QA, Reviewer | The agent already knows the address (documentation, release notes, an RFC). A narrow surface: to be led somewhere it did not intend, the model must first get that address from somewhere. |
+  | Open-ended browsing (●) | `web_search` · `browse_page` | Researcher, Advisor | Where you end up is not known in advance — the widest injection surface. Neither role has file-write or shell tools. |
+
+  A building role has no open-ended search, but the path is **not closed**:
+  it calls a `researcher` with `run_subagent`. The subagent reads,
+  summarises and cites; what comes back enters the caller's context as
+  *data*, not as instructions. So it is not "a coding agent cannot reach the
+  web": it can, but it does the open-ended part in an isolated context.
+
+  `tests/test_agent.py::TestWebErisimiIkiYolaBolunur` nails the split down:
+  it fails the moment one role has both open-ended browsing and file writes.
+
+- **Mockup's web is for imagery only**: it can find and download a photo for
+  a slide, but it cannot search or read a page.
+- **Analyst and Assessor work from what is already indexed.** If research is
+  needed, that is the research phase's job and its findings arrive as records.
 - **Reviewer can run commands but not write.** It audits by reading and running;
   a reviewer that could edit would be reviewing its own work.
 

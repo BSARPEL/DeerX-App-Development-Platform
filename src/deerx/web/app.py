@@ -629,6 +629,24 @@ def _ek_basligi(name: str, *, inline: bool = False) -> str:
     return f'{tur}; filename="{temiz}"'
 
 
+def _arama_ucu(content: str) -> str:
+    """Arama ciktisindan CEVAPLAYAN ucun adini okur.
+
+    `web_search` ilk satiri `# Arama: <sorgu>  (<uc>)` diye yaziyor ve o
+    parantez, yapilandirilan saglayicidan farkli olabilir: "browser"
+    secildiginde motoru arac seciyor (bing, ddg...), anahtarli bir uc
+    dustugunde de tarayiciya dusuluyor. Ayar ekraninda "hangi saglayici
+    secili" ile "hangisi cevapladi" ayni sey degil ve kullanici ikincisini
+    gormeden bir degisikligin ise yarayip yaramadigini bilemez.
+
+    Bicim tutmazsa bos doner: uydurmak, yanlis bir uc adi yazmak olurdu.
+    """
+    ilk = (content or "").lstrip().split("\n", 1)[0]
+    if not ilk.startswith("#") or not ilk.endswith(")") or "(" not in ilk:
+        return ""
+    return ilk[ilk.rindex("(") + 1:-1].strip()[:40]
+
+
 def _dosya_adi(name: str) -> str:
     """Proje adindan indirme dosyasi adi; yalnizca harf, rakam, `-` ve `_`.
 
@@ -1080,8 +1098,9 @@ def build_app(settings: Settings) -> Starlette:
                 return {"ok": False, "error": "Sistemde tarayici bulunamadi.", **base}
 
             started = _time.perf_counter()
+            profil = Path(tempfile.mkdtemp(prefix="deerx-test-"))
             session = BrowserSession(
-                profile_dir=Path(tempfile.mkdtemp(prefix="deerx-test-")),
+                profile_dir=profil,
                 policy=UrlPolicy(),
                 channel=state.settings.browser_channel,
                 headless=state.settings.browser_headless,
@@ -1096,6 +1115,9 @@ def build_app(settings: Settings) -> Starlette:
                 return {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:400], **base}
             finally:
                 session.close()
+                # Tiklama basina bir Chrome profili birakmak, ayar
+                # ekranini gecici klasor uretecine cevirir.
+                shutil.rmtree(profil, ignore_errors=True)
             return {
                 "ok": True,
                 "title": title,
@@ -1110,6 +1132,23 @@ def build_app(settings: Settings) -> Starlette:
 
         Ayarlari kaydedip kosuyu baslatmadan once calisip calismadigini
         gormek gerekir; anahtarsiz uc sessizce bos donuyordu.
+
+        SINAMA ARACA TARAYICI VERIR. Olculdu: varsayilan saglayici
+        "browser" ve `web_search` o kipte `ctx.browser` istiyor; uc bunu
+        vermedigi icin dugme arama CALISIRKEN bile "Tarayici oturumu bu
+        baglamda kullanilamiyor" donuyordu. Yani kurulumun calisip
+        calismadigini soylemesi gereken tek yer yanlis cevap veriyordu.
+        Ayni sorgu gercek bir oturumla 2,8 saniyede Bing'den uc sonuc
+        donuyor.
+
+        Kosunun paylasilan oturumu KULLANILMAZ, gecici bir oturum acilir:
+        Playwright'in senkron nesneleri kendilerini olusturan is
+        parcacigina baglidir ve bu istek baska bir parcacikta kosar --
+        `test_browser` ayni gerekceyle ayni seyi yapiyor.
+
+        Anahtarli bir saglayici secilmis olsa bile tarayici acilir: arac
+        anahtarli uc dustugunde tarayiciya DUSUYOR ve sinama kosunun
+        gercekte yapacagi seyi denemeli, yapacagini umdugumuz seyi degil.
         """
         try:
             body = await _body(request)
@@ -1118,18 +1157,61 @@ def build_app(settings: Settings) -> Starlette:
         query = str(body.get("query") or "DeerX test sorgusu").strip()
 
         def run_probe() -> dict[str, Any]:
+            import tempfile
+            import time as _time
+
+            from ..browser import BrowserSession, UrlPolicy, find_browser
             from ..tools import ToolContext, build_registry
 
-            probe = ToolContext(
-                settings=settings, events=state.events,
-                kb=state.orchestrator.kb, state=state.orchestrator.state,
-            )
-            outcome = build_registry().execute(
-                "web_search", {"query": query, "max_results": 3}, probe
-            )
+            oturum: BrowserSession | None = None
+            tarayici_notu = ""
+            # Her tiklama bir profil dizini birakiyordu: sinama dugmesi
+            # gecici klasoru cop olarak birakan bir dugme olamaz.
+            profil = Path(tempfile.mkdtemp(prefix="deerx-arama-"))
+            if find_browser(state.settings.browser_channel) is not None:
+                try:
+                    oturum = BrowserSession(
+                        profile_dir=profil,
+                        policy=UrlPolicy(),
+                        channel=state.settings.browser_channel,
+                        headless=state.settings.browser_headless,
+                        idle_seconds=0,
+                    )
+                except Exception as exc:  # noqa: BLE001 - playwright kendi tiplerini kullanir
+                    tarayici_notu = f"{type(exc).__name__}: {exc}"[:200]
+            else:
+                tarayici_notu = t("api.search_no_browser")
+
+            basladi = _time.perf_counter()
+            try:
+                probe = ToolContext(
+                    settings=settings, events=state.events,
+                    kb=state.orchestrator.kb, state=state.orchestrator.state,
+                    browser=oturum,
+                )
+                outcome = build_registry().execute(
+                    "web_search", {"query": query, "max_results": 3}, probe
+                )
+            finally:
+                # Her tiklamada bir Chrome birakmak, ayar ekranini surec
+                # sizintisina cevirir.
+                if oturum is not None:
+                    try:
+                        oturum.close()
+                    except Exception:  # noqa: BLE001 - kapanis hatasi sinamayi dusurmesin
+                        pass
+                shutil.rmtree(profil, ignore_errors=True)
+
             return {
                 "ok": not outcome.is_error,
                 "provider": state.settings.search_provider,
+                # Yapilandirilan saglayici ile CEVAPLAYAN ayni olmayabilir:
+                # "browser" secildiginde motoru arac seciyor, anahtarli uc
+                # dustugunde tarayiciya dusuluyor. Kullanici neyin
+                # calistigini gormeden ayari degistirip test edemez.
+                "answered_by": _arama_ucu(outcome.content),
+                "seconds": round(_time.perf_counter() - basladi, 1),
+                "browser_note": tarayici_notu,
                 "result": outcome.content[:1200],
             }
 

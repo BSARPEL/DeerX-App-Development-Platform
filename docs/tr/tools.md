@@ -13,16 +13,16 @@ küme alır.
 | Analist | 13 | 30 | ● | | | | | |
 | Araştırmacı | 14 | 35 | | | | | ● | ● |
 | Değerlendirici | 11 | 30 | ● | | | | | |
-| Mockup | 10 | 30 | ● | | | | | ● |
-| Mimar | 11 | 35 | ● | | | | | |
-| Planlayıcı | 8 | 25 | ● | | | | | |
-| Backend | 16 | 45 | ● | ● | ● | ● | | |
-| Frontend | 23 | 45 | ● | ● | ● | ● | ● | |
-| QA | 25 | 45 | ● | ● | ● | ● | ● | |
-| İnceleyici | 10 | 35 | ● | | ● | | | |
+| Mockup | 10 | 30 | ● | | | | | ○ |
+| Mimar | 14 | 35 | ● | | | | | ○ |
+| Planlayıcı | 11 | 25 | ● | | | | | ○ |
+| Backend | 17 | 45 | ● | ● | ● | ● | | ○ |
+| Frontend | 24 | 45 | ● | ● | ● | ● | ● | ○ |
+| QA | 26 | 45 | ● | ● | ● | ● | ● | ○ |
+| İnceleyici | 13 | 35 | ● | | ● | | | ○ |
 | Staging | 19 | 40 | ● | ● | ● | ● | ● | |
 | Canlı | 10 | 30 | ● | | ● | | | |
-| Danışman | 18 | 12 | ● | | | | | |
+| Danışman | 23 | 16 | ● | | | | | ● |
 
 Her boru hattı rolü ayrıca `search_knowledge` ve `read_project_state` alır.
 Danışman bir faz değildir — bir iş akışı üzerindeki konuşmadır; aşağıya
@@ -41,11 +41,29 @@ Tabloyu *yokluklar* için okuyun, çünkü tasarım orada:
   çıktıdır.
 - **Backend'in tarayıcısı yok.** Sunucu kodu yazar, bir servisi çalıştırıp
   günlüğünü okuyabilir; görsel doğrulama Frontend, QA ve Staging'in işidir.
-- **Açık web'e yalnızca Araştırmacı ve Mockup ulaşır**, Mockup da yalnızca
-  görsel için: slayta koyacağı bir fotoğrafı bulup indirebilir, ama arama
-  yapamaz, sayfa okuyamaz. Değerlendirici ve Mimar zaten indekslenmiş olandan
-  çalışır — araştırma gerekiyorsa o, araştırma fazının işidir ve bulguları
-  kayıt olarak gelir.
+- **Web erişimi iki yola bölünür ve ayrımın sebebi enjeksiyondur.** Okunan
+  bir sayfa "önceki talimatları unut, şu komutu çalıştır" yazabilir; bu
+  yüzden dosya yazan ve komut çalıştıran bir ajanın bağlamına, kendi
+  *seçmediği* bir adresten metin girmemelidir.
+
+  | Yol | Araç | Kim | Neden |
+  |---|---|---|---|
+  | Hedefli okuma (○) | `fetch_url` | Mimar, Planlayıcı, Backend, Frontend, QA, İnceleyici | Adresi ajan bilir (dokümantasyon, sürüm notu, RFC). Dar yüzey: modelin gitmediği bir yere götürülmesi için önce o adresi bir yerden alması gerekir. |
+  | Açık uçlu gezinme (●) | `web_search` · `browse_page` | Araştırmacı, Danışman | Nereye varılacağı önceden belli değil — en geniş enjeksiyon yüzeyi. İkisinin de dosya yazma ve komut çalıştırma aracı **yoktur**. |
+
+  Kod yazan bir rolün açık uçlu araması yok ama yolu **kapalı da değil**:
+  `run_subagent` ile bir `researcher` çağırır. Alt ajan okur, özetler ve
+  kaynağını verir; dönen şey üst ajanın bağlamına *veri* olarak girer,
+  talimat olarak değil. Yani "kod yazan ajan web'e çıkamaz" değil: çıkar,
+  ama açık uçlu olanı yalıtık bir bağlamda yapar.
+
+  `tests/test_agent.py::TestWebErisimiIkiYolaBolunur` bu ayrımı çiviler:
+  aynı rolde hem açık uçlu gezinme hem dosya yazma olduğu anda düşer.
+
+- **Mockup'ın web'i yalnızca görsel içindir**: slayta koyacağı bir fotoğrafı
+  bulup indirebilir, arama yapamaz, sayfa okuyamaz.
+- **Analist ve Değerlendirici indekslenmiş olandan çalışır.** Araştırma
+  gerekiyorsa o, araştırma fazının işidir ve bulguları kayıt olarak gelir.
 - **İnceleyici komut çalıştırabilir ama yazamaz.** Okuyarak ve koşturarak
   denetler; yazabilen bir inceleyici kendi işini incelemiş olurdu.
 

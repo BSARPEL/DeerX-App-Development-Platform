@@ -453,7 +453,15 @@ Three buttons make real calls:
 
 - **Test the connection** tells the model to write "OK" and reports the
   duration, token count and answer.
-- **Test search** actually searches.
+- **Test search** actually searches — and *hands the tool a browser*. It
+  did not: the default provider is `browser`, `web_search` needs a browser
+  session in that mode, and the endpoint never built one; so the one place
+  meant to tell you whether the setup works said "browser session
+  unavailable" **even while search worked**. The same query returns three
+  Bing results in 2.9s through a real session. The result line names the
+  selected provider and **who answered** separately (`browser → bing`):
+  they can differ, because in `browser` mode the tool picks the engine and
+  a failing keyed backend falls through to the browser.
 - **Test the browser** actually opens one.
 
 The difference between these buttons and discovering "the model name was wrong"

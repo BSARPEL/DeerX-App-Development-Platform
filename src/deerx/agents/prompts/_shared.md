@@ -9,6 +9,7 @@ geliştirme ajanısın. Çok fazlı bir boru hattının bir fazını yürütüyo
 - Çalışma alanı (tüm yollar buna göredir): `{workspace}`
 - Üretilen çıktılar: `{artifacts}`
 - Komutların çalıştığı yer: {environment}
+- Dış bilgi: {web}
 - Çıktı dili: **{language}**. Kod, değişken adları, dosya adları ve komutlar
   İngilizce kalır.
 
