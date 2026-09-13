@@ -78,15 +78,16 @@
     <button class="rail-item" data-view="workflow" type="button" data-i18n-label="nav.workflow" aria-label="İş akışı">
       <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6.2" cy="6.6" r="2.4"/><circle cx="17.8" cy="17.4" r="2.4"/><path d="M6.2 9v6.2a2.6 2.6 0 0 0 2.6 2.6h6.6"/></svg><span class="rail-text" data-i18n="nav.workflow">İş akışı</span>
       <span class="rail-live" id="rail-workflow" hidden></span>
+      <!-- Analiz rozetleri BURAYA tasindi: kayitlar artik bu ekranin
+           icinde. Bir rozet ile o sayiyi gosteren ekran ayni yerden
+           ulasilabilir olmali; ayri bir ray maddesi ise ayni projeye
+           ikinci bir kapi aciyordu. -->
+      <span class="rail-badge" id="badge-analysis"></span>
+      <span class="rail-badge rail-badge-alert" id="badge-questions"></span>
     </button>
     <button class="rail-item" data-view="knowledge" type="button" data-i18n-label="nav.knowledge" aria-label="Bilgi tabanı">
       <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.6" y="4.6" width="14.8" height="14.8" rx="2"/><path d="M9.2 4.6v14.8"/></svg><span class="rail-text" data-i18n="nav.knowledge">Bilgi tabanı</span>
       <span class="rail-badge" id="badge-docs"></span>
-    </button>
-    <button class="rail-item" data-view="analysis" type="button" data-i18n-label="nav.analysis" aria-label="Analiz">
-      <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.8" cy="10.8" r="5.8"/><path d="m15.2 15.2 4.2 4.2"/></svg><span class="rail-text" data-i18n="nav.analysis">Analiz</span>
-      <span class="rail-badge" id="badge-analysis"></span>
-      <span class="rail-badge rail-badge-alert" id="badge-questions"></span>
     </button>
     <button class="rail-item" data-view="artifacts" type="button" data-i18n-label="nav.artifacts" aria-label="Çıktılar">
       <svg class="rail-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13.4 4.6H7a1.6 1.6 0 0 0-1.6 1.6v11.6A1.6 1.6 0 0 0 7 19.4h10a1.6 1.6 0 0 0 1.6-1.6V9.8l-5.2-5.2Z"/><path d="M13.4 4.6v5.2h5.2"/></svg><span class="rail-text" data-i18n="nav.artifacts">Çıktılar</span>
@@ -184,11 +185,16 @@
         </footer>
       </section>
 
-      <p class="rail-scope" id="phase-rail-scope"></p>
-      <ol class="phase-rail" id="phase-rail" data-i18n-label="overview.phaseRail"
-          aria-label="Boru hattı fazları"></ol>
-
-      <div class="grid-stats" id="stat-grid"></div>
+      <!-- Boru hattinin durumu TEK yuzeyde: hangi is akisi, nerede
+           duruyor, geriye ne kaldi. Ucu ayri ayri zeminin ustunde
+           dururken ekranin ust yarisi daginik duruyordu -- ayni soruyu
+           cevapladiklari icin ayni karta girerler. -->
+      <section class="panel panel-pipeline">
+        <p class="phase-rail-scope" id="phase-rail-scope"></p>
+        <ol class="phase-rail" id="phase-rail" data-i18n-label="overview.phaseRail"
+            aria-label="Boru hattı fazları"></ol>
+        <div class="grid-stats" id="stat-grid"></div>
+      </section>
 
       <div class="panel-row">
         <section class="panel panel-summary">
@@ -350,12 +356,12 @@
            onu CALISTIRAN kosunun yaninda durmali. Yalnizca tek is akisi
            detayinda (Hal 2) gorunur: is akisi listesinde "hangisinin
            gorevleri?" sorusunun cevabi yok. -->
-      <section class="wf-tasks" id="wf-tasks" hidden>
+      <section class="panel wf-tasks" id="wf-tasks" hidden>
         <header class="panel-head">
           <h2 data-i18n="plan.title">Görev planı</h2>
           <span class="panel-hint" id="plan-sub"></span>
         </header>
-      <div class="plan-bar">
+      <div class="panel-tools plan-bar">
         <div class="plan-tabs" id="plan-tabs"></div>
         <div class="plan-bar-actions">
           <button class="btn btn-ghost btn-sm" id="btn-new-plan" type="button" data-needs-role="developer" data-i18n="plan.newPlan">+ Yeni plan</button>
@@ -382,9 +388,46 @@
           <button class="chip chip-btn" data-lane="docs" type="button" data-i18n="lane.docs">belge</button>
         </div>
       </div>
-      <div id="task-list"></div>
+      <div class="panel-body" id="task-list"></div>
       <nav class="pager" id="task-pager" data-i18n-label="pager.aria"
            aria-label="Sayfalama" hidden></nav>
+      </section>
+
+      <!-- KAYITLAR. Kendi ekraniydi ("Analiz"); buraya tasindi cunku ayri
+           bir sayfa ayni projeye ikinci bir kapi aciyordu ve orada
+           yapilabilecek hicbir sey is akisindan bagimsiz degildi.
+
+           KAPSAM UYARISI bosuna degil: gereksinim, bosluk, karar ve
+           sorular PROJE duzeyindedir ve tablolarinda is akisi kimligi
+           TASIMAZLAR (`state.workflow_context` ayni ayrimi yaziyor).
+           Burada gorunuyor olmalari onlari bu is akisina ait yapmaz;
+           "bu is akisindaki gereksinim" diye bir sey yok. Etiketi
+           susturmak, ekrani yalan soyler hale getirirdi. -->
+      <section class="panel wf-records" id="wf-analysis" hidden>
+        <header class="panel-head">
+          <h2 data-i18n="analysis.title">Kayıtlar</h2>
+          <span class="panel-hint" data-i18n="analysis.projectScope">proje geneli, bu iş akışına özel değil</span>
+        </header>
+        <div class="panel-tools tabs" id="analysis-tabs">
+          <button class="tab is-active" data-tab="requirements" type="button"><span data-i18n="analysis.requirements">Gereksinimler</span> <span class="tab-count" id="c-req">0</span></button>
+          <button class="tab" data-tab="questions" type="button"><span data-i18n="analysis.questions">Sorular</span> <span class="tab-count" id="c-q">0</span></button>
+          <button class="tab" data-tab="gaps" type="button"><span data-i18n="analysis.gaps">Boşluklar</span> <span class="tab-count" id="c-gap">0</span></button>
+          <button class="tab" data-tab="decisions" type="button"><span data-i18n="analysis.decisions">Kararlar</span> <span class="tab-count" id="c-dec">0</span></button>
+          <button class="tab" data-tab="research" type="button"><span data-i18n="analysis.research">Araştırma</span> <span class="tab-count" id="c-res">0</span></button>
+        </div>
+        <!-- Suzgec cubugu. Cipler VERIDEN turetiliyor (o sekmede gercekten
+             gecen degerler), arama kutusu isaretlemede sabit durur: her
+             cizimde yeniden kurulsaydi yazarken odak kaybolurdu. -->
+        <div class="panel-body">
+          <div class="analysis-bar">
+            <input type="search" id="analysis-search" class="analysis-search"
+                   data-i18n-placeholder="analysis.search">
+            <span class="analysis-count" id="analysis-count"></span>
+          </div>
+          <div class="chips" id="analysis-filters"></div>
+          <div id="analysis-body"></div>
+        </div>
+        <nav class="pager" id="analysis-pager" data-i18n-label="pager.aria" aria-label="Sayfalama" hidden></nav>
       </section>
     </section>
 
@@ -450,31 +493,6 @@
     </section>
 
     <!-- Analiz -->
-    <section class="view" id="view-analysis">
-      <div class="view-head">
-        <h1 data-i18n="analysis.title">Analiz</h1>
-        <p class="view-sub" data-i18n="analysis.lead"></p>
-      </div>
-      <div class="tabs" id="analysis-tabs">
-        <button class="tab is-active" data-tab="requirements" type="button"><span data-i18n="analysis.requirements">Gereksinimler</span> <span class="tab-count" id="c-req">0</span></button>
-        <button class="tab" data-tab="questions" type="button"><span data-i18n="analysis.questions">Sorular</span> <span class="tab-count" id="c-q">0</span></button>
-        <button class="tab" data-tab="gaps" type="button"><span data-i18n="analysis.gaps">Boşluklar</span> <span class="tab-count" id="c-gap">0</span></button>
-        <button class="tab" data-tab="decisions" type="button"><span data-i18n="analysis.decisions">Kararlar</span> <span class="tab-count" id="c-dec">0</span></button>
-        <button class="tab" data-tab="research" type="button"><span data-i18n="analysis.research">Araştırma</span> <span class="tab-count" id="c-res">0</span></button>
-      </div>
-      <!-- Suzgec cubugu. Cipler VERIDEN turetiliyor (o sekmede gercekten
-           gecen degerler), arama kutusu isaretlemede sabit durur: her
-           cizimde yeniden kurulsaydi yazarken odak kaybolurdu. -->
-      <div class="analysis-bar">
-        <input type="search" id="analysis-search" class="analysis-search"
-               data-i18n-placeholder="analysis.search">
-        <span class="analysis-count" id="analysis-count"></span>
-      </div>
-      <div class="chips" id="analysis-filters"></div>
-      <div id="analysis-body"></div>
-      <nav class="pager" id="analysis-pager" data-i18n-label="pager.aria" aria-label="Sayfalama" hidden></nav>
-    </section>
-
     <!-- Plan -->
 
     <!-- Çıktılar -->
@@ -526,7 +544,11 @@
       <!-- Kapsam ve arama, tur ciplerinin USTUNDE: once "neyin akisi",
            sonra "hangi turler". Ters sira, kullaniciya once ayrintiyi
            sorup sonra konuyu sormak olurdu. -->
-      <div class="stream-scopebar">
+      <!-- Suzgecler akisin KENDI kartinda: bir listeyi yoneten denetim,
+           yonettigi listeyle ayni yuzeyde durur. Zeminde serbest duran
+           bir denetim satiri neyi suzdugunu soylemiyordu. -->
+      <section class="panel panel-stream">
+      <div class="panel-tools stream-scopebar">
         <label class="stream-scope">
           <span data-i18n="stream.scope">Kapsam</span>
           <select id="stream-scope"></select>
@@ -535,7 +557,7 @@
                data-i18n-placeholder="stream.search">
         <span class="stream-note" id="stream-note"></span>
       </div>
-      <div class="stream-toolbar">
+      <div class="panel-tools stream-toolbar">
         <div class="chips" id="stream-filters">
           <button class="chip chip-btn is-active" data-kind="" type="button" data-i18n="app.all">Tümü</button>
           <button class="chip chip-btn" data-kind="message" type="button" data-i18n="stream.model">Model</button>
@@ -554,6 +576,7 @@
       </div>
       <div class="feed feed-full" id="feed"><p class="empty" data-i18n="stream.connecting"></p></div>
       <nav class="pager" id="stream-pager" data-i18n-label="pager.aria" aria-label="Sayfalama" hidden></nav>
+      </section>
     </section>
 
     <!-- Ortam -->

@@ -53,7 +53,6 @@ const I18N = {
     "nav.develop": "Geliştirme",
     "nav.workflow": "İş akışı",
     "nav.knowledge": "Bilgi tabanı",
-    "nav.analysis": "Analiz",
     "nav.plan": "Plan",
     "nav.artifacts": "Çıktılar",
     "nav.stream": "Canlı akış",
@@ -439,7 +438,8 @@ const I18N = {
     "kb.uploading": "{name} yükleniyor ({i}/{total})…",
 
     // ── Analiz ───────────────────────────────────────────────────────
-    "analysis.title": "Analiz",
+    "analysis.title": "Kayıtlar",
+    "analysis.projectScope": "proje geneli, bu iş akışına özel değil",
     "analysis.lead": "Ajanların şartnameden çıkardığı yapılandırılmış kayıtlar.",
     "analysis.requirements": "Gereksinimler",
     "analysis.questions": "Sorular",
@@ -506,6 +506,9 @@ const I18N = {
     "artifacts.count": "{n} çıktı · {runs} koşu",
     "artifacts.empty": "Çıktı yok",
     "artifacts.emptyHint": " Analiz veya tasarım fazını çalıştırın.",
+    "artifacts.hiddenOne": "{n} çıktı gizlendi (alınamıyor ya da iş akışı numarası yok)",
+    "artifacts.hiddenMany": "{n} çıktı gizlendi (alınamıyor ya da iş akışı numarası yok)",
+    "artifacts.allHiddenHint": " Kayıtlı çıktılar var ama hiçbiri gösterilmiyor: ya baytlarına ulaşılamıyor ya da bağlı oldukları bir iş akışı yok.",
     "artifacts.hiddenOrphans":
       " {n} eski çıktı koşu kaydından önce üretilmiş; bir koşu başlatın.",
     "artifacts.showOrphans": "Koşusu bilinmeyen {n} çıktıyı da göster",
@@ -1032,7 +1035,6 @@ const I18N = {
     "nav.develop": "Develop",
     "nav.workflow": "Workflows",
     "nav.knowledge": "Knowledge",
-    "nav.analysis": "Analysis",
     "nav.plan": "Plan",
     "nav.artifacts": "Artifacts",
     "nav.stream": "Live feed",
@@ -1406,7 +1408,8 @@ const I18N = {
     "kb.indexed": "{name} indexed — {n} chunks",
     "kb.uploading": "Uploading {name} ({i}/{total})…",
 
-    "analysis.title": "Analysis",
+    "analysis.title": "Records",
+    "analysis.projectScope": "project-wide, not specific to this workflow",
     "analysis.lead": "Structured records the agents extracted from the spec.",
     "analysis.requirements": "Requirements",
     "analysis.questions": "Questions",
@@ -1471,6 +1474,9 @@ const I18N = {
     "artifacts.count": "{n} artifacts · {runs} runs",
     "artifacts.empty": "No artifacts",
     "artifacts.emptyHint": " Run the analysis or design phase.",
+    "artifacts.hiddenOne": "{n} artifact hidden (unreachable or no workflow number)",
+    "artifacts.hiddenMany": "{n} artifacts hidden (unreachable or no workflow number)",
+    "artifacts.allHiddenHint": " There are recorded artifacts but none are shown: their bytes are unreachable, or they belong to no workflow.",
     "artifacts.hiddenOrphans":
       " {n} older artifacts predate run tracking; start a run.",
     "artifacts.showOrphans": "Also show {n} artifacts with no run",

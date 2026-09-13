@@ -25,42 +25,55 @@
 :root {
   color-scheme: light;
 
-  /* Yuzey merdiveni -- dort basamak, her biri bir anlam:
-       1. TEZGAH  --chrome         ray + ust bar; geri cekilir
-       2. KAGIT   --bg = --surface icerik, panel, tablo, girdi, satir
-       3. KUYU    --surface-2      thead, ikincil dugme, kod, satir hover
-       4. YUKSELEN --surface-raised yalnizca gercekten ustte duran:
-                                   kip, cekmece, toast, giris karti
-     Panel kagittan YUKSELMEZ: kagidin uzerinde bir bolumdur. Yukselme
-     GOLGEYLE anlatilir, kenarlikla degil.
+  /* Yuzey merdiveni -- BES basamak, her biri bir anlam:
+       1. TEZGAH   --chrome          ray + ust bar: MARKA duzlemi
+       2. ZEMIN    --bg              her seyin uzerine kondugu kagit
+       3. PANEL    --surface         icerik burada yasar; zeminden YUKSELIR
+       4. KUYU     --surface-2       thead, ikincil dugme, kod, satir hover
+       5. YUKSELEN --surface-raised  yalnizca gercekten ustte duran:
+                                     kip, cekmece, toast, giris karti
 
-     Olculdu: tezgah kagida 1.17:1 (dL* 6.3) -- rayin hover/etkin
-     dolgusu gercekten gorunur; text-3 tezgahta 4.62 (AA). Kagit -> kuyu
-     1.11:1 (dL* 4.2). text-3 hover basamaginin ustune YAZILMAZ (4.1). */
-  --chrome:         #e7e9ed;   /* L* 92.3, C* 1.7 */
-  --chrome-hover:   #dadde2;   /* tezgahin USTUNDEKI tek hover basamagi */
-  --bg:             #fafbfc;   /* KAGIT; L* 98.6, C* 0.6 */
-  --bg-grid:        #fafbfc;   /* = bg; radyal parilti gitti */
-  --surface:        #fafbfc;   /* AYNI kagit */
-  --surface-raised: #ffffff;   /* kip, cekmece, toast; kagida 1.04 + golge */
-  --surface-2:      #edeff2;   /* kuyu; L* 94.4 */
-  --surface-3:      #dfe2e6;   /* kuyunun ustundeki hover; L* 89.8 */
+     ONCEKI YON GERI ALINDI, cunku olculdu: `--surface` ile `--bg`
+     BIREBIR ayni hex'ti (#fafbfc) ve buraya "panel kagittan yukselmez,
+     kagidin uzerinde bir bolumdur" diye yazilmisti. Sonucu ekranda tek
+     bir duzlem olmasiydi: hicbir sey hicbir seyin ustunde duramaz, her
+     sinir tek bir sac teli cizgiye kalir. Duzlugun kaynagi oydu.
+     Simdi zemin bir basamak geri cekilir (L* 93.6), panel beyaza cikar
+     (L* 100) -- dL* 6.4 -- ve fark hem tonla hem golgeyle okunur.
 
+     Isikta beyaz TAVANDIR: panelin uzerine cikan kip daha acik bir
+     zemin bulamaz, orada yukselme yalnizca golgeyle anlatilir. Koyuda
+     tavan yok, merdiven 11.5 -> 16.4 -> 20.0 -> 22.9 -> 29.1 devam eder.
+
+     TEZGAH MARKAYI TASIR. `--chrome` artik notr bir gri degil, logonun
+     kendi lacivertidir. Notrlerin kromasi dusuk tutuldugu icin (C* <= 5)
+     kimlik ekranin KENARINDA durur, ortasinda degil: veri notr bir
+     kagitta okunur, marka rayda ve ust barda yasar. */
+  --chrome:         #0d2d55;   /* logo.png'nin baskin pikseli; L* 18.4, C* 28.0 */
+  --chrome-hover:   #1b416e;   /* tezgahin USTUNDEKI tek hover basamagi; dL* 8.7 */
+  --chrome-text:    #dce4f0;   /* tezgahin govde murekkebi; chrome 10.76 */
+  --chrome-text-2:  #9db0cc;   /* tezgahin meta murekkebi; chrome 6.25, hover 4.69 */
+  --bg:             #e9edf3;   /* ZEMIN; L* 93.6, C* 3.4 -- panele dL* 6.4 */
+  --bg-grid:        #e9edf3;   /* = bg; radyal parilti gitti */
+  --surface:        #ffffff;   /* PANEL; L* 100 */
+  --surface-raised: #ffffff;   /* isikta ayni hex: farki GOLGE tasir */
+  --surface-2:      #f3f5f8;   /* kuyu; L* 96.5 */
+  --surface-3:      #e3e7ed;   /* kuyunun ustundeki hover; L* 91.5 */
   /* Kenarlar -- IKI TON: bolum cetveli --border-strong, satir ayirici
      --border. Hiyerarsiyi cizgi kalinligi degil cizgi tonu tasir.
      Kontrol siniri ayri jeton: ikincil dugmeyi yalnizca kenarligi
      tanimlar ve WCAG 1.4.11 icin 3:1 ister -- olculdu: surface 3.78,
      surface-2 3.40. */
-  --border:               #d8dbe0;   /* kagida 1.34:1 */
-  --border-strong:        #c0c4ca;   /* kagida 1.69:1 */
-  --control-border:       #7c8189;   /* L* 53.8 */
-  --control-border-hover: #5f646b;   /* surface-3'e 4.59:1 */
+  --border:               #dadee6;   /* panele 1.35:1, zemine 1.19:1 */
+  --border-strong:        #c3cad0;   /* panele 1.77:1 */
+  --control-border:       #7c8189;   /* L* 53.8; panel 3.92, kuyu 3.59 */
+  --control-border-hover: #5f646b;   /* surface-3'e 4.80:1 */
 
   /* Metin -- uc rutbe. Ucuncusu yalnizca meta, devre disi ve yer
      tutucu; ASLA --surface-3 ustune yazilmaz (4.32, AA alti). */
-  --text:     #15181c;   /* surface 17.19:1 */
-  --text-2:   #4a4f56;   /* surface 7.97, surface-2 7.17 */
-  --text-3:   #63686f;   /* surface 5.42, surface-2 4.87, chrome 4.62 */
+  --text:     #15181c;   /* panel 17.81:1 */
+  --text-2:   #4a4f56;   /* panel 8.25, kuyu 7.56 */
+  --text-3:   #63686f;   /* panel 5.61, kuyu 5.14, zemin 4.96 */
 
   /* Marka vurgusu -- UC anlam: marka, secim (inset serit / alt cizgi /
      dolu cip), canli (running). `--accent` isaretci ve metin;
@@ -92,10 +105,15 @@
      arkadaki akis okunur kalir. */
   --veil: rgba(21, 24, 28, .45);
 
-  /* Golge -- yalnizca yukselen yuzeylerde. 60px bulanik golge gitti. */
-  --shadow-sm: 0 1px 2px rgba(21, 24, 28, .06);
-  --shadow-md: 0 4px 12px -2px rgba(21, 24, 28, .12), 0 1px 2px rgba(21, 24, 28, .06);
-  --shadow-lg: 0 12px 32px -12px rgba(21, 24, 28, .24), 0 2px 6px -2px rgba(21, 24, 28, .08);
+  /* Golge -- UC basamak, her biri BIR yukselme:
+       --shadow-sm  panel: zeminden bir basamak
+       --shadow-md  acilir liste, yapiskan baslik: icerigin ustunde
+       --shadow-lg  kip, cekmece, toast: sayfadan kopar
+     Golge notr siyah degil markanin lacivertinden turetilir; beyaz
+     kagitta notr siyah golge gri bir kir birakiyor. Alfa dusuk. */
+  --shadow-sm: 0 1px 2px rgba(13, 45, 85, .07), 0 1px 3px rgba(13, 45, 85, .05);
+  --shadow-md: 0 4px 12px -2px rgba(13, 45, 85, .10), 0 2px 4px -2px rgba(13, 45, 85, .06);
+  --shadow-lg: 0 16px 40px -12px rgba(13, 45, 85, .28), 0 4px 10px -4px rgba(13, 45, 85, .10);
 
   /* Yaricap: iki jeton. Hap = etkilesimli (cip, sekme hapi, nabiz);
      dikdortgen = statik etiket (rozet). Siluet rolu tasir. */
@@ -172,59 +190,65 @@
     color-scheme: dark;
 
     /* Ayni merdiven, koyuda. Duzlem farki WCAG oraniyla olculmez
-       (formul siyaha yakin sikisir); olcut CIE L* farki >= 4.5.
-       Tezgah -> kagit dL* 4.8; kagit -> yukselen dL* 4.4 + golge.
-       "Siyah ray + lacivert kagit" gitti: gri merdiven, C* <= 2.4. */
-    --chrome:         #0c0e11;   /* L* 3.9 */
-    --chrome-hover:   #1e2125;   /* L* 12.6 */
-    --bg:             #17191c;   /* KAGIT; L* 8.7, C* 2.4 */
-    --bg-grid:        #17191c;
-    --surface:        #17191c;
-    --surface-raised: #1f2226;   /* L* 13.1 */
-    --surface-2:      #2a2d32;   /* kuyu; L* 18.4 */
-    --surface-3:      #383c41;   /* L* 25.1 */
+       (formul siyaha yakin sikisir); olcut CIE L* farki.
+       Tezgah 6.5 -> zemin 11.5 -> panel 16.4 -> kuyu 20.0 ->
+       yukselen 22.9 -> hover 29.1; her basamak >= 3.6.
+       Eskiden panel ile zemin ayni hex'ti (#17191c): duzlugun koyu
+       temadaki hali buydu. */
+    --chrome:         #061527;   /* MARKA, koyuda; L* 6.5, C* 14.2 */
+    --chrome-hover:   #162131;   /* L* 12.5 */
+    --chrome-text:    #d4dde9;   /* chrome 13.39, hover 11.82 */
+    --chrome-text-2:  #93a1b5;   /* chrome 7.00, hover 6.18 */
+    --bg:             #1b1f23;   /* ZEMIN; L* 11.5 */
+    --bg-grid:        #1b1f23;
+    --surface:        #26292d;   /* PANEL; L* 16.4 */
+    --surface-raised: #33373c;   /* L* 22.9 */
+    --surface-2:      #2c3135;   /* kuyu; L* 20.0 */
+    --surface-3:      #41454a;   /* L* 29.1 */
 
-    --border:               #33363b;   /* kagida 1.45:1 */
-    --border-strong:        #4b4f55;   /* 2.14:1 */
-    --control-border:       #7d8189;   /* surface 4.51, surface-2 3.54 */
-    --control-border-hover: #90949b;   /* surface-3 3.65 */
+    --border:               #383c42;   /* panele 1.24:1 */
+    --border-strong:        #4e5055;   /* 1.60:1 */
+    --control-border:       #969ba3;   /* panel 5.23, kuyu 4.70 */
+    --control-border-hover: #adb2ba;   /* surface-3'e 4.53 */
 
-    --text:     #e8eaed;   /* 14.61 */
-    --text-2:   #b0b4ba;   /* surface 8.46, surface-2 6.63 */
-    --text-3:   #969aa1;   /* surface 6.23, surface-2 4.89, chrome 6.84 */
+    --text:     #e8eaed;   /* panel 12.12 */
+    --text-2:   #c2c6cc;   /* panel 8.52, kuyu 7.66, yukselen 6.99 */
+    --text-3:   #a4a9b0;   /* panel 6.18, kuyu 5.56, yukselen 5.07 */
 
     /* Vurgu koyuda bes kromatik rengin en solgunuydu (L* 65.8 < 69-78)
        ve marka durum renklerine yeniliyordu; L* 71.3'e cikti, durumlar
        66.9-69.7'ye indi -- artik ayni agirlikta. */
     --accent:              #7fb3ea;   /* hue 211; surface 8.00 */
     --accent-hover:        #9cc5f0;
-    --accent-soft:         #1c2836;
+    --accent-soft:         #22313f;
     --accent-text:         #0b1420;   /* 8.40 */
-    --accent-solid:        #2f6fb5;   /* beyazla 5.17; surface 3.41 */
-    --accent-solid-hover:  #3273b9;   /* koyuda acilir; beyazla 4.90 */
+    --accent-solid:        #2e78b7;   /* beyaz 4.68; panel 3.12 (1.4.11) */
+    --accent-solid-hover:  #267bb9;   /* koyuda ACILIR; beyaz 4.55, panel 3.21 */
     --accent-solid-text:   #ffffff;
-    --err-solid:           #b5453f;   /* beyazla 5.40; surface 3.26 */
-    --err-solid-hover:     #c24f49;
+    --err-solid:           #c05049;   /* beyaz 4.68; panel 3.12 */
+    --err-solid-hover:     #c45051;   /* beyaz 4.55, panel 3.21 */
     --err-solid-text:      #ffffff;
 
     /* Neon gitti: L* 66.9-69.7, C* 38-42 (eskisi L* 76-78, C* 51-57). */
-    --ok:           #5cb98a;   /* surface 7.35 */
-    --ok-soft:      #16251f;
-    --warn:         #d0a35c;   /* surface 7.61 */
-    --warn-soft:    #29231a;
-    --err:          #e58a86;   /* surface 6.97 */
-    --err-soft:     #2d1f1f;
+    --ok:           #5cb98a;   /* panel 6.10 */
+    --ok-soft:      #1d2c27;
+    --warn:         #d0a35c;   /* panel 6.31 */
+    --warn-soft:    #302a20;
+    --err:          #e58a86;   /* panel 5.78 */
+    --err-soft:     #342626;
     --info:         #5bb6d2;   /* tanimli, kullanimi sifir */
-    --info-soft:    #17252c;
-    --muted-soft:   #2a2d32;   /* = surface-2 */
+    --info-soft:    #1e2c32;
+    --muted-soft:   #2c3135;   /* = surface-2 */
 
     --veil: rgba(0, 0, 0, .6);
 
     /* Derinlik TEK modelle: dusen golge. `inset 0 1px 0` ic parilti
-       satirlari gitti -- "her AI paneli" imzasinin kendisiydi. */
+       satirlari gitti -- "her AI paneli" imzasinin kendisiydi.
+       Koyuda panelin golgesi YOK: ayrimi yuzey basamagi (dL* 4.9)
+       zaten tasiyor ve siyahin ustunde siyah golge gorunmez. */
     --shadow-sm: none;
-    --shadow-md: 0 8px 24px -8px rgba(0, 0, 0, .6);
-    --shadow-lg: 0 16px 40px -12px rgba(0, 0, 0, .7);
+    --shadow-md: 0 4px 14px -4px rgba(0, 0, 0, .55);
+    --shadow-lg: 0 18px 44px -14px rgba(0, 0, 0, .72), 0 4px 12px -4px rgba(0, 0, 0, .45);
   }
 }
 
@@ -232,59 +256,65 @@
   color-scheme: dark;
 
   /* Ayni merdiven, koyuda. Duzlem farki WCAG oraniyla olculmez
-     (formul siyaha yakin sikisir); olcut CIE L* farki >= 4.5.
-     Tezgah -> kagit dL* 4.8; kagit -> yukselen dL* 4.4 + golge.
-     "Siyah ray + lacivert kagit" gitti: gri merdiven, C* <= 2.4. */
-  --chrome:         #0c0e11;   /* L* 3.9 */
-  --chrome-hover:   #1e2125;   /* L* 12.6 */
-  --bg:             #17191c;   /* KAGIT; L* 8.7, C* 2.4 */
-  --bg-grid:        #17191c;
-  --surface:        #17191c;
-  --surface-raised: #1f2226;   /* L* 13.1 */
-  --surface-2:      #2a2d32;   /* kuyu; L* 18.4 */
-  --surface-3:      #383c41;   /* L* 25.1 */
+     (formul siyaha yakin sikisir); olcut CIE L* farki.
+     Tezgah 6.5 -> zemin 11.5 -> panel 16.4 -> kuyu 20.0 ->
+     yukselen 22.9 -> hover 29.1; her basamak >= 3.6.
+     Eskiden panel ile zemin ayni hex'ti (#17191c): duzlugun koyu
+     temadaki hali buydu. */
+  --chrome:         #061527;   /* MARKA, koyuda; L* 6.5, C* 14.2 */
+  --chrome-hover:   #162131;   /* L* 12.5 */
+  --chrome-text:    #d4dde9;   /* chrome 13.39, hover 11.82 */
+  --chrome-text-2:  #93a1b5;   /* chrome 7.00, hover 6.18 */
+  --bg:             #1b1f23;   /* ZEMIN; L* 11.5 */
+  --bg-grid:        #1b1f23;
+  --surface:        #26292d;   /* PANEL; L* 16.4 */
+  --surface-raised: #33373c;   /* L* 22.9 */
+  --surface-2:      #2c3135;   /* kuyu; L* 20.0 */
+  --surface-3:      #41454a;   /* L* 29.1 */
 
-  --border:               #33363b;   /* kagida 1.45:1 */
-  --border-strong:        #4b4f55;   /* 2.14:1 */
-  --control-border:       #7d8189;   /* surface 4.51, surface-2 3.54 */
-  --control-border-hover: #90949b;   /* surface-3 3.65 */
+  --border:               #383c42;   /* panele 1.24:1 */
+  --border-strong:        #4e5055;   /* 1.60:1 */
+  --control-border:       #969ba3;   /* panel 5.23, kuyu 4.70 */
+  --control-border-hover: #adb2ba;   /* surface-3'e 4.53 */
 
-  --text:     #e8eaed;   /* 14.61 */
-  --text-2:   #b0b4ba;   /* surface 8.46, surface-2 6.63 */
-  --text-3:   #969aa1;   /* surface 6.23, surface-2 4.89, chrome 6.84 */
+  --text:     #e8eaed;   /* panel 12.12 */
+  --text-2:   #c2c6cc;   /* panel 8.52, kuyu 7.66, yukselen 6.99 */
+  --text-3:   #a4a9b0;   /* panel 6.18, kuyu 5.56, yukselen 5.07 */
 
   /* Vurgu koyuda bes kromatik rengin en solgunuydu (L* 65.8 < 69-78)
      ve marka durum renklerine yeniliyordu; L* 71.3'e cikti, durumlar
      66.9-69.7'ye indi -- artik ayni agirlikta. */
   --accent:              #7fb3ea;   /* hue 211; surface 8.00 */
   --accent-hover:        #9cc5f0;
-  --accent-soft:         #1c2836;
+  --accent-soft:         #22313f;
   --accent-text:         #0b1420;   /* 8.40 */
-  --accent-solid:        #2f6fb5;   /* beyazla 5.17; surface 3.41 */
-  --accent-solid-hover:  #3273b9;   /* koyuda acilir; beyazla 4.90 */
+  --accent-solid:        #2e78b7;   /* beyaz 4.68; panel 3.12 (1.4.11) */
+  --accent-solid-hover:  #267bb9;   /* koyuda ACILIR; beyaz 4.55, panel 3.21 */
   --accent-solid-text:   #ffffff;
-  --err-solid:           #b5453f;   /* beyazla 5.40; surface 3.26 */
-  --err-solid-hover:     #c24f49;
+  --err-solid:           #c05049;   /* beyaz 4.68; panel 3.12 */
+  --err-solid-hover:     #c45051;   /* beyaz 4.55, panel 3.21 */
   --err-solid-text:      #ffffff;
 
   /* Neon gitti: L* 66.9-69.7, C* 38-42 (eskisi L* 76-78, C* 51-57). */
-  --ok:           #5cb98a;   /* surface 7.35 */
-  --ok-soft:      #16251f;
-  --warn:         #d0a35c;   /* surface 7.61 */
-  --warn-soft:    #29231a;
-  --err:          #e58a86;   /* surface 6.97 */
-  --err-soft:     #2d1f1f;
+  --ok:           #5cb98a;   /* panel 6.10 */
+  --ok-soft:      #1d2c27;
+  --warn:         #d0a35c;   /* panel 6.31 */
+  --warn-soft:    #302a20;
+  --err:          #e58a86;   /* panel 5.78 */
+  --err-soft:     #342626;
   --info:         #5bb6d2;   /* tanimli, kullanimi sifir */
-  --info-soft:    #17252c;
-  --muted-soft:   #2a2d32;   /* = surface-2 */
+  --info-soft:    #1e2c32;
+  --muted-soft:   #2c3135;   /* = surface-2 */
 
   --veil: rgba(0, 0, 0, .6);
 
   /* Derinlik TEK modelle: dusen golge. `inset 0 1px 0` ic parilti
-     satirlari gitti -- "her AI paneli" imzasinin kendisiydi. */
+     satirlari gitti -- "her AI paneli" imzasinin kendisiydi.
+     Koyuda panelin golgesi YOK: ayrimi yuzey basamagi (dL* 4.9)
+     zaten tasiyor ve siyahin ustunde siyah golge gorunmez. */
   --shadow-sm: none;
-  --shadow-md: 0 8px 24px -8px rgba(0, 0, 0, .6);
-  --shadow-lg: 0 16px 40px -12px rgba(0, 0, 0, .7);
+  --shadow-md: 0 4px 14px -4px rgba(0, 0, 0, .55);
+  --shadow-lg: 0 18px 44px -14px rgba(0, 0, 0, .72), 0 4px 12px -4px rgba(0, 0, 0, .45);
 }
 
 /* ── Sifirlama ───────────────────────────────────────────────────────── */
@@ -338,6 +368,8 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
 }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
+/* Tezgah lacivert: acik gri bir cubuk orada bir yabanci. */
+.rail::-webkit-scrollbar-thumb { background: var(--chrome-hover); }
 ::-webkit-scrollbar-thumb {
   background: var(--border-strong);
   border-radius: var(--r-full);
@@ -362,10 +394,11 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   align-items: center;
   gap: 16px;
   padding: 0 var(--inset) 0 20px;
-  /* TEZGAH: geri cekilir, icerikle ayni duzlemde durmaz. Kenarlik artik
-     ayrimi TASIMIYOR, yalnizca kenari netlestiriyor. */
+  /* TEZGAH: markanin duzlemi. Icerikle arasindaki fark dL* 76.6 --
+     ayrimi ton tasiyor, cizgiye is kalmiyor. Kenarlik KALKTI: acik
+     gri bir cizgi lacivertin uzerinde parlak bir tel gibi duruyordu. */
   background: var(--chrome);
-  border-bottom: 1px solid var(--border);
+  color: var(--chrome-text);
   z-index: 20;
 }
 
@@ -373,25 +406,30 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
    "DeerX / proje" kirintisini ikiye boluyordu. Bosluk sag kumeden once
    acilir (`.topbar-right { margin-left: auto }`). */
 .brand { display: flex; align-items: center; gap: 8px; min-width: 0; flex: none; }
-/* Marka isareti firmanin geyik logosu. Koyu temada acik surumu kullanilir;
-   ikisi de kare tuvale oturtulmus, ayni optik agirlikta. */
+/* Marka isareti firmanin geyik logosu; iki surum de kare tuvale
+   oturtulmus, ayni optik agirlikta.
+
+   Surumu TEMA degil ZEMIN secer. Giris karti kagit uzerindedir ve
+   temayi izler; ust bar iki temada da LACIVERT oldugu icin oradaki
+   isaret her zaman acik surumdur -- koyu geyik kendi zemininde
+   kayboluyordu. */
 .brand-mark {
   width: 28px; height: 28px;
   object-fit: contain;
   content: url("/static/logo.png");
 }
-.brand-name { font-weight: 600; letter-spacing: 0; font-size: var(--fs-body); }
-
+.topbar .brand-mark { content: url("/static/logo-dark.png"); }
+/* Giris karti kagit uzerinde: orada surum temayi izler. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .brand-mark { content: url("/static/logo-dark.png"); }
+  :root:not([data-theme="light"]) .gate .brand-mark { content: url("/static/logo-dark.png"); }
 }
-:root[data-theme="dark"] .brand-mark { content: url("/static/logo-dark.png"); }
-:root[data-theme="light"] .brand-mark { content: url("/static/logo.png"); }
+:root[data-theme="dark"] .gate .brand-mark { content: url("/static/logo-dark.png"); }
+.brand-name { font-weight: 600; letter-spacing: 0; font-size: var(--fs-body); }
 
 .topbar-right { display: flex; align-items: center; gap: 12px; margin-left: auto; }
 
 .stat-inline { display: flex; align-items: baseline; gap: 8px; }
-.stat-inline-label { font-size: var(--fs-meta); font-weight: 400; color: var(--text-3); }
+.stat-inline-label { font-size: var(--fs-meta); font-weight: 400; color: var(--chrome-text-2); }
 .stat-inline-value { font-size: var(--fs-body); font-weight: 400; font-variant-numeric: tabular-nums; }
 
 /* Nabiz: ton yalnizca NOKTADA, zemin sabit. */
@@ -401,13 +439,13 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   padding: 0 12px 0 8px;
   border-radius: var(--r-full);
   background: var(--chrome-hover);
-  color: var(--text-2);
+  color: var(--chrome-text);
   font-size: var(--fs-meta);
   font-weight: 400;
   line-height: var(--lh-snug);
   white-space: nowrap;
 }
-.run-dot { width: 7px; height: 7px; border-radius: var(--r-full); background: var(--text-3); }
+.run-dot { width: 7px; height: 7px; border-radius: var(--r-full); background: var(--chrome-text-2); }
 .run-pill[data-state="running"] .run-dot   { background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
 .run-pill[data-state="done"] .run-dot      { background: var(--ok); }
 .run-pill[data-state="failed"] .run-dot    { background: var(--err); }
@@ -431,13 +469,13 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   min-height: 24px;
   padding: 0 8px;
   border-radius: calc(var(--r-sm) - 2px);
-  color: var(--text-3);
+  color: var(--chrome-text-2);
   font-size: var(--fs-meta);
   font-weight: 400;
   line-height: var(--lh-snug);
   transition: background var(--t-fast), color var(--t-fast);
 }
-.lang-opt:hover { color: var(--text); }
+.lang-opt:hover { color: var(--chrome-text); }
 .lang-opt[aria-pressed="true"] {
   background: var(--surface);
   color: var(--text);
@@ -452,7 +490,12 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   color: var(--text-2);
   transition: background var(--t-fast), color var(--t-fast);
 }
-.icon-btn:hover { background: var(--chrome-hover); color: var(--text); }
+.icon-btn:hover { background: var(--surface-2); color: var(--text); }
+/* `.icon-btn` hem tezgahta hem sohbet cekmecesinde yasiyor. Bu yuzden
+   murekkep sinifa degil, tezgahin ICINE baglanir: cekmecedeki ayni
+   dugme kagit murekkebinde kalsin. */
+.topbar .icon-btn { color: var(--chrome-text-2); }
+.topbar .icon-btn:hover { background: var(--chrome-hover); color: var(--chrome-text); }
 .icon-moon { display: none; }
 :root[data-theme="dark"] .icon-sun { display: none; }
 :root[data-theme="dark"] .icon-moon { display: block; }
@@ -469,7 +512,7 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   gap: 4px;
   padding: 12px 8px;
   background: var(--chrome);
-  border-right: 1px solid var(--border);
+  color: var(--chrome-text);
   overflow-y: auto;
 }
 
@@ -479,14 +522,14 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   min-height: 32px;
   padding: 0 12px;
   border-radius: var(--r-sm);
-  color: var(--text-2);
+  color: var(--chrome-text-2);
   font-size: var(--fs-body);
   font-weight: 400;
   line-height: var(--lh-snug);
   text-align: left;
   transition: background var(--t-fast), color var(--t-fast);
 }
-.rail-item:hover { background: var(--chrome-hover); color: var(--text); }
+.rail-item:hover { background: var(--chrome-hover); color: var(--chrome-text); }
 /* Etkin bolum, uygulamadaki en onemli durum isareti. `--accent-soft` zemin
    ray zemininden yalnizca 1.14:1 farkediyor: hap sekli goze carpmiyor, geriye
    sadece yazi rengi kaliyordu. Ic golge yerinden oynatmadan bir serit cizer
@@ -504,8 +547,10 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
 /* Ikonlar artik yazitipi glifi degil, tek gramerde inline SVG: 24
    viewBox, 1.8 kalinlik, yuvarlak uc, dolgusuz. Glif olduklari surece
    sekilleri makinede yuklu yazitipine gore degisiyordu. */
-.rail-icon { width: 16px; height: 16px; flex: none; color: var(--text-3); }
-.rail-item:hover .rail-icon, .rail-item.is-active .rail-icon { color: var(--text); }
+.rail-icon { width: 16px; height: 16px; flex: none; color: var(--chrome-text-2); }
+.rail-item:hover .rail-icon { color: var(--chrome-text); }
+/* Etkin maddenin zemini KAGIT: ikonu da kagit murekkebini kullanir. */
+.rail-item.is-active .rail-icon { color: var(--accent); }
 .rail-text { flex: 1; }
 
 .rail-badge {
@@ -513,7 +558,7 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   padding: 1px 6px;
   border-radius: var(--r-full);
   background: var(--chrome-hover);
-  color: var(--text-2);
+  color: var(--chrome-text);
   font-size: var(--fs-micro);
   font-variant-numeric: tabular-nums;
   text-align: center;
@@ -527,27 +572,29 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   animation: pulse 1.4s ease-in-out infinite;
 }
 
-.rail-foot { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); }
+/* Tezgahtaki ayiricilar tezgahin kendi basamagini kullanir; `--border`
+   icerik duzleminin cizgisidir ve lacivertin ustunde parlar. */
+.rail-foot { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--chrome-hover); }
 /* Dip bir ayar formu DEGIL, gezinti dipnotu: 42px form kontrolu 28px
    sessiz seciciye iner, kenarligi yalnizca hover'da belirir. */
 .rail-setting { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px 4px; }
-.rail-setting label { font-size: var(--fs-meta); font-weight: 400; color: var(--text-3); }
+.rail-setting label { font-size: var(--fs-meta); font-weight: 400; color: var(--chrome-text-2); }
 .rail-setting select {
   min-height: var(--ctl-h-sm);
   padding: 0 8px;
   font-size: var(--fs-meta);
   border-color: transparent;
   background: transparent;
-  color: var(--text-2);
+  color: var(--chrome-text);
 }
-.rail-setting select:hover { border-color: var(--control-border); color: var(--text); }
+.rail-setting select:hover { border-color: var(--chrome-text-2); color: var(--chrome-text); }
 /* Model adi KIRPILIR, ortadan bolunmez: `overflow-wrap: anywhere` bir
    kimligi rastgele yerden kesiyordu. Tam hali ipucunda. */
 .rail-models {
   padding: 4px 12px 8px;
   font-size: var(--fs-meta);
   line-height: var(--lh-snug);
-  color: var(--text-3);
+  color: var(--chrome-text-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -561,14 +608,14 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
 .rail-workspace {
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--chrome-hover);
 }
 .rail-ws-label {
   display: block;
   padding: 0 12px;
   font-size: var(--fs-meta);
   font-weight: 400;
-  color: var(--text-2);
+  color: var(--chrome-text-2);
 }
 .rail-ws {
   display: block;
@@ -583,7 +630,7 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   display: block;
   font-size: var(--fs-meta);
   font-weight: 400;
-  color: var(--text);
+  color: var(--chrome-text);
   /* Uzun bir klasor adi rayi genisletmesin: tasan kismi kirp. */
   overflow: hidden;
   text-overflow: ellipsis;
@@ -656,11 +703,10 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   grid-template-columns: repeat(var(--phases, 13), minmax(0, 1fr));
   row-gap: 8px;
   list-style: none;
-  padding: 0 0 20px;
-  margin-bottom: var(--stack-lg);
-  /* Kutu degil. Ayirimi altindaki cetvel yapiyor -- kenarlik yalnizca
-     bittigi yeri soyluyor, cerceve cizmiyor. */
-  border-bottom: 1px solid var(--border);
+  /* Serit artik `.panel-pipeline`in ICINDE: cerceveyi panel ciziyor,
+     serit yalnizca kendi bittigi yeri soyluyor. */
+  padding: 4px var(--stack) 16px;
+  margin: 0;
 }
 
 /* Asama basliklari: on uc esit nokta yerine dort okunur obek. */
@@ -747,8 +793,16 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
 /* ── Is akisi icindeki gorevler ───────────────────────────────────────── */
 /* Gorev plani kendi ekraniydi; buraya tasindi. Bir bolum olarak durur:
    kendi kutusu yok, ayrimi ustundeki cetvel ve bolum arasi ritim yapar. */
-.wf-tasks { margin-top: var(--stack-lg); }
-.wf-tasks .plan-bar { margin-top: 16px; }
+/* Gorev plani ve Kayitlar artik PANEL: bolum baslasin diye birakilan
+   32px'lik bosluk, kartlarin kendi araligina (16px) indi -- yuzeyler
+   ayrimi zaten yapiyor. */
+.wf-tasks { margin-top: var(--stack); }
+.wf-tasks .panel-body { padding-top: 0; }
+.wf-tasks .plan-toolbar { padding: 12px var(--stack) 0; }
+/* Kayitlar bolumu gorevlerle ayni ritmi tutar: ikisi de ayni ekranin
+   alt bolumleri ve farkli bosluklar onlari iki ayri sayfa gibi
+   gosterirdi. */
+.wf-records { margin-top: var(--stack); }
 
 /* ── Istatistik kartlari ─────────────────────────────────────────────── */
 /* Sekiz kart. `auto-fit` genislige gore altiya bolup ikisini alt satira
@@ -761,10 +815,11 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0 32px;
-  padding: 12px 0;
-  margin-bottom: var(--stack-lg);
-  border-top: 1px solid var(--border-strong);
-  border-bottom: 1px solid var(--border);
+  padding: 16px var(--stack);
+  margin: 0;
+  /* Ust cetvel panelin ic bolmesini ayirir; alt cetvel GITTI -- panelin
+     kendi kenari zaten orada bitiyor. */
+  border-top: 1px solid var(--border);
 }
 /* Kutu degil: sayfanin uzerinde duran bir sayi. Gruplamayi bosluk ve
    ortak taban cizgisi yapiyor. Tiklanabilir -- sayi bir karar
@@ -788,6 +843,10 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
 /* Etiket okunan bir kelime: buyuk harf siluetini yok ediyordu ve
    sekiz kardesin hepsine uygulandiginda ayristirdigi bir sey kalmiyordu. */
 .stat-label { font-size: var(--fs-body); color: var(--text-2); }
+/* Sayac 24px'te KALIR. 30px denendi ve iki kural birden dustu: sayfa
+   basligi (30) artik sayaci gecemiyordu ve seni durduran sorunun
+   basligi (24) bir sayacin altina dusuyordu. Bir sayac, sayfanin kendi
+   cumlesinden ve seni durduran seyden buyuk olamaz. */
 .stat-value {
   font-size: var(--fs-section); font-weight: 600;
   letter-spacing: var(--track-tight);
@@ -810,15 +869,73 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
 /* Geri kalanlar geri cekilir: sekiz kart esit agirlikta oldugunda
    gozun tutunacagi yer kalmiyordu. */
 
+/* Panelin icindeki ARAC CUBUGU: basligin kardesi. Suzgecler ve arama
+   bir listeyi yonetir, o yuzden listeyle ayni yuzeyde ve onun USTUNDE
+   durur -- zeminde duran serbest bir denetim satiri, hangi listeyi
+   yonettigini soylemiyordu. */
+.panel-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px var(--stack);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+.panel-tools:first-child { border-radius: calc(var(--r-md) - 1px) calc(var(--r-md) - 1px) 0 0; }
+.panel-head + .panel-tools { border-radius: 0; }
+/* Iki bant ust uste gelirse aradaki cizgi kalkar: tek bir arac cubugunun
+   iki satiri olarak okunur, iki ayri katman olarak degil. */
+.panel-tools + .panel-tools { border-top: 0; padding-top: 0; }
+
+/* Panelin dogrudan cocugu olan serbest ogeler kartin dolgusunu paylasir:
+   arac cubuklari kenardan kenara, geri kalani iceriden. */
+.panel > .plan-note,
+.panel > .pager { padding-left: var(--stack); padding-right: var(--stack); }
+.panel > .pager { padding-top: 8px; padding-bottom: 12px; margin: 0; }
+.panel > .plan-note { padding-top: 12px; }
+
+/* Akis karti: iki arac cubugu + akis + sayfalayici. Kendi dolgusu yok;
+   bolmeler kendi dolgularini tasiyor. */
+.panel-stream { padding: 0; }
+.panel-stream .pager { margin: 0; padding: 8px var(--stack); border-top: 1px solid var(--border); }
+
+/* Boru hattı kartı: kapsam satırı + faz şeridi + sayaçlar. Üç ayrı
+   bölme ama TEK yüzey -- üçü de "koşu nerede" sorusunun parçaları.
+   `.panel-body` yok: bölmeler kendi dolgularını taşıyor. */
+.panel-pipeline { padding: 0; }
+/* Kapsam satiri kartin baslik bandi: hangi is akisinin serididir bu.
+   `.panel-head` degil cunku basligi bir `<h2>` degil, tek satirlik bir
+   kunye -- ama bandi ayni olmali, yoksa kartin tepesi yarim kalir. */
+.panel-pipeline .phase-rail-scope {
+  margin: 0;
+  padding: 12px var(--stack);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  border-radius: calc(var(--r-md) - 1px) calc(var(--r-md) - 1px) 0 0;
+}
+.panel-pipeline .phase-rail { padding-top: 16px; }
+
 /* ── Paneller ────────────────────────────────────────────────────────── */
-/* Panel artik zeminden YUKSELEN bir kart degil, kagidin uzerinde bir
-   BOLUM. Yukselme (golge + acik zemin) yalnizca gercekten ustte durana
-   kaldi: kip, cekmece, toast. */
+/* Panel bir YUZEY: zeminin uzerinde durur, kendi kenari ve kendi
+   golgesi vardir.
+
+   Bir onceki yon bunun tersiydi -- "panel zeminden yukselmez, kagidin
+   uzerinde bir bolumdur" -- ve `background: none; border: 0` ile
+   yaziliydi. Olculdu: `--surface` ile `--bg` ayni hex oldugu icin
+   panelin hicbir sekli yoktu; bir bolumu otekinden ayiran tek sey
+   basligin altindaki cizgiydi ve on bir panelli bir ekran tek bir
+   kagit yuzeyine donuyordu. Sahibi "cok duz duruyor" dedi.
+
+   Yukselme UC kanalla degil IKI kanalla anlatilir: yuzey basamagi
+   (dL* 5.0) ve sac teli kenar. Golge acikta cok hafif (--shadow-sm),
+   koyuda YOK -- orada basamak zaten yeterli. */
 .panel {
-  background: none;
-  border: 0;
-  border-radius: 0;
-  margin-bottom: var(--stack-lg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: var(--stack);
 }
 /* Bolum basligi: altindakine SAHIP oldugu icin ona yapisik durur ve
    ayrimi cetvel yapar. */
@@ -832,8 +949,19 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
   gap: 4px 12px;
-  padding: 0 0 8px;
-  border-bottom: 1px solid var(--border-strong);
+  /* Baslik artik panelin ICINDE: kendi dolgusunu tasir ve panelin ust
+     kosesine oturur. Ayirici `--border-strong` degil `--border`:
+     panelin kendi kenari zaten cetveli cizdi, ikinci bir kalin cizgi
+     ayni isi ikinci kez yapardi. */
+  padding: 12px var(--stack);
+  /* Baslik KENDI bandinda: kuyu tonu + sac teli cizgi. Beyaz uzerine
+     beyaz baslikta ayrimi tek basina cizgi tasiyordu ve `--border`
+     (1.31:1) o isi tek basina yapamiyor. Ikinci kanal renk degil TON:
+     merdivenin bir basamagi. */
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  /* Kartin ust kosesi: 1px kenarlik iceriden dusulur. */
+  border-radius: calc(var(--r-md) - 1px) calc(var(--r-md) - 1px) 0 0;
 }
 .panel-head h2 { grid-column: 1; min-width: 0; }
 .panel-head .panel-hint { grid-column: 1 / -1; grid-row: 2; }
@@ -850,7 +978,7 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   font-size: var(--fs-meta);
   color: var(--text-3);
 }
-.panel-body { padding: 16px 0 0; }
+.panel-body { padding: var(--stack); }
 
 .panel-row {
   display: grid;
@@ -859,6 +987,11 @@ code, pre, kbd { font-family: var(--mono); font-size: .875em; }
   align-items: start;
 }
 .panel-row .panel { margin-bottom: 0; }
+/* TEK cocuklu bir satir iki sutuna bolunmez. Ayarlar'da "Modeller"
+   karti 880 piksellik sutunun yarisinda duruyor, sagindaki yariyi bos
+   birakiyordu: iki sutunlu bir izgaraya tek kart konunca izgara
+   bosluga bicim veriyor. */
+.panel-row:has(> :only-child) { grid-template-columns: minmax(0, 1fr); }
 
 /* ── Form ogeleri ────────────────────────────────────────────────────── */
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
@@ -996,6 +1129,24 @@ select { cursor: pointer; }
 .btn-ghost { border-color: transparent; background: transparent; color: var(--text); }
 .btn-ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
 
+/* KUYU TONUNDAKI BIR BANTTA iliski tersine doner. Ikincil dugmenin
+   dolgusu `--surface-2`, panel basligi ve arac cubugunun dolgusu da
+   `--surface-2`: dugme bandin uzerinde yok olur, hover'i da (`--surface-3`)
+   artik bir basamak degil iki basamak atlar. Bantta dugme PANELIN tonunu
+   alir ve bandin USTUNDE durur; hover yine bir basamak koyulasir.
+   Hayalet dugme bundan muaf: zemini zaten yok. */
+.panel-head > .btn:not(.btn-primary):not(.btn-danger):not(.btn-ghost),
+.panel-tools .btn:not(.btn-primary):not(.btn-danger):not(.btn-ghost) {
+  background: var(--surface);
+}
+.panel-head > .btn:not(.btn-primary):not(.btn-danger):not(.btn-ghost):hover:not(:disabled),
+.panel-tools .btn:not(.btn-primary):not(.btn-danger):not(.btn-ghost):hover:not(:disabled) {
+  background: var(--surface-2);
+}
+/* Hayalet dugmenin hover'i da bandin uzerinde gorunmez kalirdi. */
+.panel-head > .btn-ghost:hover:not(:disabled),
+.panel-tools .btn-ghost:hover:not(:disabled) { background: var(--surface); }
+
 .run-actions { display: flex; gap: 8px; margin-top: var(--stack); }
 .note { margin-top: 12px; font-size: var(--fs-meta); color: var(--text-3); min-height: 18px; line-height: var(--lh-text); }
 /* Tonlu not: nokta + tonal zemin. Kirmizi METIN yalnizca hata cumlesi. */
@@ -1032,6 +1183,8 @@ select { cursor: pointer; }
 
 /* Kosu paneli ile olay akisi ayni yukseklikte hizalanir */
 .panel-run .panel-body { display: flex; flex-direction: column; }
+/* Akis kendi satirlarini bir liste gibi cizer: yatay dolgu satirin
+   kendisinde, panelde degil -- hover serisi kenardan kenara uzasin. */
 .panel-feed .panel-body { padding: 8px 0; }
 
 /* ── Cipler ──────────────────────────────────────────────────────────── */
@@ -1092,6 +1245,9 @@ select { cursor: pointer; }
 
 /* ── Sekmeler ────────────────────────────────────────────────────────── */
 .tabs { display: flex; gap: 4px; margin-bottom: var(--stack); border-bottom: 1px solid var(--border-strong); }
+/* Sekme cubugu bir arac cubugu bandina yerlestiyse kendi cetvelini ve
+   alt boslugunu birakir: bandin cizgisi zaten oradaydi. */
+.panel-tools.tabs { margin-bottom: 0; border-bottom: 1px solid var(--border); padding-top: 0; padding-bottom: 0; gap: 4px; }
 .tab {
   display: inline-flex; align-items: center; gap: 8px;
   min-height: var(--ctl-h);
@@ -1122,22 +1278,28 @@ select { cursor: pointer; }
 }
 
 /* ── Tablolar ────────────────────────────────────────────────────────── */
-/* Baslik KAGIT ustunde, ayrimi koyu cetvel yapar -- dolgu + cetvel iki
-   yontemdi. Iki tonlu cizgi: bolum cetveli --border-strong, satir
-   ayirici --border. Test `thead th` seciciyi onceki `}`den itibaren
-   okur; yorum bu yuzden buraya, tablonun basina yazildi. */
+/* Baslik KUYUDA durur (--surface-2): panel beyaza ciktigi icin "kagit
+   ustunde kagit" artik baslik satirini gorunmez kiliyordu. Ayrim yine
+   IKI degil TEK guclu kanal: dolgu. Altindaki cizgi --border-strong
+   degil --border -- kalin cetvel dolgunun isini ikinci kez yapardi.
+   Test `thead th` seciciyi onceki `}`den itibaren okur; yorum bu
+   yuzden buraya, tablonun basina yazildi. */
 .table-wrap {
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   background: var(--surface);
   overflow-x: auto;
 }
+/* Tablo bir panelin ICINDE ise kendi cercevesini cizmez: panelin kenari
+   zaten oradaydi ve ic ice iki kutu, kutuyu bir sey ANLATMAKTAN
+   cikarip dekora cevirir. */
+.panel-body > .table-wrap { border: 0; border-radius: 0; }
 table { width: 100%; border-collapse: collapse; font-size: var(--fs-body); }
 thead th {
   position: sticky; top: 0;
   padding: 8px 12px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
   font-size: var(--fs-micro);
   font-weight: 600;
   text-transform: uppercase;
@@ -1552,11 +1714,13 @@ td.num { font-family: var(--mono); font-size: var(--fs-meta); text-align: right;
 .feed-compact { max-height: 300px; }
 .feed-full {
   /* Sayfalayici alta eklendi; akis onu ezmesin diye biraz kisaldi. */
-  height: calc(100vh - 300px);
+  height: calc(100vh - 320px);
   min-height: 300px;
   padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
+  /* Cerceve GITTI: akis artik kendi panelinin icinde ve ic ice iki
+     kutu, kutuyu anlatmaktan cikarip dekora cevirir. */
+  border: 0;
+  border-radius: 0;
   background: var(--surface);
   /* Golge yok: kagit ustunde sabit bir bolum, yukselen bir sey degil. */
 }
@@ -1582,7 +1746,7 @@ td.num { font-family: var(--mono); font-size: var(--fs-meta); text-align: right;
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: var(--stack) 0 8px;
+  margin: 0 0 12px;
 }
 .analysis-search { min-width: 200px; flex: 1 1 240px; max-width: 420px; }
 .analysis-count { font-size: var(--fs-meta); color: var(--text-3); }
@@ -1597,7 +1761,7 @@ td.num { font-family: var(--mono); font-size: var(--fs-meta); text-align: right;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 8px;
+  margin: 0;
 }
 .stream-scope { display: flex; align-items: center; gap: 8px; }
 .stream-scope > span { font-size: var(--fs-meta); color: var(--text-2); }
@@ -1744,7 +1908,15 @@ body[data-blocked] .view.is-active { display: none; }
   box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
-.modal-head { padding: 16px 20px 16px; border-bottom: 1px solid var(--border); }
+/* Kip ve cekmecenin basligi panelinkiyle AYNI dili konusur: kuyu tonu
+   + sac teli cizgi. Uc ayri baslik bicimi (panel bandi, kip duz, cekmece
+   duz) ayni soruyu uc ayri sekilde cevapliyordu. */
+.modal-head {
+  padding: 16px 20px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  border-radius: calc(var(--r-md) - 1px) calc(var(--r-md) - 1px) 0 0;
+}
 .modal-badge { margin-bottom: 8px; }
 .modal-head h2 { font-size: var(--fs-title); font-weight: 600; line-height: var(--lh-snug); overflow-wrap: anywhere; }
 /* Muhendisin ONAYLADIGI icerik: 12px ikincil gri idi -- arayuzun en
@@ -1833,7 +2005,12 @@ body[data-blocked] .view.is-active { display: none; }
 /* ── Duyarli ─────────────────────────────────────────────────────────── */
 @media (max-width: 1080px) {
   .panel-row { grid-template-columns: 1fr; }
-  .grid-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 20px; }
+  /* Uc sayac iki sutuna sigmaz: ucuncusu alt satira duser ve kardes
+     seciciyle gelen sol cetvel onu SATIR BASINDA cizgiliyor, 24 piksel
+     de iceri itiyordu -- kazara bir girinti. Iki sutunda satir basi tek
+     numarali karttir. */
+  .stat:nth-child(odd) { border-left: 0; padding-left: 0; }
   /* Satirlar zaten dikey; dar ekranda yalnizca olcu satiri alta iner. */
   .artifact-item { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .artifact-meta { white-space: normal; }
@@ -1901,6 +2078,8 @@ body[data-blocked] .view.is-active { display: none; }
   }
   .phase-stage { display: none; }
   .phase { flex: 1 0 auto; min-width: 72px; }
+  .grid-stats { grid-template-columns: minmax(0, 1fr); row-gap: 16px; }
+  .stat + .stat { border-left: 0; padding-left: 0; }
   .field-row { grid-template-columns: 1fr; }
   .ev { grid-template-columns: 56px 16px minmax(0, 1fr); }
   .ev-actor, .ev-phase { display: none; }
@@ -2798,9 +2977,7 @@ body[data-blocked] .view.is-active { display: none; }
    ajanin yazacagi yeni gorevler oraya duser. */
 .plan-bar {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 0 0 12px;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--border);
+  margin: 0;
 }
 .plan-tabs { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; min-width: 0; }
 .plan-bar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -3165,6 +3342,7 @@ body[data-blocked] .view.is-active { display: none; }
   display: flex; align-items: flex-start; justify-content: space-between;
   gap: 12px;
   padding: 16px 20px;
+  background: var(--surface-2);
   border-bottom: 1px solid var(--border);
 }
 
@@ -3199,7 +3377,7 @@ body[data-blocked] .view.is-active { display: none; }
 /* ─── Adım rayı: bekleyen iş sayacı ───────────────────────────────────── */
 
 /* "Neredeyim" satiri ekranin ilk cumlesi: 12px gri degil 15px murekkep. */
-.rail-scope {
+.phase-rail-scope {
   margin: 0 0 8px;
   font-size: var(--fs-body);
   color: var(--text);
@@ -3490,7 +3668,7 @@ tr[data-inactive="1"] .doc-row-source { opacity: var(--dim); }
 
 /* Marka ile proje arasındaki ayraç: adres çubuğundaki gibi bir kırılma
    noktası, iki adın tek bir ad gibi okunmasını engeller. */
-.project-switch-sep { color: var(--text-3); font-size: var(--fs-body); }
+.project-switch-sep { color: var(--chrome-text-2); font-size: var(--fs-body); }
 
 .project-switch select {
   width: auto;
@@ -3502,27 +3680,17 @@ tr[data-inactive="1"] .doc-row-source { opacity: var(--dim); }
   font-size: var(--fs-body);
   font-weight: 400;
 }
-.project-switch select:hover { border-color: var(--control-border); background: var(--chrome-hover); }
+.project-switch select { color: var(--chrome-text); }
+.project-switch select option { color: var(--text); background: var(--surface); }
+.project-switch select:hover { border-color: var(--chrome-text-2); background: var(--chrome-hover); }
 
 /* ─── Kapsam görünürlüğü ───────────────────────────────────────────────── */
-/* Üç kelime üç yerde aynı: rayda öbek etiketi, içerikte şerit, Ayarlar'da
-   sekme. Aynı soruyu üç farklı kelimeyle cevaplamak, cevabı öğrenilecek
-   bir şey hâline getirirdi. */
-
-.rail-scope-label {
-  margin: 12px 0 4px;
-  padding: 0 12px;
-  font-size: var(--fs-meta); font-weight: 400; color: var(--text-3);
-}
-.rail-scope-label:first-child { margin-top: 0; }
+/* İki kelime iki yerde aynı: içerikte şerit, Ayarlar'da sekme. Aynı
+   soruyu farklı kelimeyle cevaplamak, cevabı öğrenilecek bir şey
+   hâline getirirdi. */
 
 .content-scope {
   margin-bottom: 12px;
   font-size: var(--fs-meta); color: var(--text-2);
 }
 
-/* Dar ekranda ray yatay bir şerit olur ve orada öbek başlığı anlamsızdır;
-   soru `#content-scope` tarafından zaten cevaplanıyor. */
-@media (max-width: 820px) {
-  .rail-scope-label { display: none; }
-}

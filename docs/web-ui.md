@@ -227,9 +227,23 @@ Deleting a plan strips its keys from the dependency lists of tasks in other plan
 and says how many it touched. Left behind, those keys were never going to be
 `done`, so the tasks waiting on them would never be ready — silently, forever.
 
-## Analysis
+## Records
 
 ![Analysis: requirements, questions, gaps, decisions and research](images/analysis-en.png)
+
+**This used to be its own page.** It was a second door to the same project,
+and nothing you could do on it was independent of a workflow — so it now lives
+inside the **Workflows** screen, under the task plan, and appears when you open
+a single workflow. The rail item is gone; its badges moved onto the Workflows
+item, because a badge and the screen that explains its number should be reached
+from the same place.
+
+**One caveat is written on the section itself.** Requirements, gaps, decisions
+and questions are **project-wide** — their tables carry no workflow id, the same
+distinction `workflow_context` spells out for the advisor. They are shown here
+because this is where you review an effort, not because they belong to it;
+"a requirement of this workflow" is not a thing. Tasks are different: they
+belong to plans, and plans belong to the workflow.
 
 Requirements, gaps, architectural decisions and research findings. Clicking a
 row opens its evidence and recommendation. Paginated (25/50/100/250); switching
@@ -344,10 +358,16 @@ Delivery packages appear under their own runs, not duplicated at the top.
 Manual packaging creates a single-step run record — otherwise the package it
 produced would belong to no run at all.
 
-Artifacts from before run records existed are listed too, in their own group
-under *Produced before run tracking*. They used to be hidden behind a button;
-the badge said 11 while the screen showed 1, and a number that reads differently
-in two places is wrong even when there is a control to reconcile it.
+**Two conditions to appear.** An artifact is shown when its bytes can be
+reached *and* the run it belongs to has a workflow number. A row nobody can
+download is just a name — clicking it returns 404 — and a row with no number
+cannot answer "where did this come from".
+
+Hiding is never silent: the subtitle says how many rows were filtered out. That
+matters because this screen already paid for the alternative once — artifacts
+without a run used to be hidden while still being counted, so the badge said 11
+while the screen showed 1 and the owner reported it as a fault. The count and
+the list now come from the same rule, so they cannot disagree.
 
 **Everything is downloadable, from anywhere.** Each row carries a download
 link, each run header downloads that run's artifacts as one zip, and
@@ -364,9 +384,10 @@ button.
 **All my projects** switches the same screen to a cross-project tree: project →
 run → artifact, with a download on every stored row. Clicking a name switches
 to that project and opens the artifact there; the context change is shown, not
-hidden — the project name in the left rail changes with it. An artifact with no stored copy says *not in the database* and offers no link:
-the cross-project endpoint never touches another project's disk, so it cannot
-promise that opening the project would help.
+hidden — the project name in the left rail changes with it. The same two conditions apply there, with one tightening: across projects
+"reachable" means *stored in the database*. The endpoint never touches another
+project's disk, so it cannot know whether a file is sitting there — and it will
+not promise something it cannot check.
 
 The same view carries the **delivery panel**: readiness status, a package
 button, zip downloads and a **Report** button per package.
@@ -586,12 +607,21 @@ The log is capped at the last 5000 rows and shares the project database.
 
 ## Design
 
-**The neutrals are grey.** Every one of the thirteen neutral tokens used to sit
-in the same blue family as the logo (LCh hue 265–272, chroma 4–13 in light,
-6–21 in dark), so the brand navy was one more blue among blue greys. Chroma is
-now ≤ 4 with lightness kept, which means no contrast ratio moved — ratios depend
-only on luminance. The hue stays at 265: a cool grey, not a warm one, so it does
-not fight the logo.
+**Content is neutral, the chrome carries the brand.** Every one of the thirteen
+neutral tokens used to sit in the same blue family as the logo (LCh hue 265–272,
+chroma 4–13 in light, 6–21 in dark), so the brand navy was one more blue among
+blue greys. The fix was not "blue nowhere" but blue **gathered into one place**:
+the content plane's neutrals stay at C\* ≤ 5 (lightness kept, so no contrast
+ratio moved), while the chrome — left rail and top bar — becomes the logo's own
+navy, `#0d2d55`. Identity sits at the edge of the screen, not in the middle:
+data is read on neutral paper, the brand lives on the rail and the top bar.
+
+Because the chrome is a separate plane it has separate ink: `--chrome-text` and
+`--chrome-text-2`, not `--text*` (content ink reads 1.67:1 on navy). Two
+exceptions are the controls whose background really is paper — the active rail
+item and the selected language — and they keep the paper ink.
+`tests/test_design_system.py::TestTextReadsOnEverySurface` measures that no
+content ink is left on the chrome.
 
 **Colour goes to marks, not prose.** Status lives in a 6px dot, a 3px stripe or
 a tonal badge; sentences are ink. The one red sentence is an error message.
@@ -599,13 +629,32 @@ a tonal badge; sentences are ink. The one red sentence is an error message.
 blocked, offline). The feed used to colour nine kinds of message; now only the
 glyph is coloured.
 
-**Four surface steps, each with one meaning.** Chrome (rail and top bar) recedes
-from the paper by at least ΔL* 4.5; paper is the content, panels, tables and
-inputs; the well (`--surface-2`) is for table heads, secondary buttons and code;
-the raised surface is only for what actually floats — modal, drawer, toast,
-sign-in card — and elevation is told by shadow, never by a border. A box either
-carries a fill or a hairline, not both. Hairlines come in two tones: section
-rules are `--border-strong`, row separators are `--border`.
+**Five surface steps, each with one meaning.** The chrome (rail and top bar) is
+the brand's plane; the ground (`--bg`) is the page's paper; the **panel**
+(`--surface`) rises off the ground and content lives there; the well
+(`--surface-2`) is for table heads, panel header bands, toolbars, secondary
+buttons and code; the raised surface is reserved for what actually floats —
+modal, drawer, toast, sign-in card.
+
+This **reverses** the previous direction, and the reason was measured. Before,
+`--surface` and `--bg` were byte-identical (`#fafbfc` in light, `#17191c` in
+dark) and it was written down as a deliberate decision: "a panel does not rise
+off the paper, it is a section on it." The result was a **single plane** on
+screen — nothing could sit on top of anything, and every boundary on an
+eleven-panel screen came down to one hairline. The owner said it looked flat;
+the measurement agreed. The ground now steps back (L\* 93.6 in light), the panel
+goes to white (L\* 100), and the difference reads in both tone and shadow; in
+dark the ladder runs 11.5 → 16.4 → 20.0 → 22.9 → 29.1.
+
+Elevation is told by **two** channels: the surface step and a hairline. Shadow
+is not a third channel but what replaces the step in light — white is the
+ceiling, so a modal above a panel cannot find a lighter ground. In dark a panel
+has no shadow at all: the step already carries it. Hairlines come in two tones:
+section rules are `--border-strong`, row separators are `--border`.
+
+A panel's header and its toolbar sit in the card's **own band** (well tone plus
+a hairline): a filter that drives a list lives on the same surface as the list
+it drives. A control row floating on the ground never said what it filtered.
 
 **Two control heights** (36px and 28px) replaced ten. **One badge geometry** —
 tonal fill, no border, rectangle — replaced seventeen pill classes; a pill means
@@ -621,9 +670,10 @@ downloaded.
 
 None of this is by eye. The palette is locked in `tests/test_web.py::TestPalette`
 and `tests/test_theme.py`; the layer above it — line-height and control-height
-tokens, neutral chroma, chrome/paper separation, the two dark blocks staying in
-sync, mono reserved for identity, raised surfaces, no shadow on in-flow boxes,
-the chromatic-text budget, one badge geometry — is locked in
+tokens, the chroma of the content neutrals, the chrome staying on the brand hue,
+the panel staying off the ground, the two dark blocks staying in sync, mono
+reserved for identity, raised surfaces, no shadow on in-flow boxes, the
+chromatic-text budget, one badge geometry — is locked in
 `tests/test_design_system.py`.
 
 Light and dark themes, full keyboard navigation, mobile layout: below 820px the

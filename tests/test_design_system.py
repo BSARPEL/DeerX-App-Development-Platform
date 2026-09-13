@@ -138,6 +138,27 @@ def _lch_chroma(hex_color: str) -> float:
     return math.hypot(a, bb)
 
 
+def _hue(hex_color: str) -> float:
+    """CIE L*C*h -- h bileseni (derece). Bir rengin markanin hue'sunda
+    kalip kalmadigini olcer."""
+    h = hex_color.lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+
+    def lin(c):
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    r, g, b = lin(r), lin(g), lin(b)
+    x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047
+    y = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 1.0
+    z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883
+
+    def f(t):
+        return t ** (1 / 3) if t > 0.008856 else 7.787 * t + 16 / 116
+
+    fx, fy, fz = f(x), f(y), f(z)
+    return math.degrees(math.atan2(200 * (fy - fz), 500 * (fx - fy))) % 360
+
+
 def _lstar(hex_color: str) -> float:
     h = hex_color.lstrip("#")
     r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
@@ -150,15 +171,24 @@ def _lstar(hex_color: str) -> float:
 
 
 class TestNeutralsAreGrey:
-    """Notrler GRI: kroma C* <= 5.
+    """ICERIK notrleri gri: kroma C* <= 5.
 
     OLCULDU: on uc notr jetonun hepsi LCh hue 265-272'de ve kroma acikta
     C* 4-13, koyuda 6-21 idi -- ekran "mavi" ile bitiyordu ve marka
     mavisi, mavi grilerin arasinda bir mavi daha olarak kaliyordu.
     Kroma dusuruldu, L* korundu: hicbir kontrast orani degismedi.
+
+    TEZGAH BU LISTEDE DEGIL, ve olmamasi bir gevsetme degil kuralin
+    yarisi. Sorun "her yerde biraz mavi" idi; cozumu "hicbir yerde mavi"
+    degil, mavinin TEK bir yere toplanmasi. Tezgah (ray + ust bar) veri
+    tasimaz; markanin durdugu duzlem orasi ve `--chrome` artik logonun
+    kendi laciverti (#0d2d55, C* 28). Kimlik ekranin kenarinda, veri
+    notr kagitta. Tezgahin gercekten marka OLDUGUNU asagidaki
+    `TestTheChromeCarriesTheBrand` olcer -- yani buradan cikarilmasi
+    onu denetimsiz birakmiyor, BASKA bir denetime bagliyor.
     """
 
-    NEUTRALS = ("chrome", "chrome-hover", "bg", "surface", "surface-raised",
+    NEUTRALS = ("bg", "surface", "surface-raised",
                 "surface-2", "surface-3", "border", "border-strong",
                 "control-border", "control-border-hover",
                 "text", "text-2", "text-3")
@@ -171,6 +201,38 @@ class TestNeutralsAreGrey:
             if c > 5.0:
                 renkli.append(f"{ad} C*={c:.1f}")
         assert not renkli, f"{theme}: notr jeton renkli: " + ", ".join(renkli)
+
+
+class TestTheChromeCarriesTheBrand:
+    """Tezgah markanin duzlemi: notr bir griye geri DUSMEMELI.
+
+    `--chrome` logonun baskin pikselinden gelir: #0d2d55, LCh hue 280.
+    Acikta jeton logonun hex'inin kendisidir; koyuda ayni hue daha
+    dusuk L*'ta (L* 6.5) yasar ve kroma fiziken dusmek zorundadir --
+    bu yuzden esik iki temada ayri.
+
+    Bu test olmadan `TestNeutralsAreGrey`den cikarilan iki jeton
+    denetimsiz kalir ve bir sonraki el onlari sessizce griye
+    cevirebilirdi; o da tam olarak bu yeniden tasarimin geri aldigi sey.
+    """
+
+    ESIK = {"light": 20.0, "dark": 10.0}
+
+    @pytest.mark.parametrize("theme", ["light", "dark"])
+    def test_the_chrome_is_chromatic(self, themes, theme):
+        c = _lch_chroma(themes[theme]["chrome"])
+        assert c >= self.ESIK[theme], f"{theme}: tezgah grilesti, C*={c:.1f}"
+
+    @pytest.mark.parametrize("theme", ["light", "dark"])
+    def test_the_chrome_keeps_the_brand_hue(self, themes, theme):
+        """Marka hue'su 280; sapma +/- 15 derece."""
+        h = _hue(themes[theme]["chrome"])
+        fark = min(abs(h - 280.1), 360 - abs(h - 280.1))
+        assert fark <= 15.0, f"{theme}: tezgah hue {h:.0f}, markadan {fark:.0f} uzak"
+
+    def test_the_light_chrome_is_the_logo_itself(self, themes):
+        """Acikta jeton logonun olculen hex'i: turev degil, kendisi."""
+        assert themes["light"]["chrome"].lower() == "#0d2d55"
 
 
 class TestTheChromeRecedesFromThePaper:
@@ -195,16 +257,79 @@ class TestTheChromeRecedesFromThePaper:
         assert fark >= 3.0, f"{theme}: tezgah/hover dL* {fark:.1f}"
 
 
-class TestTextReadsOnEverySurface:
-    """TestPalette'in PAIRS listesine dokunmadan dort cift daha.
+class TestThePanelRisesOffTheGround:
+    """Panel zeminden AYRI bir duzlem. Duzlugun kaynagi buydu.
 
-    Ray ve ust bar (`--chrome`) ile yukselen yuzey (`--surface-raised`)
-    uzerinde de metin AA olmali; once bu ciftler hic olculmuyordu.
+    OLCULDU: `--surface` ile `--bg` iki temada da birebir ayni hex'ti
+    (acikta #fafbfc, koyuda #17191c) ve bu bilincli bir karar olarak
+    yazilmisti -- "panel kagittan yukselmez". Sonucu ekranda tek bir
+    duzlem olmasiydi: bir panelin sinirini yalnizca tek bir sac teli
+    cizgi tasiyor, panel basligi ile sayfa basligi ayni kagitta
+    yariyordu. Sahibi "cok duz duruyor" dedi; olcum onu dogruladi.
+
+    Esik dL* >= 3.5: bundan azi 1440px'te bir ekranda gozle ayirt
+    edilmiyor ve kural pratikte yeniden kaybolur.
     """
 
-    PAIRS = [("text-2", "chrome", 4.5), ("text-3", "chrome", 4.5),
+    @pytest.mark.parametrize("theme", ["light", "dark"])
+    def test_the_panel_and_the_ground_are_different_planes(self, themes, theme):
+        t = themes[theme]
+        assert t["surface"].lower() != t["bg"].lower(), f"{theme}: panel = zemin"
+        fark = abs(_lstar(t["surface"]) - _lstar(t["bg"]))
+        assert fark >= 3.5, f"{theme}: panel/zemin dL* {fark:.1f}"
+
+    @pytest.mark.parametrize("theme", ["light", "dark"])
+    def test_the_well_steps_off_the_panel(self, themes, theme):
+        """Kuyu (thead, kod, satir hover) panelden ayrilmali."""
+        t = themes[theme]
+        fark = abs(_lstar(t["surface-2"]) - _lstar(t["surface"]))
+        assert fark >= 3.0, f"{theme}: panel/kuyu dL* {fark:.1f}"
+
+    def test_the_panel_declares_its_own_surface(self):
+        """`.panel` artik zemine yapisik bir bolum degil, bir yuzey."""
+        rule = _rule(".panel")
+        assert "var(--surface)" in rule, ".panel yuzeysiz"
+        assert "var(--border)" in rule, ".panel sinirsiz"
+
+
+class TestTextReadsOnEverySurface:
+    """TestPalette'in PAIRS listesine dokunmadan alti cift daha.
+
+    Yukselen yuzey (`--surface-raised`) ve TEZGAH uzerinde de metin AA
+    olmali; once bu ciftler hic olculmuyordu.
+
+    Tezgah ciftleri artik `--chrome-text*` ile olculuyor, `--text*` ile
+    degil -- cunku tezgah lacivert bir duzlem ve icerigin murekkebi
+    orada okunmaz (olculdu: `--text-2` / `--chrome` = 1.67). Bu bir
+    esnetme degil: aradaki cift SILINMEDI, dogru jetonla kuruldu ve
+    sayisi ayni kaldi. Tezgahta `--text*` kullanan bir kural kalirsa
+    `test_the_chrome_uses_its_own_ink` duser.
+    """
+
+    PAIRS = [("chrome-text", "chrome", 4.5), ("chrome-text-2", "chrome", 4.5),
              ("text-2", "surface-raised", 4.5), ("text-3", "surface-raised", 4.5),
-             ("text", "chrome-hover", 4.5), ("text-2", "chrome-hover", 4.5)]
+             ("chrome-text", "chrome-hover", 4.5), ("chrome-text-2", "chrome-hover", 4.5)]
+
+    def test_the_chrome_uses_its_own_ink(self):
+        """Tezgahtaki hicbir kural icerik murekkebini kullanmaz.
+
+        Iki istisna, ikisi de zemini KAGIT olan denetimler: etkin ray
+        maddesi ve secili dil. Onlarin zemini `--surface`, murekkebi de
+        `--text` olmali -- kuralin kendisi degil, tersi.
+        """
+        kacak = []
+        for secici, govde in _blocks(_css()):
+            s = secici.strip()
+            if not (s.startswith(".rail") or s.startswith(".topbar")
+                    or s.startswith(".lang-") or s.startswith(".run-pill")
+                    or s.startswith(".run-dot") or s.startswith(".brand")
+                    or s.startswith(".stat-inline") or s.startswith(".project-switch")):
+                continue
+            if "is-active" in s or 'aria-pressed="true"' in s or "option" in s:
+                continue
+            if re.search(r"color:\s*var\(--text(-[23])?\)", govde):
+                kacak.append(s)
+        assert not kacak, "tezgahta icerik murekkebi: " + "; ".join(kacak)
 
     @pytest.mark.parametrize("theme", ["light", "dark"])
     def test_pairs(self, themes, theme):

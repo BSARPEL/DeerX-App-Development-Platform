@@ -310,15 +310,17 @@ async function changeLanguage(lang) {
 }
 
 // ─── Yonlendirme ──────────────────────────────────────────────────────────
-/* "plan" ARTIK YOK: gorev plani Is akisi ekraninin icinde. Eski
-   `#/p/<slug>/plan` adresleri `showView` tarafindan duzeltilerek
-   genel bakisa duser -- kirik bir adres birakmiyoruz. */
-const VIEWS = ["overview", "develop", "workflow", "knowledge", "analysis",
+/* "plan" ve "analysis" ARTIK YOK: gorev plani da kayitlar da Is akisi
+   ekraninin icinde. Ikisi de ayni projeye IKINCI bir kapi aciyordu ve
+   orada yapilabilecek hicbir sey is akisindan bagimsiz degildi. Eski
+   `#/p/<slug>/plan` ve `.../analysis` adresleri `showView` tarafindan
+   duzeltilir -- kirik bir adres birakmiyoruz. */
+const VIEWS = ["overview", "develop", "workflow", "knowledge",
                "artifacts", "stream", "env", "projects", "settings"];
 
 // Eski adresi hedefine yollar: paylasilmis bir baglanti bos ekrana
 // dusmesin.
-const ESKI_GORUNUM = { plan: "workflow" };
+const ESKI_GORUNUM = { plan: "workflow", analysis: "workflow" };
 
 /* Adres iki katmanli: `#/p/<slug>/<gorunum>[/<detay>]`.
    `p/` oneki bilincli -- bir gun "plan" ya da "settings" slug'li bir proje
@@ -329,8 +331,8 @@ const ESKI_GORUNUM = { plan: "workflow" };
    sekme. Ayni soruyu uc farkli kelimeyle cevaplamak, cevabi ogrenilecek
    bir sey haline getirirdi. */
 const PROJE_GORUNUMLERI = new Set([
-  "overview", "develop", "workflow", "knowledge", "analysis",
-  "plan", "artifacts", "stream", "env",
+  "overview", "develop", "workflow", "knowledge",
+  "plan", "analysis", "artifacts", "stream", "env",
 ]);
 
 function renderContentScope(name = state.view) {
@@ -390,7 +392,6 @@ function showView(name, detail = "") {
   if (name === "develop")   { loadOverview(); loadDocuments(); }
   if (name === "workflow")  loadWorkflow();
   if (name === "knowledge") loadDocuments();
-  if (name === "analysis")  loadAnalysis();
   if (name === "artifacts") { loadArtifacts(); loadDelivery(); }
   if (name === "stream")    { renderStreamScope(); renderFeed(); }
   if (name === "projects")  loadProjects();
@@ -727,11 +728,12 @@ function renderStats(data) {
      Geriye rayda karsiligi OLMAYANLAR kaldi. Ikisi de bir karar
      degistiriyor: acik bosluk analiz bekliyor demek, karar sayisi
      mimarinin yazili olup olmadigini soyluyor. */
+  // Kayitlar artik Is akisi ekraninin icinde; kartlar oraya goturur.
   const cards = [
     { label: t("stat.gaps"), value: c.gaps, hint: c.gaps ? t("stat.gapsHint") : "",
-      tone: c.gaps ? "warn" : "", view: "analysis" },
+      tone: c.gaps ? "warn" : "", view: "workflow" },
     { label: t("stat.decisions"), value: c.decisions, hint: t("stat.decisionsHint"),
-      view: "analysis" },
+      view: "workflow" },
     { label: t("stat.tasks"), value: `${c.tasks_done}/${c.tasks}`,
       hint: t("stat.tasksHint"),
       tone: c.tasks && c.tasks_done === c.tasks ? "ok" : "", view: "workflow" },
@@ -1011,7 +1013,6 @@ function syncRunState(run) {
 }
 
 function refreshActiveView() {
-  if (state.view === "analysis")  loadAnalysis();
   if (state.view === "artifacts") loadArtifacts();
   if (state.view === "knowledge") loadDocuments();
   if (state.view === "develop")   loadDocuments();
@@ -2717,8 +2718,11 @@ async function loadWorkflowList() {
   closeChat();
   $("#workflow-expand-label").hidden = true;
   // Gorevler bir IS AKISINA aittir; listede "hangisinin gorevleri?"
-  // sorusunun cevabi yok.
+  // sorusunun cevabi yok. Kayitlar proje geneli ama ayni yerde durur:
+  // iki bolumu farkli hallerde gostermek, ayni ekrani iki ayri sayfa
+  // gibi davranmaya zorlardi.
   $("#wf-tasks").hidden = true;
+  $("#wf-analysis").hidden = true;
   $("#workflow-meta").innerHTML = "";
   $("#workflow-steps").innerHTML = "";
 
@@ -2784,10 +2788,13 @@ async function loadWorkflowDetail(workflowId) {
   $("#chat-open").hidden = false;
   loadChat(workflowId);
   // Gorevler burada: bir is akisi bir gelistirme cabasi, gorevler de
-  // onun planlarina ait.
+  // onun planlarina ait. Kayitlar (gereksinim, bosluk, karar, soru) ise
+  // PROJE genelidir -- ayni ekranda durur ama basligi kapsamini soyler.
   $("#wf-tasks").hidden = false;
+  $("#wf-analysis").hidden = false;
   loadPlans();
   loadTasks();
+  loadAnalysis();
   // Beklerken eski projenin verisi ekranda kalmaz.
   $("#workflow-steps").innerHTML = busyState();
   try {
@@ -2969,8 +2976,10 @@ async function loadRunDetail(runId) {
   $("#workflow-new").hidden = true;
   $("#workflow-expand-label").hidden = false;
   // Tek kosu detayinda gorev listesi yanlis kapsam: bir kosu bircok
-  // gorev kosturabiliyor ve orada faz kartlari var.
+  // gorev kosturabiliyor ve orada faz kartlari var. Kayitlar da oyle:
+  // bir kosunun ekrani proje genelinin yeri degil.
   $("#wf-tasks").hidden = true;
+  $("#wf-analysis").hidden = true;
   // Beklerken eski projenin verisi ekranda kalmaz.
   $("#workflow-steps").innerHTML = busyState();
   try {
@@ -4047,6 +4056,9 @@ function initPlan() {
    baglantisi o satirda BASILMAZ: olmayan bir seye goturen bir dugme,
    dugmenin kendisinden kotudur. */
 function ciktiSatiri(item) {
+  // `exists === false` bir satir ARTIK LISTEYE GIRMIYOR: sunucu
+  // alinamayan ciktiyi eliyor. Guard yine de duruyor cunku eski bir
+  // sunucuya karsi arayuz hicbir yere goturmeyen bir baglanti basmamali.
   const yok = item.exists === false;
   const meta = [
     item.phase ? t("phase." + item.phase) : "",
@@ -4150,12 +4162,24 @@ async function loadArtifacts() {
       "/api/artifacts");
     state.artifactGroups = data.groups;
     $("#btn-download-all").hidden = !data.total;
-    $("#artifacts-sub").textContent = data.total
-      ? t("artifacts.count", { n: data.total, runs: data.groups.length })
-      : t("artifacts.empty");
+    // Elenenler SAYIYLA soylenir. Gizlemek sessizce yok saymak degil: bu
+    // ekran bir kez rozetin "11" derken listenin "1" gostermesini yasadi
+    // ve kullanici bunu ariza sandi. Satirlar gorunmez, sayi gorunur.
+    const elenen = data.hidden
+      ? t(data.hidden === 1 ? "artifacts.hiddenOne" : "artifacts.hiddenMany", { n: data.hidden })
+      : "";
+    $("#artifacts-sub").textContent = [
+      data.total
+        ? t("artifacts.count", { n: data.total, runs: data.groups.length })
+        : t("artifacts.empty"),
+      elenen,
+    ].filter(Boolean).join(" · ");
 
     if (!data.total) {
-      list.innerHTML = emptyState(t("artifacts.empty"), t("artifacts.emptyHint"));
+      list.innerHTML = emptyState(
+        t("artifacts.empty"),
+        elenen ? t("artifacts.allHiddenHint") : t("artifacts.emptyHint"),
+      );
       detayKutusu().innerHTML = emptyState(t("artifacts.empty"));
       return;
     }

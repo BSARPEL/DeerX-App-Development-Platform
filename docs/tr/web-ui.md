@@ -220,9 +220,21 @@ listelerinden de temizliyor ve kaç görevi etkilediğini söylüyor. Bırakıld
 o anahtarlar hiçbir zaman `done` olmayacaktı, yani onları bekleyen görevler
 sonsuza dek hazır olmuyordu — sessizce.
 
-## Analiz
+## Kayıtlar
 
 ![Analiz: gereksinimler, sorular, boşluklar, kararlar ve araştırma](../images/analysis-tr.png)
+
+**Burası kendi sayfasıydı.** Aynı projeye ikinci bir kapıydı ve orada
+yapılabilecek hiçbir şey iş akışından bağımsız değildi — bu yüzden artık **İş
+akışı** ekranının içinde, görev planının altında duruyor ve tek bir iş akışını
+açtığınızda görünüyor. Ray maddesi kalktı; rozetleri İş akışı maddesine taşındı,
+çünkü bir rozet ile o sayıyı açıklayan ekran aynı yerden ulaşılabilir olmalı.
+
+**Bir uyarı bölümün kendisinde yazılı.** Gereksinim, boşluk, karar ve sorular
+**proje düzeyindedir** — tablolarında iş akışı kimliği yok; `workflow_context`
+danışman için aynı ayrımı yazıyor. Burada görünüyor olmaları onları bu iş
+akışına ait yapmaz; "bu iş akışının gereksinimi" diye bir şey yok. Görevler
+başka: onlar planlara, planlar da iş akışına ait.
 
 Gereksinimler, boşluklar, mimari kararlar ve araştırma bulguları. Bir satıra
 tıklamak dayanağını ve önerisini açar. Sayfalanır (25/50/100/250); sekme
@@ -338,10 +350,16 @@ Teslimat paketleri kendi koşularının altında görünür, üstte tekrarlanmaz
 paketleme tek adımlı bir koşu kaydı oluşturur — yoksa ürettiği paket hiçbir
 koşuya ait olmaz ve Koşular görünümünden erişilemezdi.
 
-Koşu kaydından önceki dönemden kalan çıktılar da listelenir, *Koşu kaydından
-önce üretilenler* başlığı altında kendi gruplarında. Eskiden bir düğmenin
-arkasında gizliydiler; rozet 11 derken ekranda 1 çıktı görünüyordu ve bir sayının
-iki yerde farklı okunması, aradaki farkı kapatacak bir düğme olsa bile yanlıştır.
+**Görünmenin iki koşulu var.** Bir çıktı, baytlarına ulaşılabiliyorsa *ve*
+bağlı olduğu koşunun bir iş akışı numarası varsa gösterilir. İndirilemeyen bir
+satır yalnızca bir addır — tıklayınca 404 döner — ve numarası olmayan bir çıktı
+"bu nereden çıktı" sorusunu cevaplayamaz.
+
+Gizleme sessiz değil: alt başlık kaç satırın elendiğini yazar. Bu önemli, çünkü
+bu ekran alternatifin bedelini bir kez ödedi — koşusu olmayan çıktılar gizleniyor
+ama sayılıyordu, rozet 11 derken ekranda 1 görünüyordu ve sahibi bunu arıza
+olarak bildirdi. Artık sayan ve listeleyen aynı kuralı kullanıyor, dolayısıyla
+ayrışamıyorlar.
 
 **Her çıktı, her yerden indirilir.** Her satırda bir indirme bağlantısı var, her
 koşu başlığı o koşunun çıktılarını tek zip olarak indirir, sayfa başlığındaki
@@ -357,9 +375,10 @@ yere götürmeyen bir düğme, düğmenin kendisinden kötüdür.
 **Bütün projelerim** aynı ekranı çapraz bir ağaca çevirir: proje → koşu → çıktı,
 saklanan her satırda bir indirme. Ada tıklamak o projeye geçer ve çıktıyı orada
 açar; bağlam değişikliği gizlenmez, gösterilir — sol raydaki proje adı da
-değişir. Saklanmış kopyası olmayan bir çıktı *veritabanında yok* der ve bağlantı
-basılmaz: çapraz uç başka bir projenin diskine hiç dokunmaz, dolayısıyla
-projeyi açmanın işe yarayacağına dair söz veremez.
+değişir. Aynı iki koşul orada da geçerli, bir sıkılaştırmayla: projeler arasında
+"ulaşılabilir" demek *veritabanında saklanmış* demektir. Uç, başka bir projenin
+diskine hiç dokunmaz; orada bir dosya duruyor mu bilemez ve denetleyemediği bir
+şeyi vaat etmez.
 
 Aynı görünüm **teslimat panelini** de taşır: hazırlık durumu, paketleme düğmesi,
 zip indirmeleri ve paket başına bir **Rapor** düğmesi.
@@ -576,11 +595,21 @@ Günlüğün tavanı son 5000 satır, ve proje veritabanını paylaşıyor.
 
 ## Tasarım
 
-**Nötrler gri.** On üç nötr jetonun hepsi logoyla aynı mavi ailesinde
-duruyordu (LCh hue 265–272; kroma açıkta 4–13, koyuda 6–21) — marka laciverti,
-mavi grilerin arasında bir mavi daha olarak kalıyordu. Kroma artık ≤ 4, parlaklık
-korundu; yani hiçbir kontrast oranı değişmedi — oranlar yalnızca parlaklığa
-bağlıdır. Ton 265'te kaldı: soğuk bir gri, sıcak değil; logoyla çatışmaz.
+**İçerik nötr, tezgah marka.** On üç nötr jetonun hepsi logoyla aynı mavi
+ailesinde duruyordu (LCh hue 265–272; kroma açıkta 4–13, koyuda 6–21) — marka
+laciverti, mavi grilerin arasında bir mavi daha olarak kalıyordu. Bunun çözümü
+"hiçbir yerde mavi" değil, mavinin **tek bir yere toplanması** oldu: içerik
+düzleminin nötrleri C\* ≤ 5'te kalır (parlaklık korunduğu için hiçbir kontrast
+oranı değişmedi), tezgah ise — sol ray ve üst bar — logonun kendi laciverti
+`#0d2d55` olur. Kimlik ekranın kenarında durur, ortasında değil: veri nötr bir
+kâğıtta okunur, marka rayda ve üst barda yaşar.
+
+Tezgah ayrı bir düzlem olduğu için mürekkebi de ayrıdır: orada `--text*` değil
+`--chrome-text` ve `--chrome-text-2` kullanılır (içeriğin mürekkebi lacivertin
+üstünde 1,67:1 ile okunmuyor). İki istisna, zemini gerçekten kâğıt olan iki
+denetimdir — etkin ray maddesi ve seçili dil; onlar kâğıt mürekkebini
+kullanır. `tests/test_design_system.py::TestTextReadsOnEverySurface`
+tezgahta içerik mürekkebi kalmadığını ölçer.
 
 **Renk metne değil işarete gider.** Durum 6px'lik bir noktada, 3px'lik bir
 şeritte ya da tonlu rozette yaşar; cümleler mürekkeptir. Tek kırmızı cümle hata
@@ -588,13 +617,31 @@ iletisidir. `--warn` yalnızca bir insanı bekleyen durumlara ayrılmıştır (c
 bekliyor, onay, bloke, çevrimdışı). Akış eskiden dokuz olay türünün iletisini
 renklendiriyordu; artık yalnızca glif renklidir.
 
-**Dört yüzey basamağı, her birinin tek anlamı var.** Tezgah (ray ve üst bar)
-kağıttan en az ΔL* 4,5 geri çekilir; kağıt içeriktir, panel, tablo ve girdi
-onun üzerinde durur; kuyu (`--surface-2`) tablo başlığı, ikincil düğme ve kod
-içindir; yükselen yüzey yalnızca gerçekten yüzen şeye — kip, çekmece, bildirim,
-giriş kartı — ve yükselmeyi gölge anlatır, kenarlık asla. Bir kutu ya dolgu
-taşır ya ince çizgi; ikisini birden değil. İnce çizgi iki tonludur: bölüm
-cetveli `--border-strong`, satır ayırıcı `--border`.
+**Beş yüzey basamağı, her birinin tek anlamı var.** Tezgah (ray ve üst bar)
+markanın düzlemidir; zemin (`--bg`) sayfanın kâğıdıdır; **panel** (`--surface`)
+zeminden yükselir ve içerik orada yaşar; kuyu (`--surface-2`) tablo başlığı,
+panel başlık bandı, araç çubuğu, ikincil düğme ve kod içindir; yükselen yüzey
+yalnızca gerçekten yüzen şeye — kip, çekmece, bildirim, giriş kartı — ayrılır.
+
+Bu, bir önceki yönün **geri alınmasıdır** ve sebebi ölçüldü. Daha önce
+`--surface` ile `--bg` birebir aynı hex'ti (açıkta `#fafbfc`, koyuda `#17191c`)
+ve buraya bilinçli bir karar olarak yazılmıştı: "panel kâğıttan yükselmez,
+kâğıdın üzerinde bir bölümdür." Sonucu ekranda **tek bir düzlem** olmasıydı —
+hiçbir şey hiçbir şeyin üstünde duramıyor, on bir panelli bir ekranın bütün
+sınırları tek bir saç teli çizgiye kalıyordu. Sahibi "çok düz duruyor" dedi;
+ölçüm onu doğruladı. Artık zemin bir basamak geri çekilir (açıkta L\* 93,6),
+panel beyaza çıkar (L\* 100) ve aradaki fark hem tonla hem gölgeyle okunur;
+koyuda merdiven 11,5 → 16,4 → 20,0 → 22,9 → 29,1 diye devam eder.
+
+Yükselme **iki** kanalla anlatılır: yüzey basamağı ve saç teli kenar. Gölge
+üçüncü bir kanal değil, ışıkta basamağın yerine geçen şeydir — beyaz tavandır,
+panelin üstüne çıkan kip daha açık bir zemin bulamaz. Koyuda panelin gölgesi
+yoktur: orada basamak zaten yeterli. İnce çizgi iki tonludur: bölüm cetveli
+`--border-strong`, satır ayırıcı `--border`.
+
+Panel başlığı ve araç çubuğu kartın **kendi bandında** durur (kuyu tonu + saç
+teli çizgi): bir listeyi yöneten süzgeç, yönettiği listeyle aynı yüzeydedir.
+Zeminde serbest duran bir denetim satırı neyi süzdüğünü söylemiyordu.
 
 **İki kontrol yüksekliği** (36px ve 28px) onun yerini aldı. **Tek rozet
 geometrisi** — tonlu dolgu, kenarlık yok, dikdörtgen — on yedi hap sınıfının
@@ -611,9 +658,10 @@ indirilmez.
 
 Bunların hiçbiri göz kararı değil. Palet `tests/test_web.py::TestPalette` ve
 `tests/test_theme.py` içinde kilitli; onun üstündeki katman — satır yüksekliği
-ve kontrol yüksekliği jetonları, nötr kroma, tezgah/kağıt ayrımı, iki koyu
-bloğun senkronu, kimliğe ayrılmış mono, yükselen yüzeyler, akış içi kutularda
-gölge olmaması, kromatik metin bütçesi, tek rozet geometrisi —
+ve kontrol yüksekliği jetonları, içerik nötrlerinin kroması, tezgahın marka
+hue'sunda kalması, panelin zeminden ayrılması, iki koyu bloğun senkronu,
+kimliğe ayrılmış mono, yükselen yüzeyler, akış içi kutularda gölge olmaması,
+kromatik metin bütçesi, tek rozet geometrisi —
 `tests/test_design_system.py` içinde kilitli.
 
 Açık ve koyu tema, tam klavye gezintisi, mobil yerleşim: 820px altında ray iki
