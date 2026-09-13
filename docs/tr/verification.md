@@ -8,7 +8,7 @@ doğrulama değildir, ve ikisini karıştırmak dürüst iddiaları da değersiz
 
 ## Süit
 
-Python 3.11 ve 3.13'te **2267 test geçiyor**, `ruff` temiz.
+Python 3.11 ve 3.13'te **2309 test geçiyor**, `ruff` temiz.
 
 Hiçbir test ağ çağrısı ya da gerçek model çağrısı yapmaz. Ajanlar
 `tests/conftest.py` içindeki sahte istemciye karşı koşar, yani süit

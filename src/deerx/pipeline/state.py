@@ -1840,6 +1840,7 @@ class ProjectState:
 
     @staticmethod
     def _info_satiri(r: sqlite3.Row, *, check_disk: bool) -> ArtifactInfo:
+        saklandi = bool(r["stored"])
         return ArtifactInfo(
             id=r["id"], name=r["name"], kind=r["kind"],
             path=r["path"], summary=r["summary"],
@@ -1847,7 +1848,7 @@ class ProjectState:
             bytes=int(r["blob_bytes"] or 0),
             sha256=r["blob_sha256"] or "",
             media_type=r["blob_media_type"] or "",
-            stored=bool(r["stored"]),
+            stored=saklandi,
             on_disk=(_diskte(r["path"]) is not None) if check_disk else None,
             blob_state=r["blob_state"] or "",
         )
@@ -1857,6 +1858,62 @@ class ProjectState:
             f"{self._INFO_SQL} WHERE a.name = ?", (name,)
         ).fetchone()
         return None if row is None else self._info_satiri(row, check_disk=check_disk)
+
+    # Ekranda gorunmenin iki kosulu. Sahibinin kurali: "var olmayan
+    # dosyalar ve is akisi numarasi olmayan dosyalar gozukmesin."
+    #
+    # 1. ALINABILIR olmali: blob'u ya da diskte dosyasi var. Alinamayan bir
+    #    satir yalnizca bir ad; tiklayinca 404 verir.
+    # 2. Bir IS AKISINA bagli olmali: kosusu ve o kosunun is akisi kaydi
+    #    var. Numarasi olmayan bir cikti "bu nereden cikti" sorusunu
+    #    cevaplayamaz.
+    #
+    # Sayan ve listeleyen AYNI kurali kullanir. Iki ayri olcut, rozetin
+    # "11" derken ekranin "1" gostermesi demekti -- bu depo o hatayi bir
+    # kez yasadi ve testiyle cakti.
+    _GORUNUR_KOSUL = (
+        " (b.artifact_id IS NOT NULL OR a.path <> '')"
+        " AND w.id IS NOT NULL"
+    )
+    _GORUNUR_JOIN = (
+        " LEFT JOIN runs r ON r.id = a.run_id"
+        " LEFT JOIN workflows w ON w.id = r.workflow_id"
+    )
+
+    def visible_artifact_infos(self) -> list[ArtifactInfo]:
+        """Ekrana cikacak ciktilar: alinabilir VE bir is akisina bagli.
+
+        Diske YALNIZCA blob'u olmayan satirlar icin inilir. `check_disk`
+        acik gecilseydi her satir bir `stat()` ederdi; elli ciktilik bir
+        projede bu, her yoklamada elli bosa syscall ve ag surucusunde
+        duran bir calisma alaninda saniyelerce asili kalan bir ekran
+        demekti (`TestListeStatYapmaz` bunu kilitliyor). Blob varsa
+        icerik zaten elimizde ve diskin ne dedigi onemsiz.
+        """
+        rows = self._conn.execute(
+            f"{self._INFO_SQL}{self._GORUNUR_JOIN} WHERE{self._GORUNUR_KOSUL}"
+            " ORDER BY a.created_at"
+        ).fetchall()
+        gorunur: list[ArtifactInfo] = []
+        for r in rows:
+            info = self._info_satiri(r, check_disk=False)
+            if info.stored or _diskte(info.path) is not None:
+                gorunur.append(info)
+        return gorunur
+
+    def visible_artifact_count(self) -> int:
+        """Rozetin sayisi. Listeyle AYNI kurali kullanir."""
+        return len(self.visible_artifact_infos())
+
+    def artifact_count(self) -> int:
+        """Kayitli TUM ciktilar, gorunur olmayanlar dahil.
+
+        Yalnizca "kac tanesi elendi"yi soyleyebilmek icin var: gizlemek
+        sessizce yok saymak degil.
+        """
+        return int(
+            self._conn.execute("SELECT COUNT(*) AS n FROM artifacts").fetchone()["n"]
+        )
 
     def list_artifact_infos(
         self, *, run_id: str | None = None, check_disk: bool = True
@@ -2004,12 +2061,21 @@ class ProjectState:
     # Geri doldurma: blobsuz kayitlar diskten veritabanina alinir
     # ------------------------------------------------------------------ #
     def _aday_yol(self, path: str) -> Path | None:
-        """Kayitli yol, yoksa bu veritabaninin kendi `artifacts/` dizini.
+        """Kayitli yol, yoksa bu veritabaninin KENDI veri dizinleri.
 
-        Ikinci aday `.praxis` -> `.deerx` tasimasi icin: eski kayitlar eski
-        dizin adini tasir ama dosya yeni dizinde durur. Turetme
-        `Settings.artifacts_dir` ile ayni (`data_dir / "artifacts"`,
-        db_path = data_dir / "deerx.db"); kurucu imzasi degismedi.
+        Kayitli yol MUTLAKTIR ve calisma alani tasindiginda ya da yeniden
+        adlandirildiginda bayatlar. OLCULDU: bu depo `Desktop\\mcp`den
+        `Desktop\\DeerX-App-Development-Platform`a tasinmis ve on bir
+        ciktinin kayitli yolunun hicbiri tutmuyordu -- dosyalar ise
+        yerinde duruyordu.
+
+        Bu yuzden ad uzerinden iki dizin denenir. `artifacts/` belgeler
+        icin, `teslimat/` paketler icin: ilk halde yalnizca birincisi
+        vardi ve ayni tasimada UC teslimat zip'i, dosyalar `teslimat/`
+        altinda dururken "yok" isaretleniyordu. Turetme
+        `Settings.artifacts_dir`/`deliveries_dir` ile ayni
+        (`data_dir / ...`, db_path = data_dir / "deerx.db"); kurucu
+        imzasi degismedi.
         """
         yol = _diskte(path)
         if yol is not None:
@@ -2017,7 +2083,11 @@ class ProjectState:
         ad = Path(path).name if path else ""
         if not ad:
             return None
-        return _diskte(str(self.db_path.parent / "artifacts" / ad))
+        for dizin in ("artifacts", "teslimat"):
+            aday = _diskte(str(self.db_path.parent / dizin / ad))
+            if aday is not None:
+                return aday
+        return None
 
     def _geri_doldur(
         self, *, esik: int, durumlar: tuple[str, ...], limit: int | None
@@ -2115,7 +2185,10 @@ class ProjectState:
             "research_notes": count("research_notes"),
             "tasks": len(tasks),
             "tasks_done": sum(1 for t in tasks if t.status == Status.DONE),
-            "artifacts": count("artifacts"),
+            # Rozet EKRANIN sayisini soyler, tablonun satir sayisini degil.
+            # `COUNT(*)` alinamayan ve is akisina bagli olmayan kayitlari da
+            # sayiyordu; rozet "11" derken ekranda bir cikti goruluyordu.
+            "artifacts": self.visible_artifact_count(),
         }
 
     def snapshot(self, *, max_items: int = 60) -> str:

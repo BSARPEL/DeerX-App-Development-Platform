@@ -368,6 +368,55 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "Isolated execution is on but `docker` was not found. Install "
               "Docker Desktop, or set [deerx] execution = \"host\".",
     },
+    # Gecmis araclari: kullanicinin onceki projelerinden cikarim.
+    "history.unavailable": {
+        "tr": "Bu baglamda gecmise bakilamiyor: onceki projeler yalnizca "
+              "web arayuzundeki sohbette okunur.",
+        "en": "History is not reachable here: earlier projects are only read "
+              "in the web interface chat.",
+    },
+    "history.bad_kind": {
+        "tr": "Bilinmeyen tur: {kind}. Secenekler: {kinds}",
+        "en": "Unknown kind: {kind}. Options: {kinds}",
+    },
+    "history.searching": {
+        "tr": "gecmis aramasi: {query}", "en": "history search: {query}",
+    },
+    "history.found": {
+        "tr": "Gecmiste '{query}' icin {n} kayit:",
+        "en": "{n} records for '{query}' in earlier projects:",
+    },
+    "history.no_match": {
+        "tr": "Gecmiste '{query}' ile eslesen bir kayit yok.",
+        "en": "Nothing in earlier projects matches '{query}'.",
+    },
+    # "Bulunamadi" ile "bakamadim" ayri seyler; ikincisinde model kesin
+    # konusmamali.
+    "history.no_match_unreadable": {
+        "tr": "Gecmiste '{query}' ile eslesen bir kayit yok. Su projeler "
+              "okunamadi, oralarda olabilir: {projects}",
+        "en": "Nothing in earlier projects matches '{query}'. These projects "
+              "could not be read, so it may be in them: {projects}",
+    },
+    "history.no_projects": {
+        "tr": "Okunabilen baska bir proje yok.",
+        "en": "There is no other readable project.",
+    },
+    "history.projects": {
+        "tr": "Diger projeleriniz ({n}):", "en": "Your other projects ({n}):",
+    },
+    "history.counts": {
+        "tr": "{workflows} is akisi · {chats} sohbet satiri",
+        "en": "{workflows} workflows · {chats} chat lines",
+    },
+    "history.unreadable": {
+        "tr": "Okunamayan projeler: {projects}",
+        "en": "Projects that could not be read: {projects}",
+    },
+    "history.kind_decision": {"tr": "karar", "en": "decision"},
+    "history.kind_chat": {"tr": "sohbet", "en": "chat"},
+    "history.kind_workflow": {"tr": "is akisi", "en": "workflow"},
+    "history.kind_artifact": {"tr": "cikti", "en": "artifact"},
     "images.searching": {"tr": "gorsel aramasi: {query}", "en": "image search: {query}"},
     "images.downloading": {"tr": "gorsel indiriliyor: {url}", "en": "downloading image: {url}"},
     "images.no_searxng": {

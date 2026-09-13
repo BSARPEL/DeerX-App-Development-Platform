@@ -6,6 +6,7 @@ from .agents import AGENT_TOOLS, SUBAGENT_ROLES
 from .base import Tool, ToolContext, ToolRegistry, ToolResult, json_block
 from .browser import BROWSER_TOOLS
 from .filesystem import FILESYSTEM_TOOLS
+from .history import HISTORY_TOOLS
 from .images import IMAGE_TOOLS
 from .knowledge import KNOWLEDGE_TOOLS
 from .project import PROJECT_TOOLS
@@ -16,6 +17,7 @@ from .workflow import WORKFLOW_TOOLS
 
 ALL_TOOLS: list[Tool] = [
     *KNOWLEDGE_TOOLS,
+    *HISTORY_TOOLS,
     *PROJECT_TOOLS,
     *FILESYSTEM_TOOLS,
     *SHELL_TOOLS,
@@ -138,6 +140,10 @@ TOOLSETS: dict[str, list[str]] = {
     "danisman": [
         "read_workflow", "read_project_state", "read_document",
         "search_knowledge", "list_knowledge",
+        # Gecmis YALNIZCA danismanda. Faz ajanlari kendi fazinin isini
+        # yapar; baska projelerin sohbetini okumak onlarin kapsami degil
+        # ve her faza acmak her kosuya N dosya okuma maliyeti bindirirdi.
+        "search_history", "list_project_history",
         "read_file", "list_dir", "glob_files", "grep_files",
         "update_workflow", "resolve_question",
         "record_requirements", "record_gaps", "record_decisions",
@@ -179,6 +185,7 @@ __all__ = [
     "ALL_TOOLS",
     "BROWSER_TOOLS",
     "FILESYSTEM_TOOLS",
+    "HISTORY_TOOLS",
     "KNOWLEDGE_TOOLS",
     "PROJECT_TOOLS",
     "SERVICE_TOOLS",

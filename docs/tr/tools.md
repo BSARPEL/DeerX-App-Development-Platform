@@ -3,7 +3,7 @@
 [← Dokümantasyon](README.md) · [English](../tools.md)
 
 Ajanlar serbest metinle cevap vermez — araçlarla hareket eder ve bulguları
-yapılandırılmış veri olarak kaydedilir. 41 araç var; her ajan rolü dar bir alt
+yapılandırılmış veri olarak kaydedilir. 43 araç var; her ajan rolü dar bir alt
 küme alır.
 
 ## Araç kümeleri
@@ -297,6 +297,25 @@ konuşmanın içinde var olan üç araç:
 Hiçbiri iş akışı argümanı almaz. Kapsam modelden değil çağırandan gelir:
 kimliği argüman yapmak, modele *hangi* iş akışını değiştireceğini
 sormaktır ve yanlış bir sayı üretmesi yanlış olanı düzenlemesine yeter.
+
+Yalnızca bu konuşmaya ait iki araç daha var ve onlar **diğer**
+projelerinize uzanır:
+
+| Araç | Ne yapar |
+|---|---|
+| `list_project_history` | Diğer projeleriniz: hedefi, kaç iş akışı, kaç sohbet satırı |
+| `search_history` | O projelerde karar, geçmiş iş akışı, eski konuşma ve çıktı arar |
+
+Bu geçmişin kısa bir özeti danışmanın bağlamında zaten duruyor, yani neyin
+sorulmaya değer olduğunu biliyor; bu araçlar ayrıntıyı getirir. Hepsini her
+mesaja koymak, asıl sorunun üstüne yüz ekran eski konuşma yığmak olurdu.
+
+Okuma salt okunurdur (`mode=ro` + `query_only`), şema göçü koşturmaz ve
+hiçbir projenin çalışma ortamını başlatmaz — geçmişe bakmak, başkasının
+üzerinde çalıştığı bir projeyi rahatsız edemez. Kapsam çağırandan gelir,
+gördüğünüz projeleri belirleyen kuralın aynısı; model onu genişletemez.
+Okunamayan bir proje cevapta adıyla söylenir, atlanmaz: "bulunamadı" ile
+"bakamadım" asla karışmasın.
 
 Sıradan kayıt araçlarını da çağırabilir (`record_requirements`,
 `record_gaps`, `record_decisions`, `record_questions`, `record_tasks`) ve

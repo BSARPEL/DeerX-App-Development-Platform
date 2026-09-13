@@ -31,6 +31,23 @@ def state_of(client):
     return client.app.state.deerx.orchestrator.state
 
 
+def _kosu(durum, goal: str = "hedef") -> str:
+    """URUNUN actigi gibi bir kosu acar: is akisina BAGLI.
+
+    `start_run`i ciplak cagirmak akissiz bir kosu uretir ve Ciktilar
+    ekrani is akisi numarasi olmayani gizler -- oyle kurulan bir test
+    kendi yarattigi ciktiyi listede bulamaz. Orkestrator
+    (`orchestrator.py`) her kosuda `workflow_for_goal` cagiriyor; bu
+    yardimci ayni seyi yapar.
+    """
+    import uuid
+
+    run_id = uuid.uuid4().hex[:12]
+    akis = durum.workflow_for_goal(goal)
+    durum.start_run(run_id, goal=goal, phases=["analyze"], workflow_id=akis["id"])
+    return run_id
+
+
 class TestOverview:
     def test_shape(self, client, settings):
         data = client.get("/api/overview").json()
@@ -324,16 +341,23 @@ def _bekle(client, saniye: float = 10.0) -> None:
 
 class TestArtifacts:
     def _add(self, client, settings, name: str, body: str, kind: str = "report") -> None:
+        """Ciktiyi URUNUN yaptigi gibi kaydeder: kosu + is akisi ile.
+
+        Ciktilar ekrani is akisi numarasi olmayani gizliyor; ciplak bir
+        `add_artifact` artik listede gorunmeyen bir kayit uretir ve test
+        kendi kurdugu seyi arayamaz.
+        """
         path = settings.artifacts_dir / name
         path.write_text(body, encoding="utf-8")
-        client.app.state.deerx.orchestrator.state.add_artifact(
-            Artifact(name=name, kind=kind, path=str(path), summary="ozet")
+        durum = client.app.state.deerx.orchestrator.state
+        durum.add_artifact(
+            Artifact(name=name, kind=kind, path=str(path), summary="ozet"),
+            run_id=_kosu(durum),
         )
 
     def test_list_and_read_markdown(self, client, settings):
         self._add(client, settings, "rapor.md", "# Baslik\n\n| a | b |\n|---|---|\n| 1 | 2 |\n")
-        # Kosusuz cikti varsayilan listede gorunmez; burada icerigi sinaniyor.
-        listing = client.get("/api/artifacts?orphans=1").json()
+        listing = client.get("/api/artifacts").json()
         first = listing["groups"][0]["items"][0]
         assert first["name"] == "rapor.md"
         assert first["format"] == "markdown"
@@ -416,21 +440,27 @@ class TestCiktiIndirmeDBden:
         assert detail["sha256"] == hashlib.sha256(veri).hexdigest()
         assert "<h1>Rapor</h1>" in detail["html"]
 
-    def test_a_row_without_a_blob_is_listed_but_not_downloadable(self, client, settings):
-        """Blob'suz eski bir kaydin dosyasi da silinmisse: satir LISTEDE
-        kalir ama "yok" der. Once sessizce "0 B" yaziyordu ve ariza ancak
-        tiklayinca anlasiliyordu."""
+    def test_a_row_without_bytes_anywhere_is_hidden(self, client, settings, state_of):
+        """Blob'suz eski bir kaydin dosyasi da silinmisse satir HIC cizilmez.
+
+        Once sessizce "0 B" yaziyordu ve ariza ancak tiklayinca
+        anlasiliyordu; sonra "dosya yok" diye yaziliyordu. Sahibinin
+        karari: "var olmayan dosyalar gozukmesin". Kayit silinmez, yalnizca
+        gorunmez -- ve elenmis olmasi `hidden` ile SOYLENIR.
+
+        Is akisi BAGLI: elenen sey kosusuzluk degil, alinamazlik olsun.
+        """
         path = settings.artifacts_dir / "eski.md"
         path.write_text("eski", encoding="utf-8")
-        client.app.state.deerx.orchestrator.state.add_artifact(
-            Artifact(name="eski.md", kind="report", path=str(path), summary="")
+        state_of.add_artifact(
+            Artifact(name="eski.md", kind="report", path=str(path), summary=""),
+            run_id=_kosu(state_of),
         )
         path.unlink()
 
-        satir = _cikti_satirlari(client)["eski.md"]
-        assert satir["stored"] is False
-        assert satir["exists"] is False
-        assert satir["bytes"] == 0
+        veri = client.get("/api/artifacts").json()
+        assert "eski.md" not in _cikti_satirlari(client)
+        assert veri["hidden"] == 1
         assert client.get("/api/artifacts/eski.md").status_code == 404
         assert client.get("/api/artifacts/eski.md/download").status_code == 404
 
@@ -543,11 +573,13 @@ class TestListeStatYapmaz:
 
     def test_the_listing_never_stats_a_stored_artifact(self, client, settings, monkeypatch):
         project = client.app.state.deerx.orchestrator.state
+        kosu = _kosu(project)
         for i in range(50):
             ad = f"rapor-{i:02d}.md"
             project.add_artifact(
                 Artifact(name=ad, kind="report",
                          path=str(settings.artifacts_dir / ad), summary=""),
+                run_id=kosu,
                 blob=b"x" * 64,
             )
 
@@ -1586,32 +1618,88 @@ class TestScreenshotsAreVisible:
         assert response.headers["content-type"] == "application/octet-stream"
 
 
-class TestArtifactsWithoutARunAreReachable:
-    """Rozet 11 derken ekranda 1 cikti gorunuyordu.
+class TestGorunurlukKurali:
+    """Ekranda ne gorunur: alinabilir VE bir is akisina bagli olan.
 
-    Kosu kaydindan onceki ciktilar listeden ciakriliyor ama SAYILIYORDU;
-    `?orphans=1` disinda onlara ulasmanin hicbir yolu yoktu ve arayuz o
-    parametreyi hic gondermiyordu.
+    Bu kural bir kez terse dondu ve bedeli olculdu. Ilk halde kosusuz
+    ciktilar gizleniyor ama SAYILIYORDU: rozet "11" derken ekranda tek bir
+    cikti goruluyor, sahibi bunu ariza sanip bildiriyordu. O yuzden
+    gizleme tek basina yeterli bir karar degil -- sayan ve listeleyen ayni
+    kurali kullanmak ZORUNDA, yoksa ayni hata geri gelir.
+
+    Simdiki kural sahibinin kendi sozleriyle: "var olmayan dosyalar ve is
+    akisi numarasi olmayan dosyalar gozukmesin." Alinamayan bir satir
+    yalnizca bir addir (tiklayinca 404); numarasi olmayan bir cikti "bu
+    nereden cikti" sorusunu cevaplayamaz.
     """
 
     def _yetim(self, client, settings, name="mimari.md"):
+        """Kosusuz cikti: is akisi numarasi olamaz."""
         path = settings.artifacts_dir / name
         path.write_text("# Mimari\n", encoding="utf-8")
         client.app.state.deerx.orchestrator.state.add_artifact(
-            Artifact(name=name, kind="architecture", path=str(path), summary="x")
+            Artifact(name=name, kind="architecture", path=str(path), summary="x"),
+            blob=b"# Mimari\n",
         )
         return name
 
-    def test_they_are_listed_without_being_asked_for(self, client, settings):
-        """Artik gizli DEGILLER: bir parametre gondermek gerekmiyor."""
-        name = self._yetim(client, settings)
+    def test_an_artifact_without_a_workflow_is_hidden(self, client, settings):
+        """Baytlari duruyor ama is akisi numarasi yok: gorunmez."""
+        self._yetim(client, settings)
+        data = client.get("/api/artifacts").json()
+        assert data["total"] == 0
+        assert data["groups"] == []
+
+    def test_hiding_is_not_silent(self, client, settings):
+        """Elenen satir SAYILIR. Rozetin ekrandan farkli konustugu hata tam
+        da sessiz elemeden cikmisti."""
+        self._yetim(client, settings)
+        assert client.get("/api/artifacts").json()["hidden"] == 1
+
+    def test_an_unreachable_artifact_is_hidden_even_with_a_workflow(
+        self, client, settings, state_of
+    ):
+        """Is akisi var ama baytlari hicbir yerde yok: yine gorunmez. Iki
+        kosul AYRI ayri eler."""
+        state_of.add_artifact(
+            Artifact(
+                name="kayip.md", kind="report",
+                path=str(settings.artifacts_dir / "kayip.md"), summary="x",
+            ),
+            run_id=_kosu(state_of),
+        )
+        data = client.get("/api/artifacts").json()
+        assert data["total"] == 0
+        assert data["hidden"] == 1
+
+    def test_a_complete_artifact_is_shown(self, client, settings, state_of):
+        """Karsi test: iki kosulu da saglayan gorunur ve inebilir."""
+        yol = settings.artifacts_dir / "tam.md"
+        yol.write_text("# Tam\n", encoding="utf-8")
+        state_of.add_artifact(
+            Artifact(name="tam.md", kind="report", path=str(yol), summary="x"),
+            run_id=_kosu(state_of),
+            blob=b"# Tam\n",
+        )
         data = client.get("/api/artifacts").json()
         assert data["total"] == 1
-        grup = data["groups"][0]
-        # Kosusu yok: arayuz "#null" yazmasin diye sira numarasi None.
-        assert grup["seq"] is None
-        assert [i["name"] for i in grup["items"]] == [name]
-        assert data["orphans"] == 1, "kac tanesinin kosusu bilinmiyor, bilgi"
+        assert data["hidden"] == 0
+        assert data["groups"][0]["workflow_seq"] is not None
+        assert client.get("/api/artifacts/tam.md/download").status_code == 200
+
+    def test_the_badge_never_disagrees_with_the_screen(self, client, settings, state_of):
+        """Kilit sart: eleme varken bile iki sayi ayni olmali."""
+        self._yetim(client, settings, "eski.md")
+        yol = settings.artifacts_dir / "yeni.md"
+        yol.write_text("# Yeni\n", encoding="utf-8")
+        state_of.add_artifact(
+            Artifact(name="yeni.md", kind="report", path=str(yol), summary="x"),
+            run_id=_kosu(state_of), blob=b"# Yeni\n",
+        )
+        ekran = client.get("/api/artifacts").json()
+        rozet = client.get("/api/overview").json()["counts"]["artifacts"]
+        assert rozet == ekran["total"] == 1, f"ray {rozet}, ekran {ekran['total']}"
+        assert ekran["hidden"] == 1
 
     def test_the_interface_has_no_hidden_artifact_switch(self):
         """Gizleme kalkti; onu geri getiren bir dugme de kalmamali.
@@ -2356,11 +2444,9 @@ class TestArtifactsByRun:
     """Ciktilar uretildikleri kosuya baglanir ve ona gore gruplanir."""
 
     def _run(self, state_of, goal="hedef"):
-        import uuid
-
-        run_id = uuid.uuid4().hex[:12]
-        state_of.start_run(run_id, goal=goal, phases=["analyze"])
-        return run_id
+        # Is akisi da baglanir: orkestrator her kosuda bunu yapiyor ve
+        # akisi olmayan bir kosunun ciktisi ekranda gorunmuyor.
+        return _kosu(state_of, goal)
 
     def _artifact(self, settings, state_of, name, *, run_id="", phase=""):
         path = settings.artifacts_dir / name
@@ -2389,17 +2475,14 @@ class TestArtifactsByRun:
         assert item["phase"] == "design"
         assert item["phase_label"] == "Mimari"
 
-    def test_artifacts_without_a_run_are_listed_in_their_own_group(
-        self, client, settings, state_of
-    ):
-        """Kosusu bilinmeyen cikti GORUNUR, kendi grubunda.
+    def test_artifacts_without_a_run_are_hidden(self, client, settings, state_of):
+        """Kosusu olmayan cikti GORUNMEZ: is akisi numarasi turetilemez.
 
-        Once gizleniyordu ve gerekcesi "kosusuz bir grup basligi kullaniciya
-        hicbir sey anlatmiyor" idi. Bedeli olculdu: gercek bir projede on
-        bir ciktinin onunun kosu kaydi yoktu (hepsi kosu kaydi eklenmeden
-        ONCE uretilmis), rayda 11 yaziyordu, ekranda 1 gorunuyordu ve
-        sahibi bunu ariza olarak bildirdi. Kosede duran "10 ciktiyi da
-        goster" dugmesi bunu onlemedi.
+        Kosusuz bir kayit hangi gelistirme cabasindan ciktigini
+        soyleyemez; sahibinin kurali "is akisi numarasi olmayan dosyalar
+        gozukmesin". Eleme SESSIZ degil -- `hidden` kac satirin
+        ciakrildigini yazar, cunku bu depo bir kez rozetin "11" derken
+        ekranin "1" gostermesini yasadi.
         """
         run_id = self._run(state_of)
         self._artifact(settings, state_of, "yeni.md", run_id=run_id)
@@ -2407,17 +2490,17 @@ class TestArtifactsByRun:
 
         payload = client.get("/api/artifacts").json()
         listed = {i["name"] for g in payload["groups"] for i in g["items"]}
-        assert listed == {"yeni.md", "eski.md"}
-        # Kosusuz grup EN SONDA ve sira numarasi yok: arayuz "#null" yazmasin.
-        assert payload["groups"][-1]["seq"] is None
-        # Sayi bilgi olarak DONMEYE devam eder.
-        assert payload["orphans"] == 1
+        assert listed == {"yeni.md"}
+        assert all(g["seq"] is not None for g in payload["groups"])
+        assert payload["hidden"] == 1
 
     def test_the_screen_total_matches_the_badge(self, client, settings, state_of):
         """Rozet ile ekranin sayisi AYNI olmali.
 
         Bir sayinin iki yerde iki farkli deger gostermesi, otekine
         ulasmanin yolu olsa bile yanlistir -- kullanici once "bozuk" der.
+        Eleme kurali geldiginde asil risk budur: sayan ve listeleyen ayni
+        kurali kullanmazsa hata aynen geri gelir.
         """
         run_id = self._run(state_of)
         self._artifact(settings, state_of, "yeni.md", run_id=run_id)
@@ -2425,7 +2508,7 @@ class TestArtifactsByRun:
 
         ekran = client.get("/api/artifacts").json()["total"]
         rozet = client.get("/api/overview").json()["counts"]["artifacts"]
-        assert ekran == rozet == 2
+        assert ekran == rozet == 1
 
     def test_rewriting_an_artifact_moves_it_to_the_new_run(self, client, settings, state_of):
         """Ayni ad tekrar uretilirse cikti son ureten kosunun urunudur."""
@@ -3523,9 +3606,13 @@ class TestArtifactsCarryTheirWorkflowNumber:
         assert grup["workflow_seq"] == akis["seq"]
         assert grup["workflow_id"] == akis["id"]
 
-    def test_a_run_without_a_workflow_gets_no_number(self, client, state_of, settings):
-        """Eski kayitlarda `workflow_id` bos. Uydurulmus bir numara,
-        olmayan bir akisa goturur."""
+    def test_a_run_without_a_workflow_hides_its_artifacts(
+        self, client, state_of, settings
+    ):
+        """Eski kayitlarda `workflow_id` bos ve uydurulmus bir numara
+        olmayan bir akisa goturur. Once numarasiz gosteriliyordu; sahibi
+        "is akisi numarasi olmayan dosyalar gozukmesin" dedi, artik satir
+        hic cizilmiyor -- ama SAYILIYOR."""
         run_id = "ddddeeeeffff"
         state_of.start_run(run_id, goal="Eski", phases=["mockup"])
         state_of._conn.execute(
@@ -3536,14 +3623,13 @@ class TestArtifactsCarryTheirWorkflowNumber:
         yol.parent.mkdir(parents=True, exist_ok=True)
         yol.write_text("eski", encoding="utf-8")
         state_of.add_artifact(
-            Artifact(name="eski.md", kind="report", path=str(yol), run_id=run_id)
+            Artifact(name="eski.md", kind="report", path=str(yol), run_id=run_id),
+            blob=b"eski",
         )
 
-        grup = next(
-            g for g in client.get("/api/artifacts").json()["groups"]
-            if g["run_id"] == run_id
-        )
-        assert grup["workflow_seq"] is None
+        veri = client.get("/api/artifacts").json()
+        assert not any(g["run_id"] == run_id for g in veri["groups"])
+        assert veri["hidden"] == 1
 
     def test_the_interface_prints_it(self):
         js = self._asset("app.js")
@@ -4437,18 +4523,21 @@ class TestRayRozetiEkraniSoyler:
         yol.mkdir(parents=True, exist_ok=True)
         durum = state_of
 
-        kosu = "k1"
-        durum.start_run(kosu, goal="h", phases=["design"])
-        for ad, rid in (("baglı.md", kosu), ("baglisiz.md", "")):
+        # Biri gorunurluk kuralini saglar, oteki saglamaz. Onemli olan
+        # kac tane gorundugu degil, IKI SAYININ AYNI olmasi: eleme kurali
+        # geldiginde bu esitligin kirilmasi en olasi hatadir.
+        kosu = _kosu(durum, "h")
+        for ad, rid in (("bagli.md", kosu), ("baglisiz.md", "")):
             (yol / ad).write_text("# x\n", encoding="utf-8")
             durum.add_artifact(
                 Artifact(name=ad, kind="report", path=str(yol / ad), summary=""),
                 run_id=rid,
+                blob=b"# x\n",
             )
 
         rozet = client.get("/api/overview").json()["counts"]["artifacts"]
         ekran = client.get("/api/artifacts").json()["total"]
-        assert rozet == ekran == 2, (
+        assert rozet == ekran == 1, (
             f"ray {rozet} diyor, ekran {ekran} gosteriyor"
         )
 

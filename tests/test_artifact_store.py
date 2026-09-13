@@ -47,8 +47,8 @@ def _ham(db: Path, *sql: str):
         conn.close()
 
 
-def _cikti(name: str, yol: Path) -> Artifact:
-    return Artifact(name=name, kind="report", path=str(yol))
+def _cikti(name: str, yol: Path, *, kind: str = "report") -> Artifact:
+    return Artifact(name=name, kind=kind, path=str(yol))
 
 
 class _Casus:
@@ -548,6 +548,53 @@ class TestGeriDoldurma:
         assert durum.backfill_artifacts() == 1
         bilgi = durum.artifact_info("buyuk.bin")
         assert (bilgi.stored, bilgi.blob_state, bilgi.bytes) == (True, "stored", 2000)
+        durum.close()
+
+    def test_a_package_is_recovered_from_the_deliveries_dir(self, tmp_path):
+        """Paketler `artifacts/` altinda degil `teslimat/` altinda durur.
+
+        OLCULDU (bu depo): calisma alani baska bir dizine tasinmis ve
+        on bir ciktinin kayitli mutlak yolunun hicbiri tutmuyordu. Ad uzerinden yalnizca `artifacts/` denendigi icin sekiz
+        belge kurtarildi ama UC teslimat zip'i -- dosyalar `teslimat/`
+        altinda DURURKEN -- "yok" isaretlendi ve ekranda indirilemez
+        gorundu."""
+        db = tmp_path / ".deerx" / "deerx.db"
+        (tmp_path / ".deerx" / "artifacts").mkdir(parents=True)
+        teslimat = tmp_path / ".deerx" / "teslimat"
+        teslimat.mkdir(parents=True)
+        (teslimat / "demo-20260828.zip").write_bytes(b"PKpaket")
+        bayat = tmp_path / "eski-konum" / ".deerx" / "teslimat" / "demo-20260828.zip"
+
+        durum = ProjectState(db)
+        durum.add_artifact(_cikti("demo-20260828.zip", bayat, kind="package"))
+        durum.close()
+
+        durum = ProjectState(db)
+        bilgi = durum.artifact_info("demo-20260828.zip")
+        assert (bilgi.stored, bilgi.blob_state) == (True, "stored")
+        assert durum.artifact_bytes(bilgi) == b"PKpaket"
+        durum.close()
+
+    def test_a_row_marked_missing_is_retried_by_the_explicit_backfill(self, tmp_path):
+        """'missing' bir karardir, bir kader degil: dosya geri gelmis ya da
+        aday listesi genislemis olabilir. Acik komut "diski simdi yeniden
+        tara" demektir."""
+        db = tmp_path / ".deerx" / "deerx.db"
+        dizin = tmp_path / ".deerx" / "artifacts"
+        dizin.mkdir(parents=True)
+        durum = ProjectState(db)
+        durum.add_artifact(_cikti("sonra-gelen.md", dizin / "sonra-gelen.md"))
+        durum.close()
+
+        durum = ProjectState(db)
+        assert durum.artifact_info("sonra-gelen.md").blob_state == "missing"
+        durum.close()
+
+        (dizin / "sonra-gelen.md").write_bytes(b"# geri geldi\n")
+        durum = ProjectState(db)
+        assert durum.backfill_artifacts() == 1
+        bilgi = durum.artifact_info("sonra-gelen.md")
+        assert (bilgi.stored, bilgi.blob_state) == (True, "stored")
         durum.close()
 
     def test_a_legacy_praxis_path_is_recovered_from_the_artifacts_dir(self, tmp_path):

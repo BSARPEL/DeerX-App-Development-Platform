@@ -335,12 +335,19 @@ class TestRunIdentity:
 
     def test_artifact_groups_carry_the_title(self, client, settings):
         project = client.app.state.deerx.orchestrator.state
-        seq = project.start_run("run-abc", goal="hedef", title="T-002 · Rapor")
+        # Is akisi da baglanir: Ciktilar ekrani akis numarasi olmayani
+        # gizliyor ve akissiz kurulan bir kosunun ciktisi listeye hic
+        # girmiyor -- test kendi kurdugu grubu arayamazdi.
+        akis = project.workflow_for_goal("hedef")
+        seq = project.start_run(
+            "run-abc", goal="hedef", title="T-002 · Rapor", workflow_id=akis["id"]
+        )
         assert seq >= 1
         path = settings.artifacts_dir / "rapor.md"
         path.write_text("# rapor", encoding="utf-8")
         project.add_artifact(
-            Artifact(name="rapor.md", kind="report", path=str(path), run_id="run-abc")
+            Artifact(name="rapor.md", kind="report", path=str(path), run_id="run-abc"),
+            blob=b"# rapor",
         )
         groups = client.get("/api/artifacts").json()["groups"]
         assert any(g["title"] == "T-002 · Rapor" for g in groups), groups

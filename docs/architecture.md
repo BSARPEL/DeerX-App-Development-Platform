@@ -13,6 +13,8 @@ src/deerx/
 ├── process.py           process-tree kill, spawn flags, child environment
 ├── services.py          background processes bound to the run
 ├── sandbox.py           optional container the agent's commands run in
+├── history.py           the user's other projects, read-only: the one place that
+│                        opens another project's database (mode=ro, no migration)
 │
 ├── llm/                 provider-independent model layer
 │   ├── base.py            LLMClient contract, neutral types, usage ledger
@@ -29,7 +31,7 @@ src/deerx/
 │   ├── retriever.py       RRF fusion + MMR diversification
 │   └── knowledge.py       the single entry point
 │
-├── tools/               41 agent tools
+├── tools/               43 agent tools
 │   ├── base.py            Tool contract, registry, approval gate, path confinement
 │   ├── filesystem.py      read/write/edit/search, confined to the workspace
 │   ├── shell.py           deny list + allow list + approval
@@ -194,6 +196,7 @@ The project memory in `.deerx/deerx.db`:
 | `tasks` | `T-nnn`, lane, dependencies, files, acceptance criterion, plan |
 | `plans` | Named task groups, one active |
 | `artifacts` | Name, kind, path, summary, producing phase and run |
+| `workflow_chat` | One conversation per workflow; the advisor's own memory, and what `search_history` reads in your other projects |
 | `artifact_blobs` | The bytes themselves, with size, sha256 and media type; written and read 4 MB at a time so a 250 MB package never sits in memory |
 | `phases` · `runs` · `run_steps` | Phase state, run history, per-step detail |
 

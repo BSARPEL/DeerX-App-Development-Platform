@@ -3,7 +3,7 @@
 [← Documentation](README.md) · [Türkçe](tr/tools.md)
 
 Agents do not answer in free text — they act through tools, and their findings
-are recorded as structured data. There are 41 tools; each agent role gets a
+are recorded as structured data. There are 43 tools; each agent role gets a
 narrow subset.
 
 ## The tool sets
@@ -309,6 +309,26 @@ the wrong one.
 It can also call the ordinary recording tools (`record_requirements`,
 `record_gaps`, `record_decisions`, `record_questions`, `record_tasks`) and
 `save_artifact`. Those writes are reversible and they are audited.
+
+Two more belong to this conversation alone — they reach your **other**
+projects:
+
+| Tool | What it does |
+|---|---|
+| `list_project_history` | Your other projects: goal, how many workflows, how many chat lines |
+| `search_history` | Searches those projects for decisions, past workflows, old conversations and artifacts |
+
+A short digest of that history is in the advisor's context already, so it
+knows what is worth asking about; these tools fetch the detail. Putting all
+of it in every message would pile a hundred screens of old conversation on
+top of the actual question.
+
+The reading is read-only (`mode=ro` + `query_only`), runs no schema
+migration and starts no project runtime — looking at history cannot disturb
+a project someone else is working in. The scope comes from the caller, the
+same rule that decides which projects you see; the model cannot widen it. A
+project that cannot be read is named in the answer rather than skipped, so
+"nothing found" is never confused with "could not look".
 
 ## See also
 

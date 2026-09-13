@@ -12,6 +12,8 @@ src/deerx/
 ├── logging.py           olay günlüğü, konsol, glifler
 ├── process.py           süreç ağacı öldürme, spawn bayrakları, alt süreç ortamı
 ├── sandbox.py           ajanin komutlarinin kostugu istege bagli konteyner
+├── history.py           kullanicinin diger projeleri, salt okunur: baska bir
+│                        projenin veritabanini acan TEK yer (mode=ro, goc yok)
 ├── services.py          koşuya bağlı arka plan süreçleri
 │
 ├── llm/                 sağlayıcıdan bağımsız model katmanı
@@ -192,6 +194,7 @@ paylaşır ve bir test aynı fazları kapsadıklarını doğrular. Bkz.
 | `tasks` | `T-nnn`, şerit, bağımlılıklar, dosyalar, kabul ölçütü, plan |
 | `plans` | Adlandırılmış görev grupları, biri etkin |
 | `artifacts` | Ad, tür, yol, özet, üreten faz ve koşu |
+| `workflow_chat` | İş akışı başına bir konuşma; danışmanın kendi hafızası ve `search_history`'nin diğer projelerinizde okuduğu şey |
 | `artifact_blobs` | Baytların kendisi; boyut, sha256 ve ortam türü. Yazma ve okuma 4 MB'lik parçalarla, 250 MB'lik bir paket hiç belleğe alınmasın diye |
 | `phases` · `runs` · `run_steps` | Faz durumu, koşu geçmişi, adım ayrıntısı |
 

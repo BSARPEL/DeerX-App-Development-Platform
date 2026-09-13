@@ -186,6 +186,25 @@ olan üç araç (`read_workflow`, `update_workflow`, `resolve_question`) iş
 akışı kimliği almaz — kapsamı çağıran sabitler, modelin yanlış bir sayı
 üretmesi yanlış akışı düzenleyemez.
 
+**Diğer projelerinizi hatırlar.** Her proje kendi SQLite dosyası olduğu için
+danışman eskiden yalnızca açık olanı görüyordu: "geçen seferki gibi yapalım"
+demenin arkasında hiçbir şey yoktu. Artık diğer projelerinizin kısa bir özeti —
+hedefleri ve kayda geçmiş kararları — bağlamında durur; ayrıntı `search_history`
+ve `list_project_history` ile istendiğinde gelir: geçmiş kararlar, eski iş
+akışları, eski konuşmalar, üretilmiş çıktılar.
+
+Bu okuma **salt okunur ve size kapsanmıştır**. Hangi projelerin görüneceğine
+çağıran karar verir — web katmanı, gördüğünüz her şeyle aynı kuralı kullanarak;
+danışman bunu genişletemez. Diğer veritabanları `mode=ro` + `query_only` ile
+açılır, şema göçü koşturulmaz ve hiçbir projenin çalışma ortamı başlatılmaz;
+yani geçmişe bakmak, başkasının üzerinde çalıştığı bir projeyi rahatsız edemez.
+Okunamayan bir proje *adıyla söylenir*, atlanmaz: eksik bir geçmiş, boş bir
+geçmiş gibi görünmemeli.
+
+Bu araçlar yalnızca danışmanda. Bir faz ajanı kendi fazının işini yapar; başka
+bir projenin konuşmasını okumak onun kapsamı değil ve her faza açmak her koşuya
+N dosya okuma maliyeti bindirirdi.
+
 Bir iş akışının ayrıntı görünümünden açın, ya da:
 
 ```bash

@@ -1064,7 +1064,13 @@ class TestCaprazIndirme:
             run_id = ""
             if kosulu:
                 run_id = "k1"
-                durum.start_run(run_id, goal="hedef", phases=["design"], started_by=kim)
+                # Is akisi da baglanir: capraz liste akis numarasi olmayani
+                # gizliyor ve orkestrator her kosuda bunu yapiyor.
+                akis = durum.workflow_for_goal("hedef")
+                durum.start_run(
+                    run_id, goal="hedef", phases=["design"],
+                    started_by=kim, workflow_id=akis["id"],
+                )
                 durum.finish_run(run_id, status="done")
             durum.add_artifact(
                 Artifact(name=f"{ad}.md", kind="report", path=str(kok / f"{ad}.md")),
@@ -1130,23 +1136,24 @@ class TestCaprazIndirme:
         cevap = sunucu.get(f"/api/activity/artifacts/{pid}/delta.md/download")
         assert cevap.status_code == 404
 
-    def test_a_runless_artifact_is_only_visible_to_the_all_scope(self, sunucu, tmp_path):
-        """Kosusuz cikti kimseye atfedilemez: `me` kipinde ne listede ne
-        indirmede gorunur, `all` kipinde ikisinde de gorunur."""
+    def test_a_runless_artifact_is_hidden_in_every_scope(self, sunucu, tmp_path):
+        """Kosusuz ciktinin is akisi numarasi olamaz; hicbir kipte
+        gorunmez.
+
+        Once `all` kipinde gosteriliyordu ("kim baslatti" cevapsizken
+        kimseye atfetmemek icin). Sahibinin karari onu da kapsiyor: "is
+        akisi numarasi olmayan dosyalar gozukmesin". Kural iki kipte de
+        ayni, yoksa ayni cikti bir kipte var bir kipte yok olurdu.
+        """
         pid, _db = self._proje(sunucu, tmp_path, "epsilon", kosulu=False)
 
-        benim = sunucu.get("/api/activity/artifacts").json()
-        assert "epsilon" not in [p["name"] for p in benim["projects"]]
-        assert sunucu.get(
-            f"/api/activity/artifacts/{pid}/epsilon.md/download"
-        ).status_code == 404
-
-        herkes = sunucu.get("/api/activity/artifacts?who=all").json()
-        proje = [p for p in herkes["projects"] if p["name"] == "epsilon"][0]
-        assert proje["runs"][0]["seq"] is None
-        assert sunucu.get(
-            f"/api/activity/artifacts/{pid}/epsilon.md/download?who=all"
-        ).status_code == 200
+        for kapsam in ("", "?who=all"):
+            veri = sunucu.get(f"/api/activity/artifacts{kapsam}").json()
+            assert "epsilon" not in [p["name"] for p in veri["projects"]], kapsam
+            ayrac = "&" if kapsam else "?"
+            assert sunucu.get(
+                f"/api/activity/artifacts/{pid}/epsilon.md/download{kapsam}{ayrac}x=1"
+            ).status_code == 404, kapsam
 
     def test_someone_elses_artifact_is_not_downloadable_by_name(self, sunucu, tmp_path):
         """Listenin gostermedigi bir ciktiyi adres tahmin ederek almak
@@ -1161,10 +1168,14 @@ class TestCaprazIndirme:
             f"/api/activity/artifacts/{pid}/zeta.md/download"
         ).status_code == 404, "baskasinin kosusundaki cikti adla indirildi"
 
-    def test_an_old_database_is_listed_but_not_downloadable(self, sunucu, tmp_path):
-        """`artifact_blobs` tablosu OLMAYAN bir projede liste 200 doner,
-        cikti `stored: false` gorunur, indirme 404 der ve tablo ORTAYA
-        CIKMAZ -- tarama gibi indirme de goc kosturmaz."""
+    def test_an_old_database_yields_nothing_and_is_not_migrated(self, sunucu, tmp_path):
+        """`artifact_blobs` tablosu OLMAYAN bir projede alinabilir cikti
+        yoktur: liste 200 doner ama o proje hic gorunmez, indirme 404 der
+        ve tablo ORTAYA CIKMAZ -- tarama gibi indirme de goc kosturmaz.
+
+        Tablonun yoklugu bir hata degil bir cevap: capraz uc baska bir
+        projenin diskine dokunmuyor, dolayisiyla "belki diskte vardir"
+        diyemez."""
         import sqlite3
 
         kok = tmp_path / "eski"
@@ -1202,10 +1213,8 @@ class TestCaprazIndirme:
         pid = cevap.json()["project"]["id"]
 
         veri = sunucu.get("/api/activity/artifacts").json()
-        oge = [p for p in veri["projects"] if p["name"] == "eski"][0]["runs"][0]["items"][0]
-        assert oge["stored"] is False
-        assert oge["bytes"] == 0
-        assert oge["download"] == "", "saklanmamis cikti icin indirme adresi verilmis"
+        assert "eski" not in [p["name"] for p in veri["projects"]]
+        assert veri["unreadable"] == 0, "eski sema okunamadi sayildi"
 
         assert sunucu.get(
             f"/api/activity/artifacts/{pid}/eski.md/download"

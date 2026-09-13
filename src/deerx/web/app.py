@@ -12,7 +12,6 @@ Varsayilan olarak yalnizca 127.0.0.1 dinlenir. Disari acmak icin acik bir
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import os
 import shutil
@@ -39,9 +38,7 @@ from starlette.staticfiles import StaticFiles
 
 from ..config import (
     CONFIG_FILENAME,
-    DATA_DIRNAME,
     DEFAULT_PORT,
-    LEGACY_DATA_DIRNAME,
     Settings,
     browse_host,
     load_settings,
@@ -50,6 +47,7 @@ from ..config import (
     save_settings,
 )
 from ..errors import ConfigError, DeerXError
+from ..history import UserHistory, project_db, read_only, scan_project, table_columns
 from ..i18n import set_language, t
 from ..logging import EventLog, get_logger
 from ..pipeline import Orchestrator, Phase, Status
@@ -572,45 +570,15 @@ _KOSU_SUTUNLARI = (
 )
 
 
-def _proje_db(yol: str | Path) -> Path | None:
-    """Projenin veri dosyasi; yoksa None.
-
-    `.praxis` -> `.deerx` yeniden adlandirmasi YALNIZCA `load_settings`
-    icinde kosuyor ve o yol ayar YAZAR. Tarama oraya girmez: eski adi da
-    okur, tasimaz.
-    """
-    kok = Path(yol)
-    yeni = kok / DATA_DIRNAME / "deerx.db"
-    if yeni.is_file():
-        return yeni
-    eski = kok / LEGACY_DATA_DIRNAME / "praxis.db"
-    return eski if eski.is_file() else None
-
-
-def _salt_okunur(db: Path) -> sqlite3.Connection:
-    """Proje veritabanini SALT OKUNUR acar.
-
-    `mode=ro` yazmayi yasaklar; `query_only` ikinci kilit -- ileride biri
-    URI'yi sadelestirirse yazmanin sessizce geri gelmemesi icin.
-
-    `as_uri()` mutlak yol ister ve Windows surucu harfini dogru kodlar.
-    WAL guvenli: okuyucu yaziciyi bloklamaz ve yarim islem gormez.
-    """
-    conn = sqlite3.connect(f"{db.as_uri()}?mode=ro", uri=True, timeout=2.0)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA query_only=ON")
-    return conn
-
-
-def _tabloda_var(conn: sqlite3.Connection, tablo: str) -> set[str]:
-    """Tablonun sutun adlari; tablo yoksa bos kume.
-
-    Hata YUTULMAZ. Bozuk bir dosyada `PRAGMA` de duser ve onu burada
-    yakalamak projeyi "bos ama saglam" gibi gosterirdi -- oysa okunamiyor
-    olmasi kullanicinin bilmesi gereken sey. Siniflandirmayi
-    `_proje_tara` yapiyor.
-    """
-    return {r["name"] for r in conn.execute(f"PRAGMA table_info({tablo})")}
+# Capraz okuma ilkeleri `deerx.history` modulunde: salt okunur acilis
+# (`mode=ro` + `query_only`), goc KOSTURMAMA ve "okunamayan proje listeden
+# atilmaz" karari TEK YERDE durur. Burada yalnizca yerel adlar kalir --
+# iki kopya olsaydi biri otekinden sessizce ayrilirdi ve ayrilan taraf
+# YAZAN taraf olurdu.
+_proje_db = project_db
+_salt_okunur = read_only
+_tabloda_var = table_columns
+_proje_tara = scan_project
 
 
 def _blob_akisi(db: Path, artifact_id: int, *, chunk: int | None = None) -> Iterator[bytes]:
@@ -704,25 +672,6 @@ def _dosya_akisi(fp: Any, boy: int = 1024 * 1024) -> Iterator[bytes]:
             yield parca
     finally:
         fp.close()
-
-
-def _proje_tara(db: Path, okuyucu: Callable[..., Any]) -> tuple[Any, str]:
-    """Tek projeyi acar, `okuyucu`ya verir, kapatir; (sonuc, durum) doner.
-
-    Hicbir hata yaniti dusurmez ve proje LISTEDEN ATILMAZ: sessizce
-    atlamak, kullanicinin bildigi bir projeyi yok gostermek ve toplami
-    sessizce yanlis yapmak olurdu.
-    """
-    conn = None
-    try:
-        conn = _salt_okunur(db)
-        return okuyucu(conn), "ok"
-    except (sqlite3.DatabaseError, OSError):
-        return None, "unreadable"
-    finally:
-        if conn is not None:
-            with contextlib.suppress(sqlite3.Error):
-                conn.close()
 
 
 def settings_snapshot(
@@ -1495,6 +1444,12 @@ def build_app(settings: Settings) -> Starlette:
             # bir veritabani). JOIN'i kosulsuz yazmak "no such table" ile
             # butun projeyi "okunamadi" yapardi; yoklugu bir sutun degeri.
             var_blob = bool(_tabloda_var(conn, "artifact_blobs"))
+            # Blob tablosu yoksa bu projede ALINABILIR cikti da yok:
+            # gorunurluk kurali baytlari sart kosuyor. Bos donmek, olmayan
+            # bir tabloya JOIN atip butun projeyi "okunamadi" yapmaktan
+            # dogru.
+            if not var_blob or not _tabloda_var(conn, "workflows"):
+                return {"gruplar": [], "ozet": None, "toplam": 0}
             blob_secim = (
                 " b.bytes AS blob_bytes, b.sha256 AS blob_sha256"
                 if var_blob else " NULL AS blob_bytes, '' AS blob_sha256"
@@ -1503,20 +1458,26 @@ def build_app(settings: Settings) -> Starlette:
                 " LEFT JOIN artifact_blobs b ON b.artifact_id = a.id" if var_blob else ""
             )
 
-            # Kosusuz ciktilar YALNIZCA `all` kipinde gorunur ve orada
-            # LEFT JOIN ile gelir: "kim baslatti" sorusunun cevabi yokken
-            # onlari bir kisiye atfetmek uydurma olurdu. Adli kipte INNER
-            # JOIN + `started_by` suzgeci kalir.
-            join = "LEFT JOIN" if hepsi else "JOIN"
-            kosul = "" if hepsi else " WHERE r.started_by = ?"
+            # Gorunurluk kurali proje ici listeyle AYNI: cikti bir IS
+            # AKISINA bagli olmali (INNER JOIN runs + workflows) ve
+            # baytlarina ulasilabilmeli. Capraz listede "alinabilir"
+            # yalnizca blob demektir -- baska bir projenin diskine
+            # dokunmuyoruz ve orada dosya var mi bilemeyiz.
+            #
+            # Bu ayni zamanda kosusuz ciktilar sorusunu da kapatir: akisi
+            # olmayan satir hicbir kipte gorunmez, dolayisiyla "kim
+            # baslatti" cevapsizken kimseye atfedilmis olmaz.
+            kosul = "" if hepsi else " AND r.started_by = ?"
             param = () if hepsi else (kim,)
             satirlar = conn.execute(
                 "SELECT a.id AS artifact_id, a.name, a.kind, a.phase, a.run_id,"
                 " r.seq, r.title, r.title_key, r.title_args, r.goal,"
                 " r.started_at, " + ("r.started_by" if adli else "'' AS started_by") +
                 "," + blob_secim +
-                f" FROM artifacts a {join} runs r ON r.id = a.run_id" + blob_join +
-                kosul + " ORDER BY r.started_at DESC, a.name",
+                " FROM artifacts a JOIN runs r ON r.id = a.run_id"
+                " JOIN workflows w ON w.id = r.workflow_id" + blob_join +
+                " WHERE b.artifact_id IS NOT NULL" + kosul +
+                " ORDER BY r.started_at DESC, a.name",
                 param,
             ).fetchall()
 
@@ -1619,11 +1580,17 @@ def build_app(settings: Settings) -> Starlette:
                 if not _tabloda_var(conn, "artifact_blobs"):
                     return None
                 adli = "started_by" in _tabloda_var(conn, "runs")
+                # Gorunurluk kurali LISTEYLE ayni: is akisina bagli ve
+                # blob'u olan. Aksi halde listede hic gorunmeyen bir cikti
+                # adresi tahmin edilerek indirilebilirdi -- eleme kurali
+                # yalnizca cizime uygulanmis, yetkiye uygulanmamis olurdu.
                 row = conn.execute(
                     "SELECT b.artifact_id, b.bytes, b.sha256, b.media_type, "
                     + ("r.started_by" if adli else "'' AS started_by") +
                     " FROM artifacts a JOIN artifact_blobs b ON b.artifact_id = a.id"
-                    " LEFT JOIN runs r ON r.id = a.run_id WHERE a.name = ?",
+                    " JOIN runs r ON r.id = a.run_id"
+                    " JOIN workflows w ON w.id = r.workflow_id"
+                    " WHERE a.name = ?",
                     (name,),
                 ).fetchone()
                 if row is None:
@@ -3099,16 +3066,18 @@ def build_app(settings: Settings) -> Starlette:
     async def artifacts(request: Request) -> Response:
         """Ciktilar, uretildikleri kosuya gore gruplanmis.
 
-        Kosusu bilinmeyen ciktilar da LISTELENIR, kendi grubunda. Once
-        gizleniyorlardi ve gerekcesi "kosusuz bir grup basligi kullaniciya
-        hicbir sey anlatmiyor" idi -- ama o baslik zaten var
-        (`artifacts.beforeRuns`) ve gizlemenin bedeli olculdu: rozet 11
-        derken ekranda 1 cikti goruluyor, kullanici bunu ariza saniyordu.
-        Kosede duran "10 ciktiyi da goster" dugmesi bunu ONLEMEDI.
+        Iki kosulu saglayan gorunur: baytlarina bir yerden ULASILABILIR
+        olmali ve bagli oldugu kosunun bir IS AKISI numarasi olmali.
+        Alinamayan bir satir yalnizca bir addir ve tiklayinca 404 verir;
+        numarasi olmayan bir cikti "bu nereden cikti" sorusunu
+        cevaplayamaz.
 
-        Bir sayinin iki yerde iki farkli deger gostermesi, otekine
-        ulasmanin yolu olsa bile yanlistir. `orphans` alani DONMEYE devam
-        eder: kac tanesinin kosusu bilinmiyor, bilgi olarak degerli.
+        Gizlemenin bir bedeli var ve bu depo onu bir kez odedi: kosusuz
+        ciktilar gizlendiginde rozet "11" derken ekranda tek bir cikti
+        goruluyordu ve sahibi bunu ariza olarak bildirdi. Bu yuzden sayan
+        ve listeleyen AYNI kurali kullanir (`visible_artifact_infos`) ve
+        `hidden` alani kac satirin elendigini SOYLER -- gizlemek sessizce
+        yok saymak degildir.
         """
         denied = _require_role(request, "viewer")
         if denied is not None:
@@ -3122,27 +3091,20 @@ def build_app(settings: Settings) -> Starlette:
             # aksi halde her cikti icin ayri bir sorgu giderdi.
             akislar = {w["id"]: w["seq"] for w in project.list_workflows(200)}
             groups: dict[str, dict[str, Any]] = {}
-            orphans = 0
-            # `check_disk=False` bilerek: baytlari veritabaninda duran bir
-            # cikti icin diske HIC bakilmaz. Eski liste her satirda
-            # `is_file()` + `stat()` kosturuyordu; yuz ciktilik bir projede
-            # iki yuz syscall ve ag surucusunde duran bir calisma alaninda
-            # saniyelerce asili kalan bir ekran demekti. Diske yalnizca
-            # blob'suz kayitlar icin, okuma sirasini tek yerde tutan
-            # `artifact_size` uzerinden inilir.
-            for info in project.list_artifact_infos(check_disk=False):
+            # Gorunurluk kurali TEK YERDE: `visible_artifact_infos` hem
+            # alinabilirligi hem is akisi bagini uygular ve diske yalnizca
+            # blob'u olmayan satirlar icin iner. Elenenler sayilir; sayiyi
+            # ekrana tasimak, gizlemenin sessiz olmamasi icin.
+            gorunur = project.visible_artifact_infos()
+            hidden = project.artifact_count() - len(gorunur)
+            for info in gorunur:
                 boyut = info.bytes if info.stored else project.artifact_size(info)
                 run = runs.get(info.run_id)
-                if run is None:
-                    orphans += 1
-                key = info.run_id if run else ""
                 group = groups.setdefault(
-                    key,
+                    info.run_id,
                     {
-                        "run_id": key,
+                        "run_id": info.run_id,
                         "seq": run["seq"] if run else None,
-                        # Hangi is akisina ait. Eski kayitlarda `workflow_id`
-                        # bos olabilir; o zaman numara da yok, uydurulmaz.
                         "workflow_id": run["workflow_id"] if run else "",
                         "workflow_seq": (
                             akislar.get(run["workflow_id"]) if run else None
@@ -3181,13 +3143,13 @@ def build_app(settings: Settings) -> Starlette:
                     }
                 )
 
-            # En yeni kosu basta; kosusu bilinmeyenler en sonda.
+            # En yeni kosu basta.
             ordered = sorted(
                 groups.values(),
                 key=lambda g: (g["seq"] is None, -(g["seq"] or 0)),
             )
             total = sum(len(g["items"]) for g in ordered)
-            return {"groups": ordered, "total": total, "orphans": orphans}
+            return {"groups": ordered, "total": total, "hidden": hidden}
 
         # Liste bir dizi SQLite sorgusu; olay dongusunu bloklamasin diye
         # is parcaciginda kosar. `ProjectState` baglantiyi is parcacigi
@@ -3498,8 +3460,21 @@ def build_app(settings: Settings) -> Starlette:
 
         import anyio.to_thread
 
+        # Danisman bu kullanicinin ONCEKI projelerini de gorur. Kapsam
+        # BURADA kurulur: `_gorulebilen_projeler` zaten "kullanicinin
+        # gordugu" sorusunun tek cevabi ve orkestrator platform
+        # veritabanini bilmiyor. Yetkiyi orada ikinci kez tanimlamak, iki
+        # yerde iki kural demekti.
+        #
+        # Simdiki proje disarida birakilir: durumu ve sohbeti danismana
+        # zaten tam haliyle gidiyor, ikinci kez kirpilmis olarak koymak
+        # baglami sisirirdi.
+        gecmis = UserHistory(
+            [(p.name, p.slug, p.path) for p in _gorulebilen_projeler(request)],
+            simdiki_slug=state.project.slug,
+        )
         cevap = await anyio.to_thread.run_sync(
-            lambda: state.orchestrator.chat(workflow_id, message)
+            lambda: state.orchestrator.chat(workflow_id, message, history=gecmis)
         )
         _audit(request, "workflow.chat", detail=message[:120])
         return _json(

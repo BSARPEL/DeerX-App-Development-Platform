@@ -90,6 +90,15 @@ class ToolContext:
     # kullanici #3'u konusurken modelin #7'yi degistirmesine kapi acar.
     # Bos dize "is akisi baglami yok" demektir ve o araclar reddeder.
     workflow_id: str = ""
+    # Kullanicinin ONCEKI projeleri; salt okunur (`deerx.history`).
+    # Kapsami CAGIRAN kurar -- web katmani kullanicinin gorebildigi
+    # projeleri verir. Burada "butun projeler" gibi bir kisayol olsaydi
+    # yetki iki yerde iki kez tanimlanmis olurdu.
+    #
+    # `None` "bu baglamda gecmise bakilamaz" demektir ve gecmis araclari
+    # acikca REDDEDER. Sessizce bos donmek, modelin "gecmiste hicbir sey
+    # yok" diye yanlis bir cikarim yapmasina yol acardi.
+    history: Any = None
     # Bu kosunun okuyabilecegi belgeler. `workflow_id` ile ayni gerekce:
     # kapsam CAGIRANDAN gelir, arac argumanindan degil. Modele "hangi
     # belgelere bakayim?" diye sormak, kullanicinin bilerek disarida

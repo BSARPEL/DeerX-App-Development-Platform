@@ -99,6 +99,34 @@ ENGLISH: dict[str, dict[str, str]] = {
         ),
     },
     # ── Bilgi tabani ──────────────────────────────────────────────────── #
+    "search_history": {
+        "": """
+    Searches the user's OTHER projects: decisions that were made, past
+    workflows, old conversations and artifacts that were produced.
+
+    When: the user says "last time", "in the previous project", "we always
+    do it this way"; before picking a technology or a pattern, to see how
+    the same decision was made before; to avoid repeating a mistake.
+
+    What you find comes from OTHER projects: it is the record of a past
+    context, not the truth of this one. Base a suggestion on it, but SAY
+    WHERE it comes from -- "in project X it was done this way".
+    """,
+        "query": "Words to search for; proper nouns (a technology, a "
+                 "project, a decision key) give the best results.",
+        "type": "Search only this type: decision, chat, workflow, artifact.",
+        "limit": "At most this many results (default 12).",
+    },
+    "list_project_history": {
+        "": """
+    Lists the user's other projects: name, goal, how many workflows and how
+    many chat lines.
+
+    Call this first, then go deeper in the project that interests you with
+    `search_history`. "Which projects are there" is answered here; "what was
+    said in them" is answered by the search.
+    """,
+    },
     "search_knowledge": {
         "": """
     Runs a hybrid search (semantic + keyword) over the indexed documents and

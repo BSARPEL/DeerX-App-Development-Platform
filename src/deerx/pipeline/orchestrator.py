@@ -694,8 +694,18 @@ class Orchestrator:
     # ------------------------------------------------------------------ #
     # Is akisi sohbeti
     # ------------------------------------------------------------------ #
-    def chat(self, workflow_id: str, message: str, *, stream: bool = False) -> ChatReply:
+    def chat(
+        self, workflow_id: str, message: str, *, stream: bool = False,
+        history: Any = None,
+    ) -> ChatReply:
         """Bir is akisi hakkinda konusur; istenirse durumunu degistirir.
+
+        `history` kullanicinin ONCEKI projeleridir (`deerx.history`).
+        Kapsamini CAGIRAN kurar: web katmani kullanicinin gorebildigi
+        projeleri verir, CLI ve MCP vermez. Orkestrator hangi projelerin
+        gorulebilecegine karar veremez -- platform veritabanini ve istegi
+        yapan kisiyi bilmiyor, ve yetkiyi burada ikinci kez tanimlamak iki
+        yerde iki kural demek olurdu.
 
         Konusma gecmisi modele BAGLAM METNI olarak verilir, konusma
         gecmisi nesnesi olarak degil. Sebep: gecmisin bicimi saglayiciya
@@ -716,8 +726,13 @@ class Orchestrator:
         self.state.add_chat_message(workflow_id, role="user", content=message)
 
         # Arac kapsami baglamdan gelir; model baska bir is akisina gecemez.
+        # Gecmis de ayni yoldan: kapsami cagiran kurdu, model onu
+        # genisletemez.
         onceki_workflow = self.ctx.workflow_id
+        onceki_gecmis = self.ctx.history
         self.ctx.workflow_id = workflow_id
+        if history is not None:
+            self.ctx.history = history
         kayitci = _RecordingRegistry(self.registry.subset(TOOLSETS["danisman"]))
         try:
             agent = build_agent(
@@ -733,6 +748,10 @@ class Orchestrator:
             result = agent.run(message, context=self._chat_context(workflow_id))
         finally:
             self.ctx.workflow_id = onceki_workflow
+            # Gecmis SOHBETE ozgu: kosu baglami onu tasimamali. Birakilsaydi
+            # bir sonraki kosunun faz ajanlari baska projelerin sohbetine
+            # erisebilirdi -- kapsami cagiran kurdu, o kapsam burada biter.
+            self.ctx.history = onceki_gecmis
 
         metin = (result.text or "").strip() or t("chat.no_reply")
         cevap = ChatReply(
@@ -748,7 +767,7 @@ class Orchestrator:
         return cevap
 
     def _chat_context(self, workflow_id: str) -> str:
-        """Danismana devredilen baglam: is akisinin durumu + konusma."""
+        """Danismana devredilen baglam: is akisi + konusma + gecmis ozeti."""
         parcalar = [self.state.workflow_context(workflow_id)]
         gecmis = self.state.chat_history(workflow_id)[:-1]  # son mesaj gorevin kendisi
         if gecmis:
@@ -760,6 +779,25 @@ class Orchestrator:
                     parcalar.append(
                         "  _(degistirdiklerin: " + "; ".join(mesaj["changes"]) + ")_"
                     )
+
+        # Kullanicinin ONCEKI projeleri. Ozet KISA tutulur: hangi projeler,
+        # ne kararlar. Gecmisin tamamini her mesaja koymak, asil sorunun
+        # uzerine yuz ekran eski konusma yigmak olurdu. Derinlik modelin
+        # istegiyle `search_history` araciyla gelir -- ozet ona neyin
+        # aranmaya deger oldugunu gosterir.
+        ozet = self.ctx.history.summary() if self.ctx.history is not None else ""
+        if ozet:
+            parcalar += [
+                "",
+                "## Gecmis projeleriniz",
+                "",
+                "Asagidakiler BASKA projelerden; bu projenin gercegi degil,"
+                " gecmis bir baglamin kaydidir. Ayrintisi icin"
+                " `search_history` kullanin ve bir seye dayanarak oneri"
+                " yaparken KAYNAGINI soyleyin.",
+                "",
+                ozet,
+            ]
         return "\n".join(parcalar)
 
     # ------------------------------------------------------------------ #

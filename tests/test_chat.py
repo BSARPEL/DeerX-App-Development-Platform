@@ -335,3 +335,113 @@ class TestIsAkisiBaglami:
     def test_an_unknown_workflow_gives_empty_context(self, sohbet):
         orch, _, _ = sohbet
         assert orch.state.workflow_context("yok") == ""
+
+
+class TestDanismanGecmisiBilir:
+    """Danisman kullanicinin ONCEKI projelerini de gormeli.
+
+    Bugune kadar yalnizca acik projeyi goruyordu: "gecen seferki gibi
+    yapalim" diyen bir kullanici karsisinda elinde hicbir sey yoktu. Her
+    proje ayri bir SQLite dosyasi ve danismanin oralara bakan bir yolu
+    yoktu.
+    """
+
+    @staticmethod
+    def _onceki_proje(tmp_path, ad="Saha servis"):
+        from deerx.history import UserHistory
+        from deerx.pipeline.models import Decision
+        from deerx.pipeline.state import ProjectState
+
+        kok = tmp_path / "onceki"
+        (kok / ".deerx").mkdir(parents=True, exist_ok=True)
+        durum = ProjectState(kok / ".deerx" / "deerx.db")
+        try:
+            durum.set_meta("goal", ad)
+            akis = durum.workflow_for_goal(ad)
+            durum.add_decision(Decision(
+                key="ADR-014", title="Veritabani secimi",
+                choice="PostgreSQL 18", rationale="Satir duzeyi guvenlik",
+            ))
+            durum.add_chat_message(
+                akis["id"], role="user",
+                content="Bildirimleri Firebase ile gonderelim mi?",
+            )
+        finally:
+            durum.close()
+        return UserHistory([(ad, "onceki", kok)])
+
+    def test_the_summary_reaches_the_model(self, sohbet, tmp_path):
+        """Ozet HER mesajda baglamda durur: model neyin aranmaya deger
+        oldugunu gormeden `search_history` cagirmayi dusunemez."""
+        orch, workflow, kur = sohbet
+        istemci = kur([yanit(text="Anladim.")])
+
+        orch.chat(
+            workflow["id"], "Veritabani ne olsun?",
+            history=self._onceki_proje(tmp_path),
+        )
+
+        gonderilen = "\n".join(
+            str(m) for cagri in istemci.calls for m in cagri.get("messages", [])
+        )
+        assert "Saha servis" in gonderilen, "gecmis ozeti modele gitmedi"
+        assert "PostgreSQL 18" in gonderilen, "onceki karar ozette yok"
+        assert "search_history" in gonderilen, "derinlige giden yol soylenmiyor"
+
+    def test_the_model_can_search_the_past(self, sohbet, tmp_path):
+        """Ozet kisa tutuluyor; ayrinti modelin istegiyle geliyor."""
+        orch, workflow, kur = sohbet
+        kur([
+            yanit(calls=[ToolCall(
+                id="c1", name="search_history", arguments={"query": "Firebase"},
+            )]),
+            yanit(text="Onceki projede Firebase konusulmus."),
+        ])
+
+        cevap = orch.chat(
+            workflow["id"], "Bildirim icin ne kullanmistik?",
+            history=self._onceki_proje(tmp_path),
+        )
+        assert cevap.ok, cevap.error
+
+    def test_without_a_history_nothing_is_claimed(self, sohbet):
+        """Gecmis verilmemisse ozet blogu HIC basilmaz: bos bir baslik
+        modele anlamsiz bir bolum gostermek olurdu."""
+        orch, workflow, kur = sohbet
+        istemci = kur([yanit(text="Tamam.")])
+
+        orch.chat(workflow["id"], "Merhaba")
+
+        gonderilen = "\n".join(
+            str(m) for cagri in istemci.calls for m in cagri.get("messages", [])
+        )
+        assert "Gecmis projeleriniz" not in gonderilen
+
+    def test_the_history_does_not_leak_into_later_runs(self, sohbet, tmp_path):
+        """Kapsam SOHBETE ozgu. Birakilsaydi bir sonraki kosunun faz
+        ajanlari baska projelerin sohbetine erisebilirdi."""
+        orch, workflow, kur = sohbet
+        kur([yanit(text="Tamam.")])
+
+        orch.chat(workflow["id"], "Merhaba", history=self._onceki_proje(tmp_path))
+        assert orch.ctx.history is None, "gecmis arac baglaminda kaldi"
+
+    def test_the_current_project_is_not_repeated(self, sohbet, tmp_path):
+        """Acik projenin durumu ve sohbeti zaten TAM haliyle gidiyor;
+        ikinci kez kirpilmis olarak koymak baglami sisirirdi."""
+        from deerx.history import UserHistory
+
+        orch, workflow, kur = sohbet
+        istemci = kur([yanit(text="Tamam.")])
+        kendi_yolu = orch.settings.workspace
+
+        orch.chat(
+            workflow["id"], "Merhaba",
+            history=UserHistory(
+                [("Bu proje", "bu-proje", kendi_yolu)], simdiki_slug="bu-proje"
+            ),
+        )
+        gonderilen = "\n".join(
+            str(m) for cagri in istemci.calls for m in cagri.get("messages", [])
+        )
+        assert "Gecmis projeleriniz" not in gonderilen

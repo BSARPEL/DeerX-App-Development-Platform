@@ -187,6 +187,25 @@ inside this conversation (`read_workflow`, `update_workflow`,
 `resolve_question`) take no workflow id — the caller pins the scope, so a
 wrong number from the model cannot edit the wrong workflow.
 
+**It remembers your other projects.** Each project is its own SQLite file,
+so the advisor used to see only the one you had open: "let's do it like last
+time" had nothing behind it. Now a short digest of your other projects — their
+goals and recorded decisions — sits in its context, and `search_history` /
+`list_project_history` pull the detail on demand: past decisions, earlier
+workflows, old conversations, artifacts that were produced.
+
+That reading is **read-only and scoped to you**. The caller — the web layer —
+decides which projects are visible, using the same rule as everything else you
+see; the advisor cannot widen it. The other databases are opened `mode=ro` with
+`query_only`, no schema migration is run and no project runtime is started, so
+looking at history cannot disturb a project someone else is working in. A
+project that cannot be read is *named*, not skipped: an incomplete history
+should not look like an empty one.
+
+Only the advisor has these tools. A phase agent does the work of its phase;
+reading another project's conversation is not its business, and giving it to
+every phase would put N file reads on every run.
+
 Open it from a workflow's detail view, or:
 
 ```bash

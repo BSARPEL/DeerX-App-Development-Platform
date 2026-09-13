@@ -618,10 +618,18 @@ def package_with_run(
     import uuid
 
     run_id = uuid.uuid4().hex[:12]
+    hedef = goal or state.get_meta("goal", "") or t("pipeline.manual_package")
+    # IS AKISI da baglanir. Orkestrator bunu her kosuda yapiyor, elle
+    # paketleme yapmiyordu: uretilen paket bir kosuya ait oluyor ama
+    # hicbir akisa ait olmuyordu. Ciktilar ekrani is akisi numarasi
+    # olmayani gizlediginden, kullanicinin az once urettigi paket
+    # listeden KAYBOLURDU.
+    akis = state.workflow_for_goal(hedef)
     seq = state.start_run(
         run_id,
-        goal=goal or state.get_meta("goal", "") or t("pipeline.manual_package"),
+        goal=hedef,
         phases=[str(Phase.PACKAGE)],
+        workflow_id=akis["id"],
     )
     state.start_run_step(run_id, Phase.PACKAGE, 0)
     try:
