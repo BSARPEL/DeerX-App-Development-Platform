@@ -31,9 +31,11 @@ the same settings; they do not share a process.
 | **MCP server** | `deerx mcp` / `deerx-mcp` | Another agent (Claude Code, Cline) driving the same project |
 
 A change made in the browser is visible to the CLI on the next command, and the
-other way around. Two **pipeline runs** against the same workspace at once are
-not: the web runner refuses a concurrent run; the MCP server cannot see a run
-started elsewhere. Do not start both.
+other way around. Two **pipeline runs** against the **same project** at once
+are not: that project's runner refuses a concurrent run. Two projects on the
+same server each have their own runtime — that is how two users work at
+once. The MCP server cannot see a run started in the web UI on the same
+workspace. Do not start both against one project.
 
 ## A workspace
 
@@ -61,9 +63,28 @@ Commands resolve the workspace by walking **upwards** for a `deerx.toml`. A
 command run from a parent directory will not find a project nested below it;
 set `DEERX_WORKSPACE` or pass `--workspace` if you are not inside the folder.
 
-Workspaces are independent. Two of them on one machine have two databases, two
-servers and two sets of settings. The folder name in the web sidebar exists so
-you can tell them apart.
+Workspaces are independent. Two of them on one machine have two databases
+and two runtimes. The folder name in the web sidebar exists so you can
+tell them apart. **Accounts are not in the workspace** — they live in
+`$DEERX_HOME/platform.db` (`~/.deerx` by default), so the same person is
+the same account in every project.
+
+## Projects and the platform
+
+A project is a registered directory. Its identity is a row in the
+platform database; its data stays in `<project>/.deerx/deerx.db`. The
+server keeps a runtime per open project, so two people can run two
+projects at once. The same project still refuses a second concurrent
+pipeline run.
+
+Authorization has two layers: account roles (`admin`, `user`) govern the
+platform; project roles (`owner`, `developer`, `viewer`) govern the work
+inside one directory. Mixing them is the mistake the Settings tabs exist
+to prevent.
+
+`deerx user import --from <old-workspace>` copies accounts out of a
+project database that still had them, and only when the platform is
+empty.
 
 ## Four stores of state
 
@@ -164,10 +185,10 @@ budget?" — no amount of reading the specification produces those. Going on
 with a guess leaks the guess into the architecture, then the plan, then the
 code.
 
-When you answer (`deerx answer`, the Overview, the Analysis tab, or the
-advisor), the text is stored as a resolution **and** indexed. Skipping records
-the assumption the same way. Exit code `2` means "a human is needed", not
-"this broke".
+When you answer (`deerx answer`, the Overview, the Records section of a
+workflow, or the advisor), the text is stored as a resolution **and**
+indexed. Skipping records the assumption the same way. Exit code `2` means
+"a human is needed", not "this broke".
 
 ## The advisor
 
@@ -181,9 +202,11 @@ about **one workflow**, and it may change that workflow's records.
 | "Call this workflow the mobile track." | Rename it |
 | "Add a requirement that exports must be CSV." | Record a requirement |
 
-It has no shell, no file-write tools and no browser. A sentence from you
-cannot become a command on the machine. The three tools that exist only
-inside this conversation (`read_workflow`, `update_workflow`,
+It has no shell and no `write_file`. A sentence from you cannot become a
+command on the machine. It **does** search the open web (`web_search`,
+`fetch_url`, `browse_page`) and read your other projects — it cannot write
+a file from what it finds. The three tools that exist only inside this
+conversation (`read_workflow`, `update_workflow`,
 `resolve_question`) take no workflow id — the caller pins the scope, so a
 wrong number from the model cannot edit the wrong workflow.
 
@@ -232,8 +255,9 @@ The sandbox is measured before a run starts, not discovered during one. If it
 cannot be built — Docker not answering, the workspace not mounting — the run
 stops before the model is called and the Environment screen names the cause.
 
-The web **Settings → Isolation** panel writes the same keys for the session
-and rebuilds the container. Persist them in `deerx.toml`.
+The web **Settings → Isolation** panel (platform tab) writes the same keys
+to `<DEERX_HOME>/platform.toml` and rebuilds the container. Secrets typed
+in the form stay in the session.
 
 ## Language
 

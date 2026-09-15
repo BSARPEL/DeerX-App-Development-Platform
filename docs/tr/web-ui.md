@@ -31,20 +31,24 @@ Dar ekranda maliyet üst bardan düşer; Genel bakış'ta zaten kart olarak var.
 
 ## Sol ray
 
-Bölümler, ve en altta hangi ekranda olursanız olun değişmeyen üç şey: onay modu,
-kullanılan iki model, ve **hangi çalışma alanındasınız** — klasörün adı.
+Dokuz madde, iki grup. **Proje** grubu Genel bakış, Geliştirme, İş akışı,
+Bilgi tabanı, Çıktılar, Canlı akış, Ortam. **Platform** grubu Projeler ve
+Ayarlar. İçeriğin üstündeki serit rayla aynı kapsamı, aynı sözcüklerle
+adlandırır — "bu ekran neye ait" sorusunu üç farklı kelimeyle cevaplamak,
+cevapı öğrenilecek bir şey haline getirirdi.
 
-Sonuncusu şunun için: aynı makinede açık iki DeerX penceresi birbirinin aynı
-görünüyor. Yol Ayarlar ekranında bir satırdı, yani doğrulamak için **Başlat**'a
-basmak üzere olduğunuz ekrandan çıkmak gerekiyordu.
+Plan ve Analiz birer ray maddesiydi. Şimdi bir **iş akışının ayrıntısında**
+dururlar, çünkü orada yapabileceğiniz hiçbir şey bir akıştan bağımsız
+değildi. Eski `#/p/<slug>/plan` ve `#/p/<slug>/analysis` bağlantıları hâlâ
+oraya iner.
 
-Yazan tek şey klasörün adı. İki çalışma alanını ayırt eden şey zaten o; tam yol
-iki satır yer kaplıyor ve arayüzün her ekran görüntüsüne bir ev dizini
-sokuyordu. Yol düğmenin ipucunda duruyor, tıklayınca panoya kopyalanıyor — pano
-kullanılamıyorsa bir bildirimle geri geliyor, yani düğme hiçbir zaman sessizce
-ölü kalmaz.
+En altta: onay modu, kullanılan iki model, ve **hangi projedesiniz** —
+klasörün adı. Aynı makinede açık iki DeerX penceresi aksi halde birbirinin
+aynı görünür. Yazan tek şey klasörün adı; tam yol düğmenin ipucunda,
+tıklayınca panoya kopyalanır. Pano yoksa bir bildirimle geri gelir, yani
+düğme hiçbir zaman sessizce ölü kalmaz.
 
-Dar ekranda rayın dibi, rayın dikey düzeniyle birlikte kalkar; çalışma alanı
+Dar ekranda rayın dibi, rayın dikey düzeniyle birlikte kalkar; proje
 Ayarlar ekranında durmaya devam eder.
 
 ## Genel bakış
@@ -67,8 +71,17 @@ yeni üstte) ve son olaylar.
 **1 · Belge ver.** Şartnameyi sürükleyin. Dosya `docs/` altına iner, hemen
 indekslenir ve modelin gerçekten okuyabileceği belgeler hemen altında
 listelenir — böylece "şartnamemi aldı mı?" sorusu aynı ekranda cevaplanır.
+**docs/ klasörünü indeksle** ikinci kapıdır: işletim sisteminin dosya
+penceresi kilitlendiğinde ya da dosya zaten o klasördeyken.
 
-**2 · Koşu başlat.** Adımları bir listeden seçersiniz; dört aşamaya
+O liste bir **seçimdir**, envanter değil. İşareti kaldırılan belgeler
+indekste durur ama bu koşu onları okumaz. Süzgeç ada bakar; süzgeç
+açıkken *Tümü*, *Görünenler* olur ve yalnızca gördüğünüze dokunur.
+Hiçbirini seçmemek serbesttir ve etiketlenir: ajanlar belge okumadan
+koşar. Bir koşunun kapsamı Bilgi tabanındaki bir devre dışı bırakmayı
+geri alamaz — kapsam daraltır, devre dışı bırakma dışlar.
+
+**2 · İş akışı oluştur.** Adımları bir listeden seçersiniz; dört aşamaya
 gruplanmışlardır (**Anlama · Tasarım · Üretim · Teslim**). Aşama başlığına
 tıklamak o grubun tümünü seçer ya da bırakır.
 
@@ -476,8 +489,11 @@ Dört kural:
 - **Yalıtım da koşu ortasında değişmez**; değişince konteyner yeniden kurulur.
   Docker yayınlanan portları ve kaynak sınırlarını konteyner yaratılırken
   ayırır, yeniden kurmadan hiçbiri etkili olmaz.
-- **Değişiklikler oturuma özeldir.** Kalıcı olmaları için `deerx.toml`
-  dosyasına yazın.
+- **Kaydet diske yazar**, kapsama göre: bu proje → `<proje>/deerx.toml`,
+  platform → `<DEERX_HOME>/platform.toml`, hesabınız →
+  `<DEERX_HOME>/users/<kimlik>.toml`. Sırlar istisna — oturumda kalır,
+  çünkü arayüzün topladığı bir anahtarı kullanıcının açmadığı bir dosyaya
+  yazmak, bilmedikleri bir kopya bırakmak olurdu.
 
 ## Onay kapısı
 

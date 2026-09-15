@@ -139,8 +139,9 @@ Bir varsayımla ilerler.
 
 Danışmanla **tek bir** iş akışı hakkında konuşma. Danışman o iş akışı
 hakkındaki soruları cevaplar ve isterseniz başlığını, hedefini ya da
-talimatını değiştirir, açık bir soruyu kapatır. Komut çalıştıramaz, proje
-dosyası yazamaz. Bkz. [Kavramlar — Danışman](concepts.md#danışman).
+talimatını değiştirir, açık bir soruyu kapatır. Açık web'i arayabilir ve
+diğer projelerinizi okuyabilir. Komut çalıştıramaz, proje dosyası yazamaz.
+Bkz. [Kavramlar — Danışman](concepts.md#danışman).
 
 `<iş-akışı>` sıralı numaradır (`2`, `#2`) ya da ham kimlik.
 
@@ -209,6 +210,7 @@ Kimlik doğrulama, bir kullanıcı var olduğu anda devreye girer.
 ```bash
 deerx user add sarpel --admin    # ilk hesap her zaman ana yönetici olur
 deerx user list
+deerx user import --from ~/eski-proje   # hesapları platforma taşı
 deerx user passwd sarpel         # açık oturumların hepsi düşer
 deerx user ensure admin          # yoksa kur, varsa parolasını sıfırla
 deerx user disable ekip          # silmeden kapat
@@ -216,8 +218,19 @@ deerx user enable ekip
 deerx user remove ekip --yes
 ```
 
+Hesaplar bir projenin içinde değil **platform** veritabanında yaşar
+(`$DEERX_HOME/platform.db`, varsayılan `~/.deerx`). Aynı kişi her projede
+aynı hesaptır.
+
 Parolalar sorulur, argümanla alınmaz — argüman kabuk geçmişine ve `ps`
 çıktısına yazılırdı.
+
+`import --from` kullanıcıları eski bir projenin `deerx.db` dosyasından
+kopyalar. Yalnızca platform boşken otomatik çalışır — iki çalışma alanında
+aynı kullanıcı adı farklı parolalarla olabilir ve hangisinin doğru olduğunu
+tahmin etmek yanlış kişiyi içeri almak demektir. İkinci bir alan bu yüzden
+elle istenir. Platformda zaten kullanıcı varsa komut bunu söyler ve hiçbir
+şey kopyalamaz.
 
 `ensure` üç durumu tek komutta toplar: hiç kullanıcı yoksa ana yöneticiyi
 kurar, hesap yoksa ekler, varsa parolasını sıfırlar. Betikler için: alternatifi
@@ -286,7 +299,8 @@ esac
 ## Yönetim betikleri
 
 Üç işletim sisteminde de aynı dört komut. PID ve günlük çalışma alanının
-`.deerx/` dizininde tutulur, yani her çalışma alanı kendi sunucusunu yönetir.
+`.deerx/` dizininde tutulur, yani başlatıcı her çalışma alanını kendi süreci
+olarak görür. O süreç yine de kayıtlı birkaç projeye hizmet edebilir.
 
 ```bash
 ./scripts/deerx.sh start          # Linux, macOS

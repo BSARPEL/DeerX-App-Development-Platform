@@ -31,24 +31,26 @@ src/deerx/
 │   ├── retriever.py       RRF füzyonu + MMR çeşitlendirme
 │   └── knowledge.py       tek giriş noktası
 │
-├── tools/               39 ajan aracı
+├── tools/               43 ajan aracı
 │   ├── base.py            Tool sözleşmesi, defter, onay kapısı, yol hapsi
 │   ├── filesystem.py      çalışma alanına hapsedilmiş oku/yaz/düzenle/ara
 │   ├── shell.py           reddetme listesi + izin listesi + onay
 │   ├── services.py        start_service, service_log, stop_service, list_services
 │   ├── knowledge.py       search_knowledge, read_document, ingest_source
 │   ├── browser.py         preview_open, browser_snapshot/_click/_type/_console
-│   ├── web.py             fetch_url (kalıcı indeksleme), browse_page
+│   ├── web.py             fetch_url, web_search, browse_page
 │   ├── images.py          find_images / download_image, lisans farkindaligiyla
 │   ├── project.py         record_*, save_artifact, read_project_state
 │   ├── workflow.py        read_workflow, update_workflow, resolve_question
+│   ├── history.py         search_history, list_project_history (yalnızca danışman)
+│   ├── agents.py          plan_subagents, run_subagent
 │   └── descriptions_en.py araç açıklamalarının İngilizce tarafı
 │
-├── agents/              13 rol ajanı (12 boru hattı + danışman)
+├── agents/              14 rol (12 boru hattı + danışman + özetleyici)
 │   ├── base.py            düşün → araç → gözlemle döngüsü, kırpma, iptal
 │   ├── roles.py           rol → araç kümesi + sunucu araçları + iterasyon bütçesi
 │   ├── prompts.py         çalışma alanı ve dil ezmeleriyle prompt yükleme
-│   └── prompts/           13 rol prompt'u + _shared + prompts/en/
+│   └── prompts/           14 rol prompt'u + _shared + prompts/en/
 │
 ├── pipeline/
 │   ├── models.py          13 faz, Requirement, Question, Gap, Decision, Task, Artifact
@@ -63,7 +65,8 @@ src/deerx/
 │
 ├── web/
 │   ├── app.py             Starlette JSON API + SSE
-│   ├── auth.py            kullanıcılar, oturumlar, scrypt, kilitlenme
+│   ├── auth.py            kullanıcılar, oturumlar, scrypt, kilitlenme — platform.db
+│   ├── projects.py        kayıtlı dizinler, üyelik, iki katmanlı roller
 │   ├── runner.py          arka plan koşusu, olay tamponu, onay kapısı
 │   └── static/            index.html + styles.css + app.js + i18n.js
 │
@@ -219,6 +222,6 @@ ajanlar `tests/conftest.py` içindeki sahte istemciye karşı koşar.
 
 ## Ayrıca
 
-- [Kavramlar](concepts.md) — çalışma alanı, iş akışları, dört depo
+- [Kavramlar](concepts.md) — çalışma alanı, iş akışları, projeler, dört depo
 - [Boru hattı](pipeline.md) · [Ajan araçları](tools.md) · [Güvenlik modeli](security.md)
 - [Doğrulama durumu](verification.md) — gerçekten koşularak doğrulananlar

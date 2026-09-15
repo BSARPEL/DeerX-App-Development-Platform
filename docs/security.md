@@ -90,8 +90,7 @@ fenced by the shell allow-list. That fence protects the machine but also
 blocks work the agent legitimately needs: it cannot delete a file it created
 by mistake, because `rm` is not on the list.
 
-Set `execution = "docker"` and both run inside a disposable container
-instead:
+Set `execution = "docker"` and both run inside a container instead:
 
 ```toml
 [deerx]

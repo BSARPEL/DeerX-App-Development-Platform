@@ -119,6 +119,26 @@ dependency graph that actually orders the work.
 predictable, and an interrupted run resumes at the task boundary rather than
 restarting the phase.
 
+Ready tasks run **one at a time** unless you raise `max_parallel_tasks`. The
+default is 1 — raising it is an explicit choice, because two agents writing
+the same tree at once share one approval queue.
+
+Architect, planner and the building roles can split a question onto a
+**sub-agent** (`plan_subagents` / `run_subagent`): `researcher`, `qa`,
+`reviewer` or `summarizer`. The child runs in the parent's thread, sequentially,
+and cannot spawn children of its own. It does not inherit pending approvals.
+
+## Document scope
+
+A run reads only the documents you pick on Develop. Unchecked files stay
+indexed for other runs and for the Knowledge screen; they are simply not in
+*this* run's context. Selecting nothing is allowed: the agents then run
+without a specification. A scope cannot undo a deactivation — deactivation
+excludes a document from every run.
+
+The CLI `--doc` flag indexes a file; it does not set this filter. Scope is
+chosen on the Develop screen.
+
 ## Deliverables are enforced
 
 A phase that reports `done` without producing its artifact used to be

@@ -142,8 +142,9 @@ Moves on with an assumption.
 
 A conversation with the advisor about **one** workflow. The advisor can
 answer questions about that workflow and, if you ask it to, change its
-title, goal or brief, or close an open question. It cannot run a command or
-write a project file. See [Concepts — The advisor](concepts.md#the-advisor).
+title, goal or brief, or close an open question. It can search the open web
+and read your other projects. It cannot run a command or write a project
+file. See [Concepts — The advisor](concepts.md#the-advisor).
 
 `<workflow>` is the sequential number (`2`, `#2`) or the raw id.
 
@@ -212,6 +213,7 @@ Authentication activates as soon as one user exists.
 ```bash
 deerx user add sarpel --admin    # the first account is always the primary admin
 deerx user list
+deerx user import --from ~/old-project   # migrate accounts onto the platform
 deerx user passwd sarpel         # drops all open sessions
 deerx user ensure admin          # create it, or reset its password
 deerx user disable ekip          # disable without deleting
@@ -219,8 +221,19 @@ deerx user enable ekip
 deerx user remove ekip --yes
 ```
 
+Accounts live in the **platform** database (`$DEERX_HOME/platform.db`,
+`~/.deerx` by default), not inside a project. The same person is the same
+account in every project.
+
 Passwords are prompted, never taken as an argument — an argument would land in
 the shell history and in `ps` output.
+
+`import --from` copies users out of an older project's `deerx.db`. It only
+runs automatically when the platform is empty — two workspaces can have the
+same username with different passwords, and guessing which one is right
+would let the wrong person in. A second workspace is therefore asked for
+by hand. If the platform already has users, the command says so and
+copies nothing.
 
 `ensure` covers the three states in one command: with no users it creates the
 primary admin, with the account missing it adds one, otherwise it resets the
@@ -288,7 +301,8 @@ esac
 ## Management scripts
 
 The same four commands on all three operating systems. The PID and log live in
-the workspace's `.deerx/`, so each workspace manages its own server.
+the workspace's `.deerx/`, so the launcher treats each workspace as its own
+process. That process can still host several registered projects.
 
 ```bash
 ./scripts/deerx.sh start          # Linux, macOS

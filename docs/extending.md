@@ -73,8 +73,16 @@ into `ALL_TOOLS` in `src/deerx/tools/__init__.py`:
 ```python
 ALL_TOOLS: list[Tool] = [
     *KNOWLEDGE_TOOLS,
+    *HISTORY_TOOLS,
     *PROJECT_TOOLS,
-    ...
+    *FILESYSTEM_TOOLS,
+    *SHELL_TOOLS,
+    *SERVICE_TOOLS,
+    *WEB_TOOLS,
+    *IMAGE_TOOLS,
+    *BROWSER_TOOLS,
+    *WORKFLOW_TOOLS,
+    *AGENT_TOOLS,
 ]
 ```
 
@@ -83,8 +91,9 @@ does not exist.
 
 ### 3. Give it to a role
 
-No agent sees every tool. `TOOLSETS` in the same file maps each of the twelve
-roles to the tool names it may call:
+No agent sees every tool. `TOOLSETS` in the same file maps each of the fourteen
+roles (twelve pipeline specialists, the advisor, the summarizer) to the tool
+names it may call:
 
 ```python
 TOOLSETS: dict[str, list[str]] = {

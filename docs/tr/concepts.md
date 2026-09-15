@@ -32,9 +32,11 @@ paylaşırlar; süreci paylaşmazlar.
 | **MCP sunucusu** | `deerx mcp` / `deerx-mcp` | Aynı projeyi süren başka bir ajan (Claude Code, Cline) |
 
 Tarayıcıda yapılan bir değişiklik bir sonraki komutta CLI'de görünür; tersi
-de öyle. Aynı çalışma alanına karşı aynı anda iki boru hattı **koşusu**
-değildir: web koşucusu eşzamanlı koşuyu reddeder; MCP sunucusu başka yerde
-başlatılmış bir koşuyu göremez. İkisini birden açmayın.
+de öyle. **Aynı projeye** karşı aynı anda iki boru hattı koşusu değildir:
+o projenin koşucusu eşzamanlı koşuyu reddeder. Aynı sunucudaki iki proje
+kendi çalışma zamanına sahiptir — iki kullanıcının bir arada çalışması
+böyle olur. MCP sunucusu aynı çalışma alanında web'den başlatılmış bir
+koşuyu göremez. Tek bir projeye karşı ikisini birden açmayın.
 
 ## Çalışma alanı
 
@@ -62,9 +64,26 @@ Komutlar `deerx.toml` ararken **yukarı** yürüyerek çalışma alanını çöz
 üst dizinden çalıştırılan komut, altındaki bir projeyi bulmaz; klasörün
 içinde değilseniz `DEERX_WORKSPACE` verin ya da `--workspace` geçin.
 
-Çalışma alanları bağımsızdır. Aynı makinede ikisinin iki veritabanı, iki
-sunucusu ve iki ayar kümesi vardır. Web kenar çubuğundaki klasör adı, onları
-ayırt edebilmeniz için vardır.
+Çalışma alanları bağımsızdır. Aynı makinede ikisinin iki veritabanı ve iki
+çalışma zamanı vardır. Web kenar çubuğundaki klasör adı, onları ayırt
+edebilmeniz için vardır. **Hesaplar çalışma alanında değildir** —
+`$DEERX_HOME/platform.db` içinde yaşar (varsayılan `~/.deerx`), yani aynı
+kişi her projede aynı hesaptır.
+
+## Projeler ve platform
+
+Proje, kayıtlı bir dizindir. Kimliği platform veritabanında bir satır;
+verisi `<proje>/.deerx/deerx.db` dosyasında kalır. Sunucu açık her proje
+için bir çalışma zamanı tutar, böylece iki kişi aynı anda iki projeyi
+koşturabilir. Aynı proje hâlâ ikinci bir eşzamanlı boru hattı koşusunu
+reddeder.
+
+Yetki iki katmanlıdır: hesap rolleri (`admin`, `user`) platformu yönetir;
+proje rolleri (`owner`, `developer`, `viewer`) bir dizindeki işi yönetir.
+Karıştırmak, Ayarlar sekmelerinin var olma sebebidir.
+
+`deerx user import --from <eski-alan>` hesapları hâlâ onları barındıran
+bir proje veritabanından kopyalar ve yalnızca platform boşken.
 
 ## Dört durum deposu
 
@@ -163,9 +182,9 @@ Koşunun durup durmayacağına bu ayrım karar verir.
 "bütçe nedir?" — şartnameyi ne kadar okusanız bunları üretmez. Tahminle
 devam etmek tahmini mimariye, oradan plana, oradan koda sızdırır.
 
-Cevapladığınızda (`deerx answer`, Genel bakış, Analiz sekmesi ya da
-danışman) metin bir çözüm olarak saklanır **ve** indekslenir. Atlamak
-varsayımı aynı yolla kaydeder. Çıkış kodu `2` "insana ihtiyaç var"
+Cevapladığınızda (`deerx answer`, Genel bakış, bir iş akışının Kayıtlar
+bölümü ya da danışman) metin bir çözüm olarak saklanır **ve** indekslenir.
+Atlamak varsayımı aynı yolla kaydeder. Çıkış kodu `2` "insana ihtiyaç var"
 demektir, "bu bozuldu" değil.
 
 ## Danışman
@@ -180,11 +199,12 @@ iş akışı** hakkında konuşursunuz; o iş akışının kayıtlarını deği�
 | "Bu iş akışına mobil hat de." | Yeniden adlandırmak |
 | "Dışa aktarım CSV olmalı diye bir gereksinim ekle." | Bir gereksinim kaydetmek |
 
-Kabuğu yoktur, dosya yazma aracı yoktur, tarayıcısı yoktur. Sizin bir
-cümleniz makinede bir komuta dönüşemez. Yalnızca bu konuşmanın içinde var
-olan üç araç (`read_workflow`, `update_workflow`, `resolve_question`) iş
-akışı kimliği almaz — kapsamı çağıran sabitler, modelin yanlış bir sayı
-üretmesi yanlış akışı düzenleyemez.
+Kabuğu yoktur, `write_file` yoktur. Sizin bir cümleniz makinede bir komuta
+dönüşemez. **Açık web'i arar** (`web_search`, `fetch_url`, `browse_page`) ve
+diğer projelerinizi okur — bulduğundan bir dosya yazamaz. Yalnızca bu
+konuşmanın içinde var olan üç araç (`read_workflow`, `update_workflow`,
+`resolve_question`) iş akışı kimliği almaz — kapsamı çağıran sabitler,
+modelin yanlış bir sayı üretmesi yanlış akışı düzenleyemez.
 
 **Diğer projelerinizi hatırlar.** Her proje kendi SQLite dosyası olduğu için
 danışman eskiden yalnızca açık olanı görüyordu: "geçen seferki gibi yapalım"
@@ -231,8 +251,9 @@ Kabin koşu başlamadan ölçülür, koşu sırasında keşfedilmez. Kurulamıyo
 Docker yanıt vermiyor, çalışma alanı bağlanmıyor — koşu model çağrılmadan durur
 ve Ortam ekranı sebebi adlandırır.
 
-Web'deki **Ayarlar → Yalıtım** paneli aynı anahtarları oturum için yazar
-ve konteyneri yeniden kurar. Kalıcı olmaları için `deerx.toml`'a yazın.
+Web'deki **Ayarlar → Yalıtım** paneli (platform sekmesi) aynı anahtarları
+`<DEERX_HOME>/platform.toml` dosyasına yazar ve konteyneri yeniden kurar.
+Formda yazılan sırlar oturumda kalır.
 
 ## Dil
 

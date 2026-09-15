@@ -91,8 +91,7 @@ makinede** kosar ve kabuk izin listesiyle cevrilidir. Bu cit makineyi korur
 ama ajanin mesru islerini de engeller: yanlislikla yarattigi bir dosyayi
 silemez, cunku `rm` listede yoktur.
 
-`execution = "docker"` derseniz ikisi de tek kullanimlik bir konteynerde
-kosar:
+`execution = "docker"` derseniz ikisi de bir konteynerde kosar:
 
 ```toml
 [deerx]

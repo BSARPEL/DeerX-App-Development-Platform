@@ -69,7 +69,8 @@ not seen is how an outside agent duplicates an answer the user already
 gave.
 
 The advisor can close a question or change that workflow's title, goal or
-brief. It cannot run a command. The workflow id is an argument *you* pass,
+brief. It can search the open web and read your other projects. It cannot
+run a command. The workflow id is an argument *you* pass,
 not one the model inside DeerX chooses; see
 [Concepts — The advisor](concepts.md#the-advisor).
 
@@ -118,9 +119,10 @@ workspace. They share the SQLite project memory, which handles concurrent access
 was not: a document indexed from one process stayed invisible to semantic search
 in the other.
 
-Do not run two pipeline **runs** against one workspace at the same time. The web
-runner refuses a concurrent run for this reason; the MCP server has no way to
-see a run started elsewhere.
+Do not run two pipeline **runs** against one workspace at the same time. That
+project's web runner refuses a concurrent run; the MCP server has no way to
+see a run started elsewhere. Two *different* projects on one `deerx serve`
+each have their own runtime — that is a different situation.
 
 ## See also
 

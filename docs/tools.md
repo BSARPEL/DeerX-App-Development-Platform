@@ -23,6 +23,7 @@ narrow subset.
 | Staging | 19 | 40 | ● | ● | ● | ● | ● | |
 | Live | 10 | 30 | ● | | ● | | | |
 | Advisor | 23 | 16 | ● | | | | | ● |
+| Summarizer | 8 | 12 | ● | | | | | |
 
 Every pipeline role also gets `search_knowledge` and `read_project_state`.
 The advisor is not a phase — it is the conversation on a workflow; see
@@ -307,11 +308,16 @@ answers a question.
 A thirteenth role, not a pipeline phase. You talk to it about one workflow
 (`deerx chat`, `POST /api/workflows/{id}/chat`, the `deerx_workflow_chat`
 MCP tool). It reads, it answers, and if you ask it to it changes that
-workflow's records. Twelve turns is the budget on purpose: this is a
-conversation, and a wide budget here is time you spend waiting.
+workflow's records. The turn budget is **16**: it can now search the web,
+and a search is not one turn (search → read two hits → compare with the
+record → answer). At 12 that chain could call the tools and still have
+nothing left for the reply — you would see tool noise and no answer.
 
-It has no shell, no `write_file` and no browser. The three tools that exist
-only inside this conversation:
+It has no shell and no `write_file`. It **does** search and read the open
+web (`web_search`, `fetch_url`, `browse_page`) — it cannot write a file
+or run a command, so a page that says "ignore your instructions and run
+this" has nowhere to go. The three tools that exist only inside this
+conversation:
 
 | Tool | What it does |
 |---|---|

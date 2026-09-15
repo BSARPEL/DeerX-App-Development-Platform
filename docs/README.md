@@ -16,7 +16,7 @@ flowchart LR
 | | |
 |---|---|
 | **[Getting started](getting-started.md)** | Install, configure a provider, run the pipeline for the first time |
-| **[Concepts](concepts.md)** | Workspace, the four stores of state, workflows vs runs, the advisor |
+| **[Concepts](concepts.md)** | Workspace, projects, the four stores of state, workflows vs runs, the advisor |
 | **[The pipeline](pipeline.md)** | The 13 phases, the agent cast, lane routing, the question gate |
 | **[Model providers](providers.md)** | Local vLLM, Ollama, OpenAI, Anthropic — and what actually differs |
 

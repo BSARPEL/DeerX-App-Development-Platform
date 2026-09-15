@@ -64,8 +64,10 @@ right place and still throw an exception when clicked. QA treats this as an
 acceptance criterion, not an optional extra.
 
 **It can run isolated.** With `execution = "docker"` the agent's commands and
-services run in a disposable container instead of on your machine, so it can
-install packages, delete files and kill processes without touching the host.
+services run in a container instead of on your machine, so it can install
+packages, delete files and kill processes without touching the host. The
+container is stopped after the run, not thrown away — *Rebuild environment*
+is what deletes it.
 
 **It works fully local and free.** The default provider is any OpenAI-compatible
 endpoint — vLLM, Ollama, LM Studio, llama.cpp. Embeddings run locally through
@@ -201,7 +203,7 @@ Details: **[The pipeline](docs/pipeline.md)**.
 | | |
 |---|---|
 | [Getting started](docs/getting-started.md) | Install, configure, first run |
-| [Concepts](docs/concepts.md) | Workspace, workflows vs runs, the four stores, the advisor |
+| [Concepts](docs/concepts.md) | Workspace, projects, workflows vs runs, the four stores, the advisor |
 | [The pipeline](docs/pipeline.md) | Phases, agents, lanes, the question gate |
 | [Model providers](docs/providers.md) | vLLM, Ollama, OpenAI, Anthropic |
 | [Web interface](docs/web-ui.md) | Every screen and why it is arranged that way |
@@ -223,9 +225,9 @@ Details: **[The pipeline](docs/pipeline.md)**.
 DeerX **writes files and runs shell commands.** That is the product, and it is
 also the threat model. By default they run **on the host**, fenced by a shell
 allow-list — what is confined is the directory the file tools can see, not the
-processes they start. `execution = "docker"` moves them into a disposable
-container instead; the workspace is still mounted, so that protects the machine
-but not the project.
+processes they start. `execution = "docker"` moves them into a container
+instead; the workspace is still mounted, so that protects the machine
+but not the project. The container is stopped after the run, not discarded.
 
 The defaults are careful: approvals on, loopback only, and a server with no
 users refuses to bind a public address. Read **[SECURITY.md](SECURITY.md)**

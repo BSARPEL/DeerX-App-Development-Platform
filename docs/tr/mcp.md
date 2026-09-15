@@ -71,7 +71,8 @@ için `message`'ı boş bırakın — görmediğiniz bir konuşmanın üstüne y
 dışarıdaki ajanın kullanıcının verdiği cevabı çoğaltmasının yoludur.
 
 Danışman bir soruyu kapatabilir ya da o iş akışının başlığını, hedefini
-veya talimatını değiştirebilir. Komut çalıştıramaz. İş akışı kimliği *sizin*
+veya talimatını değiştirebilir. Açık web'i arayabilir ve diğer
+projelerinizi okuyabilir. Komut çalıştıramaz. İş akışı kimliği *sizin*
 verdiğiniz argümandır, DeerX içindeki modelin seçtiği değil; bkz.
 [Kavramlar — Danışman](concepts.md#danışman).
 
@@ -121,8 +122,9 @@ süreçler arası geçersizleştirilir: bir süreçten indekslenen doküman diğ
 anlamsal aramada görünmüyordu.
 
 Tek bir çalışma alanına karşı aynı anda iki boru hattı **koşusu** çalıştırmayın.
-Web koşucusu bu yüzden eşzamanlı koşuyu reddeder; MCP sunucusunun başka yerde
-başlatılmış bir koşuyu görme imkânı yoktur.
+O projenin web koşucusu eşzamanlı koşuyu reddeder; MCP sunucusunun başka yerde
+başlatılmış bir koşuyu görme imkânı yoktur. Aynı `deerx serve` üzerindeki
+*farklı* iki projenin kendi çalışma zamanı vardır — o başka bir durumdur.
 
 ## Ayrıca
 

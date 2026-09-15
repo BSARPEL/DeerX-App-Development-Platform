@@ -62,8 +62,9 @@ tıklanınca istisna atabilir. QA bunu isteğe bağlı bir ekstra değil, kabul 
 sayar.
 
 **Yalıtılmış çalışabilir.** `execution = "docker"` ile ajanın komutları ve
-servisleri sizin makinenizde değil, tek kullanımlık bir konteynerde koşar; paket
-kurar, dosya siler, süreç öldürür — konağa dokunmadan.
+servisleri sizin makinenizde değil bir konteynerde koşar; paket kurar,
+dosya siler, süreç öldürür — konağa dokunmadan. Konteyner koşu bitince
+durdurulur, atılmaz — silen şey *Ortami yeniden kur*'dur.
 
 **Tamamen yerel ve ücretsiz çalışır.** Varsayılan sağlayıcı OpenAI-uyumlu her
 uçtur: vLLM, Ollama, LM Studio, llama.cpp. Gömme yerel ONNX ile yapılır. Token
@@ -198,7 +199,7 @@ Ayrıntı: **[Boru hattı](docs/tr/pipeline.md)**.
 | | |
 |---|---|
 | [Başlangıç](docs/tr/getting-started.md) | Kurulum, yapılandırma, ilk koşu |
-| [Kavramlar](docs/tr/concepts.md) | Çalışma alanı, iş akışı ile koşu, dört depo, danışman |
+| [Kavramlar](docs/tr/concepts.md) | Çalışma alanı, projeler, iş akışı ile koşu, dört depo, danışman |
 | [Boru hattı](docs/tr/pipeline.md) | Fazlar, ajanlar, şeritler, soru kapısı |
 | [Model sağlayıcıları](docs/tr/providers.md) | vLLM, Ollama, OpenAI, Anthropic |
 | [Web arayüzü](docs/tr/web-ui.md) | Her ekran ve neden öyle düzenlendiği |
@@ -220,9 +221,9 @@ Ayrıntı: **[Boru hattı](docs/tr/pipeline.md)**.
 DeerX **dosya yazar ve kabuk komutu çalıştırır.** Ürünün kendisi bu; tehdit
 modeli de bu. Varsayılan olarak **konakta** çalışırlar ve bir kabuk izin
 listesiyle çevrilidirler — hapsedilen şey dosya araçlarının gördüğü dizindir,
-başlattıkları süreçler değil. `execution = "docker"` onları tek kullanımlık bir
-konteynere taşır; çalışma alanı yine bağlanır, yani bu makineyi korur ama
-projeyi korumaz.
+başlattıkları süreçler değil. `execution = "docker"` onları bir konteynere
+taşır; çalışma alanı yine bağlanır, yani bu makineyi korur ama projeyi
+korumaz. Konteyner koşu bitince durdurulur, atılmaz.
 
 Varsayılanlar dikkatli: onaylar açık, yalnızca loopback, ve kullanıcısı olmayan
 bir sunucu açık bir adrese bağlanmayı reddeder. Bunlardan birini değiştirmeden

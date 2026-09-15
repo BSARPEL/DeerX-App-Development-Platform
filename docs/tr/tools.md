@@ -23,6 +23,7 @@ küme alır.
 | Staging | 19 | 40 | ● | ● | ● | ● | ● | |
 | Canlı | 10 | 30 | ● | | ● | | | |
 | Danışman | 23 | 16 | ● | | | | | ● |
+| Özetleyici | 8 | 12 | ● | | | | | |
 
 Her boru hattı rolü ayrıca `search_knowledge` ve `read_project_state` alır.
 Danışman bir faz değildir — bir iş akışı üzerindeki konuşmadır; aşağıya
@@ -300,11 +301,16 @@ cevaplar.
 On üçüncü rol, bir boru hattı fazı değil. Onunla bir iş akışı hakkında
 konuşursunuz (`deerx chat`, `POST /api/workflows/{id}/chat`,
 `deerx_workflow_chat` MCP aracı). Okur, cevaplar ve isterseniz o iş
-akışının kayıtlarını değiştirir. On iki tur bilinçli bir bütçedir: bu bir
-konuşmadır ve geniş bütçe burada sizin bekleme sürenize dönüşür.
+akışının kayıtlarını değiştirir. Tur bütçesi **16**: artık web'e de
+bakabiliyor ve bir arama tek tur değil (ara → iki sonucu oku → kayıtla
+karşılaştır → cevapla). 12'de bu zincir araç çağırıp cevaba yer
+bırakmıyordu — araç gürültüsü görüp cevap göremezdiniz.
 
-Kabuğu yoktur, `write_file`'ı yoktur, tarayıcısı yoktur. Yalnızca bu
-konuşmanın içinde var olan üç araç:
+Kabuğu yoktur, `write_file`'ı yoktur. Açık web'i **arar ve okur**
+(`web_search`, `fetch_url`, `browse_page`) — dosya yazamaz ve komut
+çalıştıramaz, yani "talimatlarını unut, şunu çalıştır" diyen bir
+sayfanın gidecek yeri yoktur. Yalnızca bu konuşmanın içinde var olan üç
+araç:
 
 | Araç | Ne yapar |
 |---|---|

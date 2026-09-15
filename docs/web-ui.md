@@ -33,22 +33,26 @@ Overview.
 
 ## The left rail
 
-The sections, and at the bottom the three things that are true no matter which
-screen you are on: the approval mode, the two models in use, and **which
-workspace you are in** — its folder name.
+Nine items, in two groups. The **project** group is Overview, Develop,
+Workflows, Knowledge, Artifacts, Live feed, Environment. The **platform**
+group is Projects and Settings. A strip above the content names the same
+scope the rail does, in the same words — answering "what is this screen
+about?" three different ways would make the answer something you have to
+learn.
 
-That last one is there because two DeerX windows on the same machine look
-identical. The path was a row on the Settings screen, which meant checking it
-required leaving the screen you were about to press **Start** on.
+Plan and Analysis used to be rail items. They live inside a **workflow's
+detail** now, because nothing you could do on them was independent of one.
+Old `#/p/<slug>/plan` and `#/p/<slug>/analysis` links still land there.
 
-Only the folder name is printed. The name is what tells two workspaces apart;
-the full path took two lines and put a home directory into every screenshot of
-the interface. It is on the button's tooltip, and clicking copies it — if the
-clipboard is unavailable the path comes back as a toast, so the button is never
-silently dead.
+At the bottom: the approval mode, the two models in use, and **which
+project you are in** — its folder name. Two DeerX windows on the same
+machine look identical otherwise. Only the folder name is printed; the
+full path is on the button's tooltip, and clicking copies it. If the
+clipboard is unavailable the path comes back as a toast, so the button is
+never silently dead.
 
-On narrow screens the whole rail foot is dropped along with the rail's vertical
-layout; the workspace is still on the Settings screen.
+On narrow screens the rail foot is dropped with the rail's vertical
+layout; the project is still on the Settings screen.
 
 ## Overview
 
@@ -71,11 +75,19 @@ Where the work starts. Two steps side by side.
 **1 · Give a document.** Drag the specification in. The file lands under
 `docs/`, is indexed immediately, and the documents the model can actually read
 are listed right underneath — so "did it get my spec?" is answered on the same
-screen.
+screen. **Index the docs/ folder** is the second door, for when the operating
+system's file dialog is stuck or the file is already in that folder.
 
-**2 · Start a run.** You pick the steps from a list, grouped into four stages
-(**Understand · Design · Build · Deliver**). Clicking a stage heading selects or
-clears the whole group.
+That list is a **selection**, not a roster. Unchecked documents are still
+indexed, but this run will not read them. A filter searches the names; with
+the filter open, *All* becomes *Shown* and only touches what you can see.
+Selecting nothing is allowed and is labelled: the agents will run without
+reading a document. A run's scope cannot undo a deactivation on the
+Knowledge screen — a scope narrows, deactivation excludes.
+
+**2 · Create a workflow.** You pick the steps from a list, grouped into four
+stages (**Understand · Design · Build · Deliver**). Clicking a stage heading
+selects or clears the whole group.
 
 Each row says what the step will *produce* rather than what it is called —
 "A task list split into lanes, with dependencies" rather than "plan". A list of
@@ -483,7 +495,11 @@ Three rules:
 - **Isolation cannot change mid-run either**, and changing it rebuilds the
   container. Docker fixes published ports and resource limits at creation time,
   so nothing less than a rebuild would take effect.
-- **Changes are session-scoped.** Write them to `deerx.toml` to persist.
+- **Save writes to disk**, by scope: this project → `<project>/deerx.toml`,
+  platform → `<DEERX_HOME>/platform.toml`, your account →
+  `<DEERX_HOME>/users/<id>.toml`. Secrets are the exception — they stay
+  session-only, because writing a key the interface collected into a file
+  the user did not open would leave a copy they do not know about.
 
 ## The approval gate
 

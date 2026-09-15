@@ -74,8 +74,16 @@ olun:
 ```python
 ALL_TOOLS: list[Tool] = [
     *KNOWLEDGE_TOOLS,
+    *HISTORY_TOOLS,
     *PROJECT_TOOLS,
-    ...
+    *FILESYSTEM_TOOLS,
+    *SHELL_TOOLS,
+    *SERVICE_TOOLS,
+    *WEB_TOOLS,
+    *IMAGE_TOOLS,
+    *BROWSER_TOOLS,
+    *WORKFLOW_TOOLS,
+    *AGENT_TOOLS,
 ]
 ```
 
@@ -83,8 +91,9 @@ ALL_TOOLS: list[Tool] = [
 
 ### 3. Bir role verin
 
-Hiçbir ajan bütün araçları görmez. Aynı dosyadaki `TOOLSETS`, on iki rolün her
-birini çağırabileceği araç adlarına eşler:
+Hiçbir ajan bütün araçları görmez. Aynı dosyadaki `TOOLSETS`, on dört rolün her
+birini (on iki boru hattı uzmanı, danışman, özetleyici) çağırabileceği araç
+adlarına eşler:
 
 ```python
 TOOLSETS: dict[str, list[str]] = {

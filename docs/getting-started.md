@@ -140,7 +140,8 @@ See [Model providers](providers.md) for what differs between them.
 
 A **workspace** is one project: a directory with a `deerx.toml`, a `.env`, a
 `docs/` folder for your specification, and a `.deerx/` folder DeerX manages.
-Workspaces are independent — own database, own settings, own server.
+Workspaces are independent — own database, own settings. Accounts sit above
+them, so one `deerx serve` can switch between several projects.
 
 ```bash
 uv run deerx setup ~/projects/my-project
@@ -274,9 +275,10 @@ wrapper.)
 
 ### Accounts
 
-Authentication turns on **the moment one user exists**. With no users a local
-install works as it always did, but **a server with no users cannot be
-exposed**: `--host 0.0.0.0` refuses to start.
+Authentication turns on **the moment one user exists**. Accounts live in
+`$DEERX_HOME/platform.db` (`~/.deerx` by default), not inside the project.
+With no users a local install works as it always did, but **a server with
+no users cannot be exposed**: `--host 0.0.0.0` refuses to start.
 
 Create the first administrator:
 
@@ -290,6 +292,12 @@ scripts\deerx.cmd passwd
 
 Or double-click `scripts\passwd.cmd`. It asks for the password twice. **While
 you type, nothing appears on screen — not even asterisks.** That is normal.
+
+To bring accounts out of an older project's database onto the platform:
+
+```bash
+uv run deerx user import --from ~/old-project
+```
 
 ### Defaults for this machine
 
@@ -368,11 +376,11 @@ that can close a question or rename that workflow, and cannot run a command.
 
 ## Next
 
-- [Concepts](concepts.md) — the map: workspace, the four stores, workflows vs runs
+- [Concepts](concepts.md) — the map: workspace, projects, the four stores, workflows vs runs
 - [The pipeline](pipeline.md) — what each of the 13 phases does
 - [Configuration](configuration.md) — every setting and where it can be set
 - [Model providers](providers.md) — vLLM flags and what differs between providers
 - [Security](security.md) — including `execution = "docker"`, which runs the
-  agent's commands in a disposable container instead of on your machine
+  agent's commands in a container instead of on your machine
 - [The project's own knowledge base](knowledge-base.md) — ask questions about
   DeerX itself, answered from its documentation and source

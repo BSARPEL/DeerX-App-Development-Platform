@@ -3,7 +3,7 @@
 [← Belgeler](README.md) · [English](../knowledge-base.md)
 
 DeerX bir erişim (retrieval) motoru taşıyor. Bu sayfa onu **DeerX'in kendisine**
-doğrultuyor: 7.500 satır belge, 16.000 satır kaynak kod ve test paketi —
+doğrultuyor: 11.000 satır belge, 30.000 satır kaynak kod ve test paketi —
 indekslenmiş, aranabilir, ve bir modelin okuyabileceği halde.
 
 Neden gerekli: "bu neden böyle yapılmış" sorusunun cevabı çoğu zaman düz
@@ -50,7 +50,7 @@ sayamadığı bir bilgi tabanı, kimsenin güvenemeyeceği bir bilgi tabanıdır
   *"denetim günlüğü"* sorgusunda `## Denetim günlüğü Kullanıcı İşlem Satır 50
   200 1000 Yenile` diyerek birinci sıraya çıkıyordu; denetim günlüğünü
   gerçekten anlatan `docs/security.md` ise listeye hiç giremiyordu.
-- `static/i18n.js` — 1.400 satır anahtar-değer. Her sorguya biraz benziyor,
+- `static/i18n.js` — 2.000 satır anahtar-değer. Her sorguya biraz benziyor,
   hiçbirini cevaplamıyor.
 - `docs/images/` — ikili.
 

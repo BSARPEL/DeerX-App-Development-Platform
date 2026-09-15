@@ -116,6 +116,26 @@ kümesi, temiz bağlam ve işi gerçekten sıralayan bir bağımlılık grafı d
 öngörülebilir olur ve kesilen bir koşu fazı baştan almak yerine görev sınırından
 devam eder.
 
+Hazır görevler, `max_parallel_tasks` yükseltilmedikçe **birer birer** koşar.
+Varsayılan 1'dir — yükseltmek açık bir seçimdir, çünkü aynı ağaca yazan iki
+ajan tek bir onay kuyruğunu paylaşır.
+
+Mimar, planlayıcı ve uygulama rolleri bir soruyu **alt ajana** bölebilir
+(`plan_subagents` / `run_subagent`): `researcher`, `qa`, `reviewer` veya
+`summarizer`. Çocuk ebeveynin iş parçacığında, sırayla koşar ve kendi çocuğunu
+doğuramaz. Bekleyen onayları devralmaz.
+
+## Belge kapsamı
+
+Bir koşu, Geliştirme ekranında seçtiğiniz belgelerden başka bir şey okumaz.
+İşaretlenmeyen dosyalar indekslenmiş kalır — başka koşular ve Bilgi tabanı
+ekranı için; yalnızca *bu* koşunun bağlamında yokturlar. Hiçbir şey seçmemek
+serbesttir: ajanlar o zaman şartnamesiz koşar. Kapsam, bir devre dışı bırakmayı
+geri alamaz — devre dışı bırakma belgeyi her koşudan çıkarır.
+
+CLI `--doc` bayrağı bir dosyayı indeksler; bu süzgeci kurmaz. Kapsam Geliştirme
+ekranında seçilir.
+
 ## Çıktılar zorunlu tutulur
 
 Çıktısını üretmeden `done` diyen bir faz, işi yapmış bir fazdan ayırt

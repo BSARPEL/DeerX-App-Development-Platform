@@ -138,7 +138,8 @@ Aralarındaki farklar için [Model sağlayıcıları](providers.md).
 
 **Çalışma alanı** tek bir projedir: içinde `deerx.toml`, `.env`, şartnamenizin
 duracağı `docs/` ve DeerX'in yönettiği `.deerx/` bulunan bir dizin. Çalışma
-alanları bağımsızdır — kendi veritabanı, kendi ayarları, kendi sunucusu.
+alanları bağımsızdır — kendi veritabanı, kendi ayarları. Hesaplar onların
+üstünde durur, yani bir `deerx serve` birkaç proje arasında geçiş yapabilir.
 
 ```bash
 uv run deerx setup ~/projeler/projem
@@ -271,9 +272,11 @@ sarmalayıcısıdır.)
 
 ### Hesaplar
 
-Kimlik doğrulama **bir kullanıcı var olduğu anda** devreye girer. Kullanıcısız
-bir yerel kurulum eskisi gibi çalışır, ama **kullanıcısı olmayan bir sunucu
-dışarı açılamaz**: `--host 0.0.0.0` başlamayı reddeder.
+Kimlik doğrulama **bir kullanıcı var olduğu anda** devreye girer. Hesaplar
+`$DEERX_HOME/platform.db` içinde yaşar (varsayılan `~/.deerx`), projenin
+içinde değil. Kullanıcısız bir yerel kurulum eskisi gibi çalışır, ama
+**kullanıcısı olmayan bir sunucu dışarı açılamaz**: `--host 0.0.0.0`
+başlamayı reddeder.
 
 İlk yöneticiyi oluşturun:
 
@@ -287,6 +290,12 @@ scripts\deerx.cmd passwd
 
 Ya da `scripts\passwd.cmd` dosyasına çift tıklayın. Parolayı iki kez sorar.
 **Yazarken ekranda hiçbir şey görünmez, yıldız bile.** Bu normaldir.
+
+Eski bir projenin veritabanındaki hesapları platforma almak için:
+
+```bash
+uv run deerx user import --from ~/eski-proje
+```
 
 ### Bu makineye özel varsayılanlar
 
@@ -364,11 +373,11 @@ ya da o iş akışını yeniden adlandırabilen, komut çalıştıramayan bir ko
 
 ## Sonra
 
-- [Kavramlar](concepts.md) — harita: çalışma alanı, dört depo, iş akışı ile koşu
+- [Kavramlar](concepts.md) — harita: çalışma alanı, projeler, dört depo, iş akışı ile koşu
 - [Boru hattı](pipeline.md) — 13 fazın her biri ne yapıyor
 - [Yapılandırma](configuration.md) — her ayar ve nereden verilebileceği
 - [Model sağlayıcıları](providers.md) — vLLM bayrakları ve sağlayıcı farkları
 - [Güvenlik](security.md) — `execution = "docker"` dahil: ajanın komutlarını
-  makinenizde değil, atılabilir bir konteynerde koşturur
+  makinenizde değil bir konteynerde koşturur
 - [Projenin kendi bilgi tabanı](knowledge-base.md) — DeerX hakkındaki soruları
   kendi belgelerinden ve kodundan cevaplatın

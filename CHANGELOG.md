@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Platform accounts and projects.** Users, sessions and the audit log live in
+  `$DEERX_HOME/platform.db`, not inside a project. A project is a registered
+  directory with its own membership (`owner` / `developer` / `viewer`). The
+  web **Projects** screen switches between them; two projects can run at once.
+- **Per-project environment.** A persistent sandbox per project, an
+  **Environment** screen that names why a cabin cannot be built, and
+  `max_parallel_tasks` (default 1).
+- **Sub-agents.** `plan_subagents` / `run_subagent` let a building role split
+  work onto `researcher`, `qa`, `reviewer` or `summarizer` without inheriting
+  approvals.
+- **Advisor web and history.** The advisor searches the open web and reads
+  your other projects (read-only). Turn budget 16.
+- **Artifacts in the database.** Bytes live in `artifact_blobs`; the folder is
+  a mirror. Settings Save writes by scope (`deerx.toml`, `platform.toml`,
+  `users/<id>.toml`).
+- **Document scope.** A run reads only the documents you pick on Develop.
+
 ## [0.1.0]
 
 First public release. Pre-1.0: the API and the configuration format may still

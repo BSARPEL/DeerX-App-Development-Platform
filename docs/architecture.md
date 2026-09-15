@@ -38,17 +38,19 @@ src/deerx/
 │   ├── services.py        start_service, service_log, stop_service, list_services
 │   ├── knowledge.py       search_knowledge, read_document, ingest_source
 │   ├── browser.py         preview_open, browser_snapshot/_click/_type/_console
-│   ├── web.py             fetch_url (persistent indexing), browse_page
+│   ├── web.py             fetch_url, web_search, browse_page
 │   ├── images.py          find_images / download_image, licence-aware
 │   ├── project.py         record_*, save_artifact, read_project_state
 │   ├── workflow.py        read_workflow, update_workflow, resolve_question
+│   ├── history.py         search_history, list_project_history (advisor only)
+│   ├── agents.py          plan_subagents, run_subagent
 │   └── descriptions_en.py the English side of tool descriptions
 │
-├── agents/              13 role agents (12 pipeline + advisor)
+├── agents/              14 roles (12 pipeline + advisor + summarizer)
 │   ├── base.py            think → tool → observe loop, trimming, cancellation
 │   ├── roles.py           role → tool set + server tools + iteration budget
 │   ├── prompts.py         prompt loading with workspace and language overrides
-│   └── prompts/           13 role prompts + _shared + prompts/en/
+│   └── prompts/           14 role prompts + _shared + prompts/en/
 │
 ├── pipeline/
 │   ├── models.py          13 phases, Requirement, Question, Gap, Decision, Task, Artifact
@@ -63,7 +65,8 @@ src/deerx/
 │
 ├── web/
 │   ├── app.py             Starlette JSON API + SSE
-│   ├── auth.py            users, sessions, scrypt, lockout
+│   ├── auth.py            users, sessions, scrypt, lockout — platform.db
+│   ├── projects.py        registered directories, membership, two-layer roles
 │   ├── runner.py          background run, event buffer, approval gate
 │   └── static/            index.html + styles.css + app.js + i18n.js
 │
@@ -220,6 +223,6 @@ Three files carry unusual jobs:
 
 ## See also
 
-- [Concepts](concepts.md) — workspace, workflows, the four stores
+- [Concepts](concepts.md) — workspace, workflows, projects, the four stores
 - [The pipeline](pipeline.md) · [Agent tools](tools.md) · [Security model](security.md)
 - [Verification status](verification.md) — what was verified by running it

@@ -32,6 +32,7 @@ sessizce hiç uygulanmayan bir ayar, bir daha yaşanmaması gereken bir hataydı
 | `max_tokens` | `32000` | Tur başına çıktı tavanı, düşünme dahil |
 | `thinking_display` | `"summarized"` | `"summarized"` veya `"omitted"` — düşünmenin akışta görünüp görünmeyeceği |
 | `max_iterations` | `40` | Ajan başına tur tavanı, rol bütçesiyle kırpılır |
+| `max_parallel_tasks` | `1` | Aynı anda kaç uygulama görevi koşabilir. Varsayılan seri; yükseltmek açık bir seçimdir |
 | `max_tool_output_chars` | `80000` | Tek araç sonucunun tavanı |
 | `max_turn_output_chars` | `240000` | Bir turdaki *bütün* araç sonuçlarının tavanı |
 | `language` | `"tr"` | `tr` veya `en` — bkz. [İki dilli mimari](i18n.md) |
@@ -121,15 +122,17 @@ Boş bir `allow_prefixes = []` yalnızca reddetme listesinin uygulanması demekt
 
 ## `[deerx]` — yalıtılmış çalıştırma
 
-Bunların hepsi web arayüzünde de var: **Ayarlar → Yalıtım**. Oradaki
-değişiklikler oturuma özeldir ve konteyneri yeniden kurar; kalıcı olmaları
-için buraya yazın.
+Bunların hepsi web arayüzünde de var: **Ayarlar → Yalıtım** (platform
+sekmesi). Kaydetmek `<DEERX_HOME>/platform.toml` dosyasına yazar ve
+konteyneri yeniden kurar.
 
 Varsayılan olarak ajanın `run_command` ve `start_service` çağrıları **bu
 makinede** koşar ve kabuk izin listesiyle çevrilidir. `execution = "docker"`
-derseniz ikisi de tek kullanımlık bir konteynerde koşar; izin listesi o zaman
-uygulanmaz, çünkü korunacak konak yoktur. Konteyner koşu bitince durdurulur,
-silinmez.
+derseniz ikisi de bir konteynerde koşar; izin listesi o zaman uygulanmaz,
+çünkü korunacak konak yoktur. Konteyner koşu bitince **durdurulur**,
+silinmez — kurulum komutu yalnızca yaratılışta koşar ve her seferinde
+silmek her açılışta bir `apt-get install` demek olurdu. Silen şey Ortam
+ekranındaki *Ortami yeniden kur*'dur.
 
 | Anahtar | Varsayılan | Not |
 |---|---|---|
@@ -183,6 +186,7 @@ Her `[deerx]` anahtarı büyük harfle `DEERX_<ANAHTAR>` olarak verilebilir.
 | `SEARCH_API_KEY` | Brave veya Tavily |
 | `DEERX_WORKSPACE` | Hangi çalışma alanı — bulunduğunuz dizinden bağımsız |
 | `DEERX_LANGUAGE` | Tek bir çağrı için `tr` ya da `en` |
+| `DEERX_HOME` | Platform verisi (`platform.db`, `platform.toml`, hesap tercihleri). Varsayılan `~/.deerx` |
 
 **`.env` geçerli dizinden değil, çalışma alanından okunur.** Aksi halde
 `deerx serve --workspace X` ya da `DEERX_WORKSPACE` ile başlatılan bir MCP
@@ -235,7 +239,8 @@ calisma-alani/prompts/<rol>.md   →   paket prompts/<dil>/<rol>.md   →   pake
 
 Roller: `analyst`, `researcher`, `assessor`, `mockup`, `architect`, `planner`,
 `backend`, `frontend`, `qa`, `reviewer`, `staging`, `live`, `danisman`
-(danışman), ve hepsinin önüne eklenen `_shared`.
+(danışman), `summarizer` (yalnızca alt ajan), ve hepsinin önüne eklenen
+`_shared`.
 
 ## Web arayüzündeki ayarlar
 
@@ -243,7 +248,10 @@ Ayarlar ekranı bunların çoğunu canlı düzenler. Bilinmesi gereken iki şey:
 
 - **API anahtarları geri dönmez.** Ayarları okumak yalnızca bir anahtarın
   tanımlı olup olmadığını döner, değerini asla.
-- **Değişiklikler oturum içindir.** Kalıcı olması için `deerx.toml`'a yazın.
+- **Kaydet kapsama göre yazar.** Proje alanları çalışma alanının
+  `deerx.toml` dosyasına, platform alanları `<DEERX_HOME>/platform.toml`
+  dosyasına, hesap alanları `<DEERX_HOME>/users/<kimlik>.toml` dosyasına
+  gider. Formda yazdığınız anahtarlar oturumda kalır — diske kopyalanmaz.
   Koşu sürerken model ayarı değiştirilemez ve bir tanesini değiştirmek LLM
   istemcisini düşürür — aksi halde istemci bu değerleri kurulumda okuduğu için
   değişiklik sunucu yeniden başlatılana kadar sessizce etkisiz kalırdı. Yalıtım

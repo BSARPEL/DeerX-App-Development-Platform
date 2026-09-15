@@ -16,7 +16,7 @@ flowchart LR
 | | |
 |---|---|
 | **[Başlangıç](getting-started.md)** | Kurulum, sağlayıcı yapılandırması, ilk koşu |
-| **[Kavramlar](concepts.md)** | Çalışma alanı, dört durum deposu, iş akışı ile koşu, danışman |
+| **[Kavramlar](concepts.md)** | Çalışma alanı, projeler, dört durum deposu, iş akışı ile koşu, danışman |
 | **[Boru hattı](pipeline.md)** | 13 faz, ajan kadrosu, şerit yönlendirmesi, soru kapısı |
 | **[Model sağlayıcıları](providers.md)** | Yerel vLLM, Ollama, OpenAI, Anthropic — ve gerçek farkları |
 

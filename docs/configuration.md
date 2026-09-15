@@ -32,6 +32,7 @@ silently never applied was a bug worth never repeating.
 | `max_tokens` | `32000` | Output ceiling per turn, including thinking |
 | `thinking_display` | `"summarized"` | `"summarized"` or `"omitted"` — whether thinking appears in the stream |
 | `max_iterations` | `40` | Turn ceiling per agent, capped against the role budget |
+| `max_parallel_tasks` | `1` | How many implementation tasks may run at once. Default is serial; raising it is an explicit choice |
 | `max_tool_output_chars` | `80000` | Ceiling for one tool result |
 | `max_turn_output_chars` | `240000` | Ceiling for *all* tool results in one turn |
 | `language` | `"tr"` | `tr` or `en` — see [Bilingual architecture](i18n.md) |
@@ -122,15 +123,17 @@ before doing that.
 
 ## `[deerx]` — isolated execution
 
-All of these are also in the web interface, under **Settings → Isolation**;
-changes there apply to the session and rebuild the container. Write them here to
-persist.
+All of these are also in the web interface, under **Settings → Isolation**
+(platform tab). Saving writes them to `<DEERX_HOME>/platform.toml` and
+rebuilds the container.
 
 By default the agent's `run_command` and `start_service` run **on this machine**,
 fenced by the shell allow-list. Set `execution = "docker"` and both run inside a
-disposable container instead; the allow-list is then not applied, because there
-is no host to protect. The container is stopped, not deleted, when the run
-ends.
+container instead; the allow-list is then not applied, because there is no host
+to protect. The container is **stopped**, not deleted, when the run ends — the
+setup command only runs at creation, and deleting it every time would mean an
+`apt-get install` on every start. *Rebuild environment* on the Environment
+screen is what deletes it.
 
 | Key | Default | Notes |
 |---|---|---|
@@ -185,6 +188,7 @@ Every `[deerx]` key can be set as `DEERX_<KEY>` in upper case. Keys read from
 | `SEARCH_API_KEY` | Brave or Tavily |
 | `DEERX_WORKSPACE` | Which workspace to use, from any directory |
 | `DEERX_LANGUAGE` | `tr` or `en`, for one invocation |
+| `DEERX_HOME` | Platform data (`platform.db`, `platform.toml`, account prefs). Default `~/.deerx` |
 
 **`.env` is read from the workspace, not the current directory.** Otherwise
 `deerx serve --workspace X`, or an MCP server started with `DEERX_WORKSPACE`,
@@ -235,7 +239,8 @@ workspace/prompts/<role>.md   →   package prompts/<language>/<role>.md   →  
 
 Roles: `analyst`, `researcher`, `assessor`, `mockup`, `architect`, `planner`,
 `backend`, `frontend`, `qa`, `reviewer`, `staging`, `live`, `danisman`
-(the advisor), and `_shared` which is prepended to all of them.
+(the advisor), `summarizer` (sub-agent only), and `_shared` which is
+prepended to all of them.
 
 ## Settings in the web interface
 
@@ -243,13 +248,15 @@ The Settings screen edits most of these live. Two things to know:
 
 - **API keys never come back.** Reading settings returns only whether a key is
   set, never its value.
-- **Changes are for the session.** For them to persist, write them to
-  `deerx.toml`. A model setting cannot be changed while a run is in progress,
-  and changing one drops the LLM client — otherwise the change would quietly do
-  nothing until the server restarted, because the client reads those values at
-  construction. The isolation settings behave the same way and rebuild the
-  container: Docker fixes published ports and resource limits when the container
-  is created.
+- **Save writes by scope.** Project fields go to the workspace `deerx.toml`,
+  platform fields to `<DEERX_HOME>/platform.toml`, account fields to
+  `<DEERX_HOME>/users/<id>.toml`. Keys you type in the form stay in the
+  session — they are not copied onto disk. A model setting cannot be changed
+  while a run is in progress, and changing one drops the LLM client —
+  otherwise the change would quietly do nothing until the server restarted,
+  because the client reads those values at construction. The isolation
+  settings behave the same way and rebuild the container: Docker fixes
+  published ports and resource limits when the container is created.
 
 ## See also
 

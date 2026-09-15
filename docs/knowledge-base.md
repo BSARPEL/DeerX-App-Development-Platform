@@ -3,7 +3,7 @@
 [← Documentation](README.md) · [Türkçe](tr/knowledge-base.md)
 
 DeerX carries a retrieval engine. This page points it at **DeerX itself**: the
-7,500 lines of documentation, the 16,000 lines of source, and the test suite —
+11,000 lines of documentation, the 30,000 lines of source, and the test suite —
 indexed, searchable, and readable by a model.
 
 Why bother: the answer to "why is it done this way?" is usually in a comment or
@@ -50,7 +50,7 @@ Three files are excluded by name, measured rather than guessed:
   first for *"audit log"* with `## Audit log User Action Rows 50 200 1000
   Refresh` while `docs/security.md`, which actually explains the audit log,
   did not make the list.
-- `static/i18n.js` — 1,400 lines of key/value. It resembles every query
+- `static/i18n.js` — 2,000 lines of key/value. It resembles every query
   slightly and answers none of them.
 - `docs/images/` — binary.
 
